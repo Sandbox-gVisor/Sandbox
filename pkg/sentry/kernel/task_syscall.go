@@ -137,8 +137,12 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		if trace.IsEnabled() {
 			region = trace.StartRegion(t.traceContext, s.LookupName(sysno))
 		}
+
+		t.Debugf("Bruh...")
+
 		if fn != nil {
 			// Call our syscall implementation.
+
 			rval, ctrl, err = fn(t, sysno, args)
 		} else {
 			// Use the missing function if not found.
