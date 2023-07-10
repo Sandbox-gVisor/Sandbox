@@ -54,6 +54,7 @@ type SimplePrinter struct {
 func (s *SimplePrinter) Callback(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
 	s.mu.Lock()
 	val := s.counter
+	s.counter += 1
 	s.mu.Unlock()
 	t.Debugf("Bruh... %v", val)
 	return args, nil
