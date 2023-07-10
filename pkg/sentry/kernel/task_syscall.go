@@ -139,10 +139,15 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		}
 
 		t.Debugf("Bruh...")
+		var ct = CallbackTable{}
+		var sp CallbackFunc = &SimplePrinter{}
+		ct.registerCallback(1, &sp)
+
+		var callbackFunc CallbackFunc = ct.getCallback(sysno)
+		callbackFunc.Callback(t, sysno, &args)
 
 		if fn != nil {
 			// Call our syscall implementation.
-
 			rval, ctrl, err = fn(t, sysno, args)
 		} else {
 			// Use the missing function if not found.

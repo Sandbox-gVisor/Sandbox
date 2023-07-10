@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"errors"
+	"fmt"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"sync"
 )
@@ -44,4 +45,17 @@ func (ct *CallbackTable) getCallback(sysno uintptr) CallbackFunc {
 	} else {
 		return nil
 	}
+}
+
+type SimplePrinter struct {
+	counter int
+	mu      sync.Mutex
+}
+
+func (s *SimplePrinter) Callback(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
+	s.mu.Lock()
+	val := s.counter
+	s.mu.Unlock()
+	fmt.Printf("simple Printf of %v\n", val)
+	return args, nil
 }
