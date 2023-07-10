@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"errors"
-	"fmt"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"sync"
 )
@@ -56,6 +55,6 @@ func (s *SimplePrinter) Callback(t *Task, sysno uintptr, args *arch.SyscallArgum
 	s.mu.Lock()
 	val := s.counter
 	s.mu.Unlock()
-	fmt.Printf("simple Printf of %v\n", val)
+	t.Debugf("Bruh... %v", val)
 	return args, nil
 }
