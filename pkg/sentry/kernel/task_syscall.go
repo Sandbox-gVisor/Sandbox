@@ -16,9 +16,6 @@ package kernel
 
 import (
 	"fmt"
-	"os"
-	"runtime/trace"
-
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/bits"
@@ -31,6 +28,8 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/memmap"
 	"gvisor.dev/gvisor/pkg/sentry/seccheck"
 	pb "gvisor.dev/gvisor/pkg/sentry/seccheck/points/points_go_proto"
+	"os"
+	"runtime/trace"
 )
 
 // SyscallRestartBlock represents the restart block for a syscall restartable
@@ -139,10 +138,17 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		}
 
 		t.Debugf("Bruh...")
+		ct := CallbackTable{data: make(map[uintptr]CallbackFunc)}
+		var sp CallbackFunc = &SimplePrinter{}
+		ct.registerCallback(1, &sp)
+
+		callbackFunc := ct.getCallback(sysno)
+		if callbackFunc != nil {
+			callbackFunc.Callback(t, sysno, &args)
+		}
 
 		if fn != nil {
 			// Call our syscall implementation.
-
 			rval, ctrl, err = fn(t, sysno, args)
 		} else {
 			// Use the missing function if not found.
