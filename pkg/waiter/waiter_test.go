@@ -33,7 +33,7 @@ func TestEmptyQueue(t *testing.T) {
 	q.EventUnregister(&e)
 	q.Notify(EventIn)
 	if cnt != 0 {
-		t.Errorf("Callback was called when it shouldn't have been")
+		t.Errorf("CallbackFunc was called when it shouldn't have been")
 	}
 }
 
@@ -48,35 +48,35 @@ func TestMask(t *testing.T) {
 	cnt = 0
 	q.Notify(EventIn | EventOut)
 	if cnt != 1 {
-		t.Errorf("Callback wasn't called when it should have been")
+		t.Errorf("CallbackFunc wasn't called when it should have been")
 	}
 
 	// Notify with a subset mask.
 	cnt = 0
 	q.Notify(EventIn)
 	if cnt != 1 {
-		t.Errorf("Callback wasn't called when it should have been")
+		t.Errorf("CallbackFunc wasn't called when it should have been")
 	}
 
 	// Notify with a superset mask.
 	cnt = 0
 	q.Notify(EventIn | EventErr | EventOut)
 	if cnt != 1 {
-		t.Errorf("Callback wasn't called when it should have been")
+		t.Errorf("CallbackFunc wasn't called when it should have been")
 	}
 
 	// Notify with the exact same mask.
 	cnt = 0
 	q.Notify(EventIn | EventErr)
 	if cnt != 1 {
-		t.Errorf("Callback wasn't called when it should have been")
+		t.Errorf("CallbackFunc wasn't called when it should have been")
 	}
 
 	// Notify with a disjoint mask.
 	cnt = 0
 	q.Notify(EventOut | EventHUp)
 	if cnt != 0 {
-		t.Errorf("Callback was called when it shouldn't have been")
+		t.Errorf("CallbackFunc was called when it shouldn't have been")
 	}
 }
 

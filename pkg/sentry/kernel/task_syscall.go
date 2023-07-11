@@ -138,13 +138,13 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		}
 
 		t.Debugf("Bruh...")
-		ct := CallbackTable{data: make(map[uintptr]CallbackFunc)}
-		var sp CallbackFunc = &SimplePrinter{}
+		ct := CallbackTable{data: make(map[uintptr]Callback)}
+		var sp Callback = &SimplePrinter{}
 		ct.registerCallback(1, &sp)
 
 		callbackFunc := ct.getCallback(sysno)
 		if callbackFunc != nil {
-			callbackFunc.Callback(t, sysno, &args)
+			callbackFunc.CallbackFunc(t, sysno, &args)
 		}
 
 		if fn != nil {
