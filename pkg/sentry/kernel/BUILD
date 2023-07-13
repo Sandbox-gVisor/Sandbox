@@ -364,6 +364,7 @@ go_library(
         "//pkg/sentry/kernel/auth",
         "//pkg/sentry/kernel/futex",
         "//pkg/sentry/kernel/ipc",
+        "//pkg/sentry/kernel/callbacks",
         "//pkg/sentry/kernel/mq",
         "//pkg/sentry/kernel/msgqueue",
         "//pkg/sentry/kernel/sched",

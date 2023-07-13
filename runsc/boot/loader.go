@@ -274,6 +274,8 @@ type Args struct {
 	// ProfileOpts contains the set of profiles to enable and the
 	// corresponding FDs where profile data will be written.
 	ProfileOpts profile.Opts
+
+	SyscallCallbacksInitConfigFD int
 }
 
 // make sure stdioFDs are always the same on initial start and on restore
@@ -423,16 +425,17 @@ func New(args Args) (*Loader, error) {
 	// Initiate the Kernel object, which is required by the Context passed
 	// to createVFS in order to mount (among other things) procfs.
 	if err = k.Init(kernel.InitKernelArgs{
-		FeatureSet:                  cpuid.HostFeatureSet().Fixed(),
-		Timekeeper:                  tk,
-		RootUserNamespace:           creds.UserNamespace,
-		RootNetworkNamespace:        netns,
-		ApplicationCores:            uint(args.NumCPU),
-		Vdso:                        vdso,
-		RootUTSNamespace:            kernel.NewUTSNamespace(args.Spec.Hostname, args.Spec.Hostname, creds.UserNamespace),
-		RootIPCNamespace:            kernel.NewIPCNamespace(creds.UserNamespace),
-		RootAbstractSocketNamespace: kernel.NewAbstractSocketNamespace(),
-		PIDNamespace:                kernel.NewRootPIDNamespace(creds.UserNamespace),
+		FeatureSet:                   cpuid.HostFeatureSet().Fixed(),
+		Timekeeper:                   tk,
+		RootUserNamespace:            creds.UserNamespace,
+		RootNetworkNamespace:         netns,
+		ApplicationCores:             uint(args.NumCPU),
+		Vdso:                         vdso,
+		RootUTSNamespace:             kernel.NewUTSNamespace(args.Spec.Hostname, args.Spec.Hostname, creds.UserNamespace),
+		RootIPCNamespace:             kernel.NewIPCNamespace(creds.UserNamespace),
+		RootAbstractSocketNamespace:  kernel.NewAbstractSocketNamespace(),
+		PIDNamespace:                 kernel.NewRootPIDNamespace(creds.UserNamespace),
+		SyscallCallbacksInitConfigFD: args.SyscallCallbacksInitConfigFD,
 	}); err != nil {
 		return nil, fmt.Errorf("initializing kernel: %w", err)
 	}
