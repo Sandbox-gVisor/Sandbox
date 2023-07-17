@@ -154,6 +154,11 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			testFunc := WriteStringHook(t)
 			testFunc(args[1].Value, "Hehe")
 		}*/
+    
+		//if sysno == 1 {
+		//	changer := WriteBytesProvider(t)
+		//	changer(args[1].Value, []byte("A"))
+		//}
 
 		if fn != nil {
 			// Call our syscall implementation.

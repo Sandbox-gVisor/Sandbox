@@ -319,6 +319,7 @@ go_library(
         "version.go",
         "callback_table.go",
         "rwstring_hook.go"
+	      "rw_hooks.go",
     ],
     imports = [
         "gvisor.dev/gvisor/pkg/bpf",
