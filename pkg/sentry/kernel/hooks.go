@@ -36,3 +36,9 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 	}
 }
+
+func MmapsGetterProvider(t *Task) func() string {
+	return func() string {
+		return t.image.MemoryManager.String()
+	}
+}
