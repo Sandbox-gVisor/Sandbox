@@ -12,6 +12,11 @@ go_library(
         "rw_hooks.go",
     ],
     visibility = ["//pkg/sentry:internal"],
+    imports = [
+        "gvisor.dev/gvisor/pkg/hostarch",
+        "gvisor.dev/gvisor/pkg/sentry/kernel"
+    ],
     deps = [
+
     ],
 )
