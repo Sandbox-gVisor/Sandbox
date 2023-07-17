@@ -75,6 +75,10 @@ import (
 	"gvisor.dev/gvisor/pkg/state/wire"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
+
+	"github.com/dop251/goja"
+	//_ "github.com/dop251/goja_nodejs/console"
+	//_ "github.com/dop251/goja_nodejs/require"
 )
 
 import "github.com/robertkrimen/otto"
@@ -405,17 +409,20 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		}
 	}(args.SyscallCallbacksInitConfigFD)
 
-	vm := otto.New()
-	if _, err := vm.Run(`
-    abc = 2 + 2;
-
-	const prod = (a, b) => {
-		return a * b
+	vm1 := otto.New()
+	if _, err := vm1.Run(`
+	  abc = 2 + 2;
+	
+	  console.log("The value of abc is " + abc*abc); // 4
+	`); err != nil {
+		fmt.Println(err)
 	}
 
-    console.log("The value of abc is " + prod(abc, abc)); // 4
-`); err != nil {
-		fmt.Println(err)
+	vm := goja.New()
+	if v, err := vm.RunString("2 + 2"); err != nil {
+		panic(err)
+	} else {
+		fmt.Println(v.Export().(int64))
 	}
 
 	k.featureSet = args.FeatureSet
