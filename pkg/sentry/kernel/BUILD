@@ -234,6 +234,7 @@ proto_library(
 )
 
 go_library(
+    cgo = True,
     name = "kernel",
     srcs = [
         "abstract_socket_namespace.go",
@@ -399,6 +400,7 @@ go_library(
         "//pkg/waiter",
         "@org_golang_google_protobuf//proto:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
+        "@com_rogchap_v8go//:v8go"
     ],
 )
 

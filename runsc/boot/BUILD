@@ -6,6 +6,7 @@ package(
 )
 
 go_library(
+    cgo = True,
     name = "boot",
     srcs = [
         "compat.go",

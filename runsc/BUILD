@@ -8,7 +8,7 @@ package(
 go_binary(
     name = "runsc",
     srcs = ["main.go"],
-    pure = True,
+    pure = False,
     tags = ["staging"],
     visibility = [
         "//visibility:public",

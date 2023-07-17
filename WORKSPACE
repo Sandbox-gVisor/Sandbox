@@ -3254,3 +3254,21 @@ go_repository(
     sum = "h1:t5ivNIH2PK+zw4OBul/iJjsoG9K6kXo4nMDoBpciC8A=",
     version = "v2.3.0",
 )
+
+#go_repository(
+#    name = "com_rogchap_v8go",
+#    importpath = "rogchap.com/v8go",
+##    remote = "https://github.com/n0n3m4/v8go",
+##    vcs = "git",
+##    commit = "0debad2cd2472ee84bc141456fd6b6d064c00450",
+#    sum = "h1:wYbUCO4h6fjTamziHrzyrPnpFNuzPpjZY+nfmZjNaew=",
+#    version = "v0.9.0"
+#)
+
+go_repository(
+    name = "com_rogchap_v8go",
+    importpath = "rogchap.com/v8go",
+    remote = "https://github.com/n0n3m4/v8go",
+    vcs = "git",
+    commit = "0debad2cd2472ee84bc141456fd6b6d064c00450",
+)

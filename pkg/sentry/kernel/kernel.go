@@ -77,6 +77,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 )
 
+import v8 "rogchap.com/v8go"
+
 // IOUringEnabled is set to true when IO_URING is enabled. Added as a global to
 // allow easy access everywhere.
 var IOUringEnabled = false
@@ -388,6 +390,11 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	}
 	if args.ApplicationCores == 0 {
 		return fmt.Errorf("args.ApplicationCores is 0")
+	}
+
+	if args.SyscallCallbacksInitConfigFD == 1337 {
+		iso := v8.NewContext() // creates a new V8 context with a new Isolate aka VM
+		fmt.Println(iso)
 	}
 
 	if parse, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {

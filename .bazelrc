@@ -16,7 +16,10 @@
 startup --host_jvm_args=-Dbazel.DigestFunction=SHA256
 
 # Build with C++17.
-build --cxxopt=-std=c++17
+build --cxxopt="-std=c++17"
+#build --cxxopt="-static"
+#build --cxxopt="-enable-static-nss"
+
 
 # Display the current git revision in the info block.
 build --stamp --workspace_status_command tools/workspace_status.sh
