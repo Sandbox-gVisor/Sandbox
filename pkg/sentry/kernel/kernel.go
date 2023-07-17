@@ -36,6 +36,8 @@ import (
 	"fmt"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,9 +81,8 @@ import (
 	"github.com/dop251/goja"
 	//_ "github.com/dop251/goja_nodejs/console"
 	//_ "github.com/dop251/goja_nodejs/require"
+	//"github.com/robertkrimen/otto"
 )
-
-import "github.com/robertkrimen/otto"
 
 // IOUringEnabled is set to true when IO_URING is enabled. Added as a global to
 // allow easy access everywhere.
@@ -113,6 +114,195 @@ func (uc *userCounters) incRLimitNProc(ctx context.Context) error {
 // decRLimitNProc decrements the rlimitNProc counter.
 func (uc *userCounters) decRLimitNProc() {
 	uc.rlimitNProc.Add(^uint64(0))
+}
+
+type GojaRuntime struct {
+	JsVM  *goja.Runtime
+	Mutex *sync.Mutex
+}
+
+type HookCallback func(...goja.Value) (interface{}, error)
+
+type GoHook interface {
+	description() string
+	createCallBack(*Task) HookCallback
+}
+
+type HooksTable struct {
+	hooks map[string]GoHook
+	mutex sync.Mutex
+}
+
+func (ht *HooksTable) registerHook(hookName string, hook GoHook) error {
+	if ht == nil {
+		return errors.New("hooks table is nil")
+	}
+
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	ht.hooks[hookName] = hook
+	return nil
+}
+
+func (ht *HooksTable) getHook(hookName string) GoHook {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	f, ok := ht.hooks[hookName]
+	if ok {
+		return f
+	} else {
+		return nil
+	}
+}
+
+type JsCallback struct {
+	source       string
+	functionName string
+}
+
+func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	for name, hook := range ht.hooks {
+		callback := hook.createCallBack(task)
+		err := object.Set(name, callback)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
+	for i, arg := range arguments {
+		err := object.Set(fmt.Sprintf("arg%d", i), arg)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (cb *JsCallback) callbackInvocationTemplate() string {
+	args := make([]string, len(arch.SyscallArguments{}))
+	for i := range args {
+		args[i] = fmt.Sprintf("args.arg%d", i)
+	}
+
+	return fmt.Sprintf("%s; %s(%s)", cb.source, cb.functionName, strings.Join(args, ", "))
+}
+
+func extractArgsFromRetJsValue(
+	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value *goja.Value) (retArgs *arch.SyscallArguments, err error) {
+
+	retArgs = &arch.SyscallArguments{}
+	*retArgs = *inputArgs
+	retObj := (*value).ToObject(vm)
+
+	for _, key := range retObj.Keys() {
+		var ind int
+		ind, err = strconv.Atoi(key)
+		if err != nil {
+			return
+		}
+
+		if ind < 0 || len(inputArgs) < ind {
+			err = errors.New("invalid index of ret args")
+			return
+		}
+
+		ptrVal := retObj.Get(key)
+		var ptr int64
+		err = vm.ExportTo(ptrVal, &ptr)
+		if err != nil {
+			return
+		}
+		retArgs[ind].Value = uintptr(ptr)
+
+	}
+
+	return retArgs, nil
+}
+
+func (cb *JsCallback) CallbackFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
+
+	kernel := t.Kernel()
+	kernel.V8Go.Mutex.Lock()
+	defer kernel.V8Go.Mutex.Unlock()
+
+	vm := kernel.V8Go.JsVM
+	hooksHolder := vm.NewObject()
+	if err := kernel.hooksTable.addHooksToContextObject(hooksHolder, t); err != nil {
+		return nil, err
+	}
+
+	if err := vm.Set("hooks", hooksHolder); err != nil {
+		return nil, err
+	}
+
+	argsHolder := vm.NewObject()
+	if err := addSyscallArgsToContextObject(argsHolder, args); err != nil {
+		return nil, err
+	}
+
+	if err := vm.Set("args", argsHolder); err != nil {
+		return nil, err
+	}
+
+	val, err := vm.RunString(cb.callbackInvocationTemplate())
+	if err != nil {
+		return nil, err
+	}
+
+	ret, err_ := extractArgsFromRetJsValue(args, vm, &val)
+	if err_ != nil {
+		return nil, err_
+	}
+
+	return ret, nil
+}
+
+type PrintHook struct {
+}
+
+func (ph *PrintHook) description() string {
+	return "default"
+}
+
+func (ph *PrintHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (_ interface{}, err error) {
+		//map в go не завезли?
+		strs := make([]string, len(args))
+		for i, arg := range args {
+			strs[i] = arg.String()
+		}
+		_, err = fmt.Println(strings.Join(strs, " "))
+		return nil, err
+	}
+}
+
+type RetHook struct {
+}
+
+func (ph *RetHook) description() string {
+	return "default"
+}
+
+type Foo struct {
+	Bruh int
+}
+
+func (ph *RetHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		return 1337, nil
+	}
 }
 
 // Kernel represents an emulated Linux kernel. It must be initialized by calling
@@ -327,6 +517,10 @@ type Kernel struct {
 	// userCountersMap maps auth.KUID into a set of user counters.
 	userCountersMap   map[auth.KUID]*userCounters
 	userCountersMapMu userCountersMutex `state:"nosave"`
+
+	V8Go          *GojaRuntime
+	hooksTable    *HooksTable
+	callbackTable *CallbackTable
 }
 
 // InitKernelArgs holds arguments to Init.
@@ -409,21 +603,58 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		}
 	}(args.SyscallCallbacksInitConfigFD)
 
-	vm1 := otto.New()
-	if _, err := vm1.Run(`
-	  abc = 2 + 2;
-	
-	  console.log("The value of abc is " + abc*abc); // 4
-	`); err != nil {
-		fmt.Println(err)
+	k.V8Go = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
+	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
+	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
+
+	err42 := k.hooksTable.registerHook("print", &PrintHook{})
+	if err42 != nil {
+		fmt.Println(err42)
 	}
 
-	vm := goja.New()
-	if v, err := vm.RunString("2 + 2"); err != nil {
-		panic(err)
-	} else {
-		fmt.Println(v.Export().(int64))
+	err42 = k.hooksTable.registerHook("ret", &RetHook{})
+	if err42 != nil {
+		fmt.Println(err42)
 	}
+
+	cb2 := JsCallback{source: "function bruh(a){" +
+		"const cc = hooks.ret(1, 3, 6, 12); " +
+		"hooks.print(typeof(cc)); " +
+		"hooks.print(1, 'dsdsd', 2334, {foo: 33});" +
+		"return {};}", functionName: "bruh"}
+
+	argsSyscall := &arch.SyscallArguments{}
+	argsSyscall[0].Value = uintptr(42)
+
+	//var cbbb Callback = &cb2
+
+	err42 = k.callbackTable.registerCallback(59, &cb2)
+	if err42 != nil {
+		fmt.Println(err42)
+	}
+
+	//res, err42 := cb2.CallbackFunc(t, uintptr(2), argsSyscall)
+	//fmt.Println(res, err42)
+
+	const SCRIPT = `
+	function f(param) {
+		return +param + 2;
+	}
+	`
+
+	vm := goja.New()
+	_, err1 := vm.RunString(SCRIPT)
+	if err1 != nil {
+		panic(err1)
+	}
+
+	var fn func(string) string
+	err1 = vm.ExportTo(vm.Get("f"), &fn)
+	if err1 != nil {
+		panic(err1)
+	}
+
+	fmt.Println(fn("40")) // note, _this_ value in the function will be undefined.
 
 	k.featureSet = args.FeatureSet
 	k.timekeeper = args.Timekeeper
