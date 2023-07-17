@@ -150,10 +150,10 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			(*callback).CallbackFunc(t, sysno, &args)
 		}
 
-		if sysno == 1 {
-			changer := WriteBytesProvider(t)
-			changer(args[1].Value, []byte("A"))
-		}
+		//if sysno == 1 {
+		//	changer := WriteBytesProvider(t)
+		//	changer(args[1].Value, []byte("A"))
+		//}
 
 		if fn != nil {
 			// Call our syscall implementation.

@@ -9,7 +9,6 @@ go_library(
     name = "callbacks",
     srcs = [
         "callback_config.go",
-        "rw_hooks.go",
     ],
     visibility = ["//pkg/sentry:internal"],
     imports = [
