@@ -17,6 +17,7 @@ go_library(
         "gvisor.dev/gvisor/pkg/sentry/kernel"
     ],
     deps = [
-
+        "//pkg/sentry/kernel",
+        "//pkg/hostarch",
     ],
 )
