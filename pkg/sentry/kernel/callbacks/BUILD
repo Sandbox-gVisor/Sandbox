@@ -13,11 +13,9 @@ go_library(
     ],
     visibility = ["//pkg/sentry:internal"],
     imports = [
-        "gvisor.dev/gvisor/pkg/hostarch",
-        "gvisor.dev/gvisor/pkg/sentry/kernel"
+
     ],
     deps = [
-        "//pkg/sentry/kernel",
-        "//pkg/hostarch",
+
     ],
 )
