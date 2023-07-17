@@ -150,6 +150,11 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			(*callback).CallbackFunc(t, sysno, &args)
 		}
 
+		/*if sysno == 1 {
+			testFunc := WriteStringHook(t)
+			testFunc(args[1].Value, "Hehe")
+		}*/
+
 		if fn != nil {
 			// Call our syscall implementation.
 			rval, ctrl, err = fn(t, sysno, args)
