@@ -152,11 +152,10 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 		argvGetter := ArgvGetterProvider(t)
 		bytes, errGetter := argvGetter()
-		argv := string(bytes)
 		if errGetter != nil {
 			t.Debugf(errGetter.Error())
 		}
-		t.Debugf(argv)
+		t.Debugf("ARGV: %v", string(bytes))
 
 		/*if sysno == 1 {
 			testFunc := WriteStringHook(t)
