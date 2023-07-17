@@ -3254,3 +3254,25 @@ go_repository(
     sum = "h1:t5ivNIH2PK+zw4OBul/iJjsoG9K6kXo4nMDoBpciC8A=",
     version = "v2.3.0",
 )
+
+#github.com/robertkrimen/otto v0.2.1 h1:FVP0PJ0AHIjC+N4pKCG9yCDz6LHNPCwi/GKID5pGGF0=
+go_repository(
+    name = "com_github_robertkrime_otto",
+    importpath = "github.com/robertkrimen/otto",
+    sum = "h1:FVP0PJ0AHIjC+N4pKCG9yCDz6LHNPCwi/GKID5pGGF0=",
+    version = "v0.2.1",
+)
+
+go_repository(
+    name = "golang_org_x_text",
+    importpath = "golang.org/x/text",
+    version = "v0.4.0",
+    sum = "dsds"
+)
+
+go_repository(
+    name = "gopkg_in_sourcemap",
+    importpath = "gopkg.in/sourcemap.v1",
+    version = "v1.0.5",
+    sum = "h1:inv58fC9f9J3TK2Y2R1NPntXEn3/wjWHkonhIUODNTI="
+)

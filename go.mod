@@ -35,6 +35,8 @@ require (
 	k8s.io/api v0.23.16
 	k8s.io/apimachinery v0.23.16
 	k8s.io/client-go v0.23.16
+
+	github.com/robertkrimen/otto v0.2.1
 )
 
 require (
@@ -80,4 +82,7 @@ require (
 	sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
+
+	golang.org/x/text v0.4.0 // indirect
+    gopkg.in/sourcemap.v1 v1.0.5 // indirect
 )

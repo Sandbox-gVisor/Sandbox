@@ -77,6 +77,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 )
 
+import "github.com/robertkrimen/otto"
+
 // IOUringEnabled is set to true when IO_URING is enabled. Added as a global to
 // allow easy access everywhere.
 var IOUringEnabled = false
@@ -402,6 +404,19 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 			log.Debugf("file closing failed %v", err)
 		}
 	}(args.SyscallCallbacksInitConfigFD)
+
+	vm := otto.New()
+	if _, err := vm.Run(`
+    abc = 2 + 2;
+
+	const prod = (a, b) => {
+		return a * b
+	}
+
+    console.log("The value of abc is " + prod(abc, abc)); // 4
+`); err != nil {
+		fmt.Println(err)
+	}
 
 	k.featureSet = args.FeatureSet
 	k.timekeeper = args.Timekeeper

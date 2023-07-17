@@ -181,3 +181,13 @@ toolchain(
 # To update the WORKSPACE from go.mod, use:
 #   bazel run //:gazelle -- update-repos -from_file=go.mod
 gazelle(name = "gazelle")
+
+#gazelle(
+#    name = "gazelle-update-repos",
+#    args = [
+#        "-from_file=go.mod",
+#        "-to_macro=deps.bzl%go_dependencies",
+#        "-prune",
+#    ],
+#    command = "update-repos",
+#)
