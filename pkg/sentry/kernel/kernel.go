@@ -34,7 +34,9 @@ package kernel
 import (
 	"errors"
 	"fmt"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
@@ -366,6 +368,8 @@ type InitKernelArgs struct {
 
 	// PIDNamespace is the root PID namespace.
 	PIDNamespace *PIDNamespace
+
+	SyscallCallbacksInitConfigFD int
 }
 
 // Init initialize the Kernel with no tasks.
@@ -385,6 +389,19 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	if args.ApplicationCores == 0 {
 		return fmt.Errorf("args.ApplicationCores is 0")
 	}
+
+	if parse, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
+		fmt.Printf("failed to parse JSON config %v\n", err)
+	} else {
+		fmt.Println(" --- ", parse)
+	}
+
+	defer func(fd int) {
+		err := syscall.Close(fd)
+		if err != nil {
+			log.Debugf("file closing failed %v", err)
+		}
+	}(args.SyscallCallbacksInitConfigFD)
 
 	k.featureSet = args.FeatureSet
 	k.timekeeper = args.Timekeeper

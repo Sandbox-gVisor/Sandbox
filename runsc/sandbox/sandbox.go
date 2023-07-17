@@ -762,6 +762,10 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 	}
 	donations.DonateAndClose("sink-fds", args.SinkFiles...)
 
+	if err := donations.OpenAndDonate("syscall-init-config-fd", conf.SyscallCallbacksConfig, os.O_RDONLY); err != nil {
+		return err
+	}
+
 	gPlatform, err := platform.Lookup(conf.Platform)
 	if err != nil {
 		return fmt.Errorf("cannot look up platform: %w", err)
