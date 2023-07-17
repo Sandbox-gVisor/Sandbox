@@ -5,12 +5,12 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
 )
 
-func ReadBytesHook(t *kernel.Task, addr hostarch.Addr, dst []byte) (int, error) {
-	return t.CopyInBytes(addr, dst)
+func ReadBytesHook(t *kernel.Task, addr uintptr, dst []byte) (int, error) {
+	return t.CopyInBytes(hostarch.Addr(addr), dst)
 }
 
-func WriteBytesHook(t *kernel.Task, addr hostarch.Addr, src []byte) (int, error) {
-	return t.CopyOutBytes(addr, src)
+func WriteBytesHook(t *kernel.Task, addr uintptr, src []byte) (int, error) {
+	return t.CopyOutBytes(hostarch.Addr(addr), src)
 }
 
 func ReadBytesProvider(t *kernel.Task) func(addr uintptr, dst []byte) (int, error) {
