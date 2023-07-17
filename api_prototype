@@ -1,0 +1,307 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"rogchap.com/v8go"
+	"strconv"
+	"sync"
+)
+
+type SyscallArgument struct {
+	Value uintptr
+}
+
+type SyscallArguments [6]SyscallArgument
+
+type V8Go struct {
+	Iso   *v8go.Isolate
+	Mutex *sync.Mutex
+}
+
+type GoHooks interface {
+	invoke(info *v8go.FunctionCallbackInfo) *v8go.Value
+}
+
+type CallbackFunc interface {
+	Callback(t *Task, sysno uintptr, args *SyscallArguments) (*SyscallArguments, error)
+}
+
+type GoHookFactory func(task *Task) GoHooks
+
+type HooksFactoryTable struct {
+	hookFactories map[string]GoHookFactory
+	mutex         sync.Mutex
+}
+
+func (hft *HooksFactoryTable) registerHookFactory(hookName string, factory GoHookFactory) error {
+	if hft == nil {
+		return errors.New("factory is nil")
+	}
+
+	hft.mutex.Lock()
+	defer hft.mutex.Unlock()
+
+	hft.hookFactories[hookName] = factory
+	return nil
+}
+
+func (hft *HooksFactoryTable) getHookFactory(hookName string) GoHookFactory {
+	hft.mutex.Lock()
+	defer hft.mutex.Unlock()
+
+	f, ok := hft.hookFactories[hookName]
+	if ok {
+		return f
+	} else {
+		return nil
+	}
+}
+
+type CallbackTable struct {
+	data  map[uintptr]CallbackFunc
+	mutex sync.Mutex
+}
+
+func (ct *CallbackTable) registerCallback(sysno uintptr, f *CallbackFunc) error {
+	if f == nil {
+		return errors.New("callback func is nil")
+	}
+	ct.mutex.Lock()
+	defer ct.mutex.Unlock()
+
+	ct.data[sysno] = *f
+	return nil
+}
+
+func (ct *CallbackTable) unregisterCallback(sysno uintptr) error {
+	ct.mutex.Lock()
+	defer ct.mutex.Unlock()
+
+	delete(ct.data, sysno)
+	return nil
+}
+
+func (ct *CallbackTable) getCallback(sysno uintptr) CallbackFunc {
+	ct.mutex.Lock()
+
+	f, ok := ct.data[sysno]
+	ct.mutex.Unlock()
+	if ok {
+		return f
+	} else {
+		return nil
+	}
+}
+
+type Kernel struct {
+	V8Go *V8Go
+
+	hooksFactoryTable *HooksFactoryTable
+	callbackTable     *CallbackTable
+}
+
+type Task struct {
+	Kernel *Kernel
+}
+
+type JsCallback struct {
+	source       string
+	functionName string
+}
+
+func (args *SyscallArguments) addArgsToGlobal(global *v8go.ObjectTemplate) error {
+	for i := range args {
+		err := global.Set(fmt.Sprintf("arg%d", i), uint64(args[i].Value))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (hft *HooksFactoryTable) addHooksToGlobal(global *v8go.ObjectTemplate, task *Task) error {
+	hft.mutex.Lock()
+	defer hft.mutex.Unlock()
+
+	for name, factory := range hft.hookFactories {
+		hook := factory(task)
+		err := global.Set(name, v8go.NewFunctionTemplate(task.Kernel.V8Go.Iso, func(info *v8go.FunctionCallbackInfo) *v8go.Value {
+			return hook.invoke(info)
+		}))
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (cb *JsCallback) callbackInvocationTemplate() string {
+	return cb.source + "; " + cb.functionName + "(arg0, arg1, arg2, arg3, arg4, arg5)"
+}
+
+func extractArgsFromRetJsValue(inputArgs *SyscallArguments, value *v8go.Value) (*SyscallArguments, error) {
+	retArgs := &SyscallArguments{}
+	*retArgs = *inputArgs
+
+	retObj, err := value.AsObject()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range retArgs {
+		if retObj.Has(strconv.Itoa(i)) {
+			value, err2 := retObj.Get(strconv.Itoa(i))
+			if err2 != nil {
+				return nil, err2
+			}
+
+			retArgs[i].Value = uintptr(value.Integer())
+		}
+	}
+
+	return retArgs, nil
+}
+
+func (cb *JsCallback) Callback(t *Task, _ uintptr, args *SyscallArguments) (*SyscallArguments, error) {
+
+	t.Kernel.V8Go.Mutex.Lock()
+	defer t.Kernel.V8Go.Mutex.Unlock()
+
+	iso := t.Kernel.V8Go.Iso
+
+	global := v8go.NewObjectTemplate(iso)
+
+	if err := t.Kernel.hooksFactoryTable.addHooksToGlobal(global, t); err != nil {
+		return nil, err
+	}
+
+	if err := args.addArgsToGlobal(global); err != nil {
+		return nil, err
+	}
+
+	ctx := v8go.NewContext(iso, global)
+	defer ctx.Close()
+
+	val, err := ctx.RunScript(cb.callbackInvocationTemplate(), "")
+	if err != nil {
+		return nil, err
+	}
+
+	retArgs, err := extractArgsFromRetJsValue(args, val)
+	if err != nil {
+		return nil, err
+	}
+
+	return retArgs, nil
+}
+
+type PrintHook struct {
+	t *Task
+}
+
+func (printHook *PrintHook) invoke(info *v8go.FunctionCallbackInfo) *v8go.Value {
+	fmt.Printf("%v", info.Args())
+	return nil
+}
+
+type PrintHook2 struct {
+	t *Task
+}
+
+func (printHook *PrintHook2) invoke(info *v8go.FunctionCallbackInfo) *v8go.Value {
+	fmt.Printf("print2 %v", info.Args())
+	return nil
+}
+
+func main() {
+
+	//iso := v8.NewIsolate() // create a new VM
+	////// a template that represents a JS function
+	////
+	//counter := 42
+	////
+	//////v8.ObjectTemplate{}
+	////
+	//printfn := v8.NewFunctionTemplate(iso, func(info *v8.FunctionCallbackInfo) *v8.Value {
+	//	fmt.Printf(" -- %v\n", info.Args()) // when the JS function is called this Go callback will execute
+	//	var a = int64(counter)
+	//	counter++
+	//	res, err := v8.NewValue(iso, a)
+	//	if err != nil {
+	//		fmt.Println("New value err: ", err)
+	//	}
+	//	return res // you can return a value back to the JS caller if required
+	//})
+	//
+	////global := v8.NewObjectTemplate(iso) // a template that represents a JS Object
+	//
+	//ctx := v8.NewContext(iso) // new Context with the global Object set to our object template
+	//global := ctx.Global()
+	//
+	//err := global.Set("print", printfn)
+	//err = global.Set("param", int32(13))
+	//ctx.
+	//
+	//if err != nil {
+	//	fmt.Println(err)
+	//} // sets the "print" property of the Object to our function
+	////err = global.Set("print", printfn2)
+	////if err != nil {
+	////	fmt.Println(err)
+	////}
+	//
+	//var val *v8.Value
+	//val, err = ctx.RunScript("const result = print(param); const res2 = print(result); print(res2)", "")
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
+	//
+	//fmt.Println(val)
+
+	//iso := v8.NewIsolate()                           // create a new VM
+	//ctx := v8.NewContext(iso)    // new context with a default VM
+	//obj := ctx.Global()          // get the global object from the context
+	//obj.Set("version", "v1.0.0") // set the property "version" on the object
+	//obj.Set("print", printfn)
+	//val, err := ctx.RunScript("version; print(\"23\")", "version.js") // global object will have the property set within the JS VM
+	//fmt.Printf("version: %s", val, err)
+	//
+	//if obj.Has("version") { // check if a property exists on the object
+	//	obj.Delete("version") // remove the property from the object
+	//}
+
+	iso := &V8Go{Iso: v8go.NewIsolate(), Mutex: &sync.Mutex{}}
+
+	ct := CallbackTable{data: make(map[uintptr]CallbackFunc)}
+	hft := HooksFactoryTable{hookFactories: map[string]GoHookFactory{}}
+
+	k := &Kernel{V8Go: iso, hooksFactoryTable: &hft, callbackTable: &ct}
+	t := &Task{Kernel: k}
+
+	err := k.hooksFactoryTable.registerHookFactory("print", func(t *Task) GoHooks {
+		return &PrintHook{t: t}
+	})
+	err = k.hooksFactoryTable.registerHookFactory("print2", func(t *Task) GoHooks {
+		return &PrintHook2{t: t}
+	})
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	cb := JsCallback{source: "function bruh(a){print2 (arg0, arg1, arg2, arg3); return {\"3\":10};}", functionName: "bruh"}
+
+	args := &SyscallArguments{}
+	args[0].Value = uintptr(42)
+
+	res, err := cb.Callback(t, uintptr(2), args)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(res)
+}
