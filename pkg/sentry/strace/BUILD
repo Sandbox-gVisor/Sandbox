@@ -22,6 +22,7 @@ go_library(
         "select.go",
         "signal.go",
         "socket.go",
+        "straceLog.go",
         "strace.go",
         "syscalls.go",
     ],
