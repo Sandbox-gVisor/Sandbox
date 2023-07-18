@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"gvisor.dev/gvisor/pkg/sentry/strace"
 )
 
 func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -35,4 +36,31 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 		bytes := []byte(str)
 		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 	}
+}
+
+// SignalMaskProvider provides functions to return Task.signalMask
+// (signals which delivery is blocked)
+func SignalMaskProvider(t *Task) func() uint64 {
+	return func() uint64 {
+		return t.signalMask.Load()
+	}
+}
+
+// SigWaitMaskProvider provides functions to return Task.realSignalMask
+// (Task will be blocked until one of signals in Task.realSignalMask is pending)
+func SigWaitMaskProvider(t *Task) func() uint64 {
+	return func() uint64 {
+		return uint64(t.realSignalMask)
+	}
+}
+
+// SavedSignalMaskProvider provides functions to return Task.savedSignalMask
+func SavedSignalMaskProvider(t *Task) func() uint64 {
+	return func() uint64 {
+		return uint64(t.savedSignalMask)
+	}
+}
+
+func GetPrettySigSet(set uint64) string {
+	return strace.PrettySigSet(set)
 }
