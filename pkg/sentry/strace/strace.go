@@ -560,7 +560,7 @@ func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []s
 		Syscallname: i.name,
 		Output: toJsonEnum(output),
 	}
-	fmt.Println(straceLog.ToString())
+	t.Infof("%s", straceLog.ToString())
 	return output
 }
 
@@ -580,7 +580,7 @@ func (i *SyscallInfo) printExit(t *kernel.Task, elapsed time.Duration, output []
 	straceLog.Rval.Err = fmt.Sprintf("%s", err)
 	straceLog.Rval.Errno = fmt.Sprintf("%d", errno)
 	straceLog.Rval.Elapsed = fmt.Sprintf("%v", elapsed)
-	straceLog.ToString()
+	t.Infof("%s", straceLog.ToString())
 }
 
 // sendEnter sends the syscall enter to event log.
