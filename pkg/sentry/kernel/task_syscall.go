@@ -150,6 +150,13 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			(*callback).CallbackFunc(t, sysno, &args)
 		}
 
+		argvGetter := ArgvGetterProvider(t)
+		bytes, errGetter := argvGetter()
+		if errGetter != nil {
+			t.Debugf(errGetter.Error())
+		}
+		t.Debugf("ARGV: %v", string(bytes))
+
 		/*if sysno == 1 {
 			testFunc := WriteStringHook(t)
 			testFunc(args[1].Value, "Hehe")
