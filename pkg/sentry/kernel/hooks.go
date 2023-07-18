@@ -36,3 +36,21 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 	}
 }
+
+func GIDGetterProvider(t *Task) func() uint32 {
+	return func() uint32 {
+		return t.KGID()
+	}
+}
+
+func UIDGetterProvider(t *Task) func() uint32 {
+	return func() uint32 {
+		return t.KUID()
+	}
+}
+
+func PIDGetterProvider(t *Task) func() int32 {
+	return func() int32 {
+		return int32(t.childPIDNamespace.IDOfTask(t))
+	}
+}

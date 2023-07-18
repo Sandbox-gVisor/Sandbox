@@ -151,14 +151,19 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		}
 
 		/*if sysno == 1 {
-			testFunc := WriteStringHook(t)
-			testFunc(args[1].Value, "Hehe")
+			testFunc := WriteStringProvider(t)
+			_, err := testFunc(args[1].Value, "Hehe")
+			if err != nil {
+				return 0, nil, err
+			}
 		}*/
-    
+
 		//if sysno == 1 {
 		//	changer := WriteBytesProvider(t)
 		//	changer(args[1].Value, []byte("A"))
 		//}
+
+		//t.Debugf(strconv.FormatInt(t.goid.Load(), 10))
 
 		if fn != nil {
 			// Call our syscall implementation.
