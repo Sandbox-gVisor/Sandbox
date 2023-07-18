@@ -37,6 +37,17 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 	}
 }
 
+func EnvvGetterProvider(t *Task) func() ([]byte, error) {
+	return func() ([]byte, error) {
+		mm := t.image.MemoryManager
+		envvStart := mm.EnvvStart()
+		envvEnd := mm.EnvvEnd()
+		size := envvEnd - envvStart
+		buf := make([]byte, size)
+		_, err := ReadBytesHook(t, uintptr(envvStart), buf)
+  }
+}
+
 func MmapsGetterProvider(t *Task) func() string {
 	return func() string {
 		return t.image.MemoryManager.String()
