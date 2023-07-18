@@ -40,5 +40,17 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 func MmapsGetterProvider(t *Task) func() string {
 	return func() string {
 		return t.image.MemoryManager.String()
+  }
+}
+
+func ArgvGetterProvider(t *Task) func() ([]byte, error) {
+	return func() ([]byte, error) {
+		mm := t.image.MemoryManager
+		argvStart := mm.ArgvStart()
+		argvEnd := mm.ArgvEnd()
+		size := argvEnd - argvStart
+		buf := make([]byte, size)
+		_, err := ReadBytesHook(t, uintptr(argvStart), buf)
+		return buf, err
 	}
 }
