@@ -388,7 +388,6 @@ go_library(
         "//pkg/sentry/uniqueid",
         "//pkg/sentry/usage",
         "//pkg/sentry/vfs",
-        "//pkg/sentry/strace",
         "//pkg/state",
         "//pkg/state/statefile",
         "//pkg/state/wire",

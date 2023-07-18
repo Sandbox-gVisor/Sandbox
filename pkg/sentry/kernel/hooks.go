@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"gvisor.dev/gvisor/pkg/hostarch"
-	"gvisor.dev/gvisor/pkg/sentry/strace"
 )
 
 func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -59,8 +58,4 @@ func SavedSignalMaskProvider(t *Task) func() uint64 {
 	return func() uint64 {
 		return uint64(t.savedSignalMask)
 	}
-}
-
-func GetPrettySigSet(set uint64) string {
-	return strace.PrettySigSet(set)
 }

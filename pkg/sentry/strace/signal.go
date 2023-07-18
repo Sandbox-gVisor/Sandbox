@@ -147,7 +147,3 @@ func sigAction(t *kernel.Task, addr hostarch.Addr) string {
 
 	return fmt.Sprintf("%#x {Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", addr, handler, sigActionFlags.Parse(sa.Flags), sa.Restorer, formatSigSet(sa.Mask))
 }
-
-func PrettySigSet(set uint64) string {
-	return formatSigSet(linux.SignalSet(set))
-}
