@@ -11,11 +11,11 @@ type Callback interface {
 }
 
 type CallbackTable struct {
-	data  map[uintptr]*Callback
+	data  map[uintptr]Callback
 	mutex sync.Mutex
 }
 
-func (ct *CallbackTable) registerCallback(sysno uintptr, f *Callback) error {
+func (ct *CallbackTable) registerCallback(sysno uintptr, f Callback) error {
 	if f == nil {
 		return errors.New("callback func is nil")
 	}
@@ -46,7 +46,7 @@ func (ct *CallbackTable) unregisterCallback(sysno uintptr) error {
 	return nil
 }
 
-func (ct *CallbackTable) getCallback(sysno uintptr) *Callback {
+func (ct *CallbackTable) getCallback(sysno uintptr) Callback {
 	ct.mutex.Lock()
 
 	f, ok := ct.data[sysno]
@@ -60,14 +60,14 @@ func (ct *CallbackTable) getCallback(sysno uintptr) *Callback {
 
 type CallbackPair struct {
 	sysno    uintptr
-	callback *Callback
+	callback Callback
 }
 
 type CallbackCollector struct {
 	collectedCallbacks []CallbackPair
 }
 
-func (cc *CallbackCollector) collect(sysno uintptr, callback *Callback) {
+func (cc *CallbackCollector) collect(sysno uintptr, callback Callback) {
 	cc.collectedCallbacks = append(cc.collectedCallbacks, CallbackPair{sysno, callback})
 }
 

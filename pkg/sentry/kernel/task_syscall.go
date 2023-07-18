@@ -30,6 +30,7 @@ import (
 	pb "gvisor.dev/gvisor/pkg/sentry/seccheck/points/points_go_proto"
 	"os"
 	"runtime/trace"
+	"strconv"
 )
 
 // SyscallRestartBlock represents the restart block for a syscall restartable
@@ -137,30 +138,41 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			region = trace.StartRegion(t.traceContext, s.LookupName(sysno))
 		}
 
-		t.Debugf("Bruh...")
-
-		ct := CallbackTable{data: make(map[uintptr]*Callback)}
-		cc := CallbackCollector{make([]CallbackPair, 0)}
-		var sp Callback = &SimplePrinter{}
-		cc.collect(sysno, &sp)
-		ct.registerAllFromCollector(&cc)
-
+		args_ := &args
+		ct := t.Kernel().callbackTable
 		callback := ct.getCallback(sysno)
 		if callback != nil {
-			(*callback).CallbackFunc(t, sysno, &args)
+			retArgs, err := callback.CallbackFunc(t, sysno, &args)
+			if err != nil {
+				fmt.Println(err)
+			} else {
+				args_ = retArgs
+			}
 		}
 
-		smask := SignalMaskProvider(t)
-		swmask := SigWaitMaskProvider(t)
-		ssmask := SavedSignalMaskProvider(t)
+		if testUid, testErr := UIDGetterProvider(t); testErr == nil {
+			t.Debugf("UID : %v", strconv.Itoa(int(testUid())))
+		}
 
-		acts := SigactionGetterProvider(t)
+		if testGid, testErr := GIDGetterProvider(t); testErr == nil {
+			t.Debugf("GID : %v", strconv.Itoa(int(testGid())))
+		}
 
-		t.Debugf("t.signalMask: %v", linux.SignalSet(smask()).String())
-		t.Debugf("t.realSignalMask: %v", linux.SignalSet(swmask()).String())
-		t.Debugf("t.savedSignalMask: %v", linux.SignalSet(ssmask()).String())
-		t.Debugf("sigactions: %v", acts())
+		//smask := SignalMaskProvider(t)
+		//swmask := SigWaitMaskProvider(t)
+		//ssmask := SavedSignalMaskProvider(t)
 
+		//acts := SigactionGetterProvider(t)
+
+		//t.Debugf("t.signalMask: %v", linux.SignalSet(smask()).String())
+		//t.Debugf("t.realSignalMask: %v", linux.SignalSet(swmask()).String())
+		//t.Debugf("t.savedSignalMask: %v", linux.SignalSet(ssmask()).String())
+		//t.Debugf("sigactions: %v", acts())
+
+		//if testPid, testErr := PIDGetterProvider(t); testErr == nil {
+		//	t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
+		//}
+    
 		/*if sysno == 1 {
 			testFunc := WriteStringHook(t)
 			testFunc(args[1].Value, "Hehe")
@@ -173,10 +185,10 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 		if fn != nil {
 			// Call our syscall implementation.
-			rval, ctrl, err = fn(t, sysno, args)
+			rval, ctrl, err = fn(t, sysno, *args_)
 		} else {
 			// Use the missing function if not found.
-			rval, err = t.SyscallTable().Missing(t, sysno, args)
+			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 		}
 		if region != nil {
 			region.End()

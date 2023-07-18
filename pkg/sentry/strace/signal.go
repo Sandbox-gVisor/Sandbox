@@ -55,7 +55,7 @@ func sigAction(t *kernel.Task, addr hostarch.Addr) string {
 
 	var sa linux.SigAction
 	if _, err := sa.CopyIn(t, addr); err != nil {
-		return fmt.Sprintf("%#x (error copying sigaction: %v)", addr, err)
+		return fmt.Sprintf(`{"addr": "%#x", "status": "(error copying sigaction: %v)"}`, addr, err)
 	}
 
 	var handler string
@@ -68,5 +68,5 @@ func sigAction(t *kernel.Task, addr hostarch.Addr) string {
 		handler = fmt.Sprintf("%#x", sa.Handler)
 	}
 
-	return fmt.Sprintf("%#x {Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", addr, handler, linux.SigActionFlags.Parse(sa.Flags), sa.Restorer, formatSigSet(sa.Mask))
+  return fmt.Sprintf("%#x {Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", addr, handler, linux.SigActionFlags.Parse(sa.Flags), sa.Restorer, formatSigSet(sa.Mask))
 }
