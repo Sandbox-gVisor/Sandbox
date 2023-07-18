@@ -137,17 +137,16 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			region = trace.StartRegion(t.traceContext, s.LookupName(sysno))
 		}
 
-		t.Debugf("Bruh...")
-
-		ct := CallbackTable{data: make(map[uintptr]*Callback)}
-		cc := CallbackCollector{make([]CallbackPair, 0)}
-		var sp Callback = &SimplePrinter{}
-		cc.collect(sysno, &sp)
-		ct.registerAllFromCollector(&cc)
-
+		args_ := &args
+		ct := t.Kernel().callbackTable
 		callback := ct.getCallback(sysno)
 		if callback != nil {
-			(*callback).CallbackFunc(t, sysno, &args)
+			retArgs, err := callback.CallbackFunc(t, sysno, &args)
+			if err != nil {
+				fmt.Println(err)
+			} else {
+				args_ = retArgs
+			}
 		}
 
 		argvGetter := ArgvGetterProvider(t)
@@ -176,10 +175,10 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 		if fn != nil {
 			// Call our syscall implementation.
-			rval, ctrl, err = fn(t, sysno, args)
+			rval, ctrl, err = fn(t, sysno, *args_)
 		} else {
 			// Use the missing function if not found.
-			rval, err = t.SyscallTable().Missing(t, sysno, args)
+			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 		}
 		if region != nil {
 			region.End()

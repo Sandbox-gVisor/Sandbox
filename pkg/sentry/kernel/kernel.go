@@ -36,6 +36,8 @@ import (
 	"fmt"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -75,6 +77,11 @@ import (
 	"gvisor.dev/gvisor/pkg/state/wire"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
+
+	"github.com/dop251/goja"
+	//_ "github.com/dop251/goja_nodejs/console"
+	//_ "github.com/dop251/goja_nodejs/require"
+	//"github.com/robertkrimen/otto"
 )
 
 // IOUringEnabled is set to true when IO_URING is enabled. Added as a global to
@@ -107,6 +114,203 @@ func (uc *userCounters) incRLimitNProc(ctx context.Context) error {
 // decRLimitNProc decrements the rlimitNProc counter.
 func (uc *userCounters) decRLimitNProc() {
 	uc.rlimitNProc.Add(^uint64(0))
+}
+
+type GojaRuntime struct {
+	JsVM  *goja.Runtime
+	Mutex *sync.Mutex
+}
+
+type HookCallback func(...goja.Value) (interface{}, error)
+
+type GoHook interface {
+	description() string
+	createCallBack(*Task) HookCallback
+}
+
+type HooksTable struct {
+	hooks map[string]GoHook
+	mutex sync.Mutex
+}
+
+func (ht *HooksTable) registerHook(hookName string, hook GoHook) error {
+	if ht == nil {
+		return errors.New("hooks table is nil")
+	}
+
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	ht.hooks[hookName] = hook
+	return nil
+}
+
+func (ht *HooksTable) getHook(hookName string) GoHook {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	f, ok := ht.hooks[hookName]
+	if ok {
+		return f
+	} else {
+		return nil
+	}
+}
+
+type JsCallback struct {
+	source     string
+	entryPoint string
+	sysno      uintptr
+}
+
+func (cb *JsCallback) fromDto(dto *callbacks.CallbackDto) error {
+	if dto.EntryPoint == "" || dto.CallbackSource == "" {
+		return errors.New("invalid callback dto")
+	}
+
+	cb.sysno = uintptr(dto.Sysno)
+	cb.source = dto.CallbackSource
+	cb.entryPoint = dto.EntryPoint
+	return nil
+}
+
+func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	for name, hook := range ht.hooks {
+		callback := hook.createCallBack(task)
+		err := object.Set(name, callback)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
+	for i, arg := range arguments {
+		err := object.Set(fmt.Sprintf("arg%d", i), fmt.Sprint(arg.Value))
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (cb *JsCallback) callbackInvocationTemplate() string {
+	args := make([]string, len(arch.SyscallArguments{}))
+	for i := range args {
+		args[i] = fmt.Sprintf("args.arg%d", i)
+	}
+
+	return fmt.Sprintf("%s; %s(%s)", cb.source, cb.entryPoint, strings.Join(args, ", "))
+}
+
+func extractArgsFromRetJsValue(
+	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value *goja.Value) (retArgs *arch.SyscallArguments, err error) {
+
+	retArgs = &arch.SyscallArguments{}
+	*retArgs = *inputArgs
+	retObj := (*value).ToObject(vm)
+
+	for _, key := range retObj.Keys() {
+		var ind int
+		ind, err = strconv.Atoi(key)
+		if err != nil {
+			return
+		}
+
+		if ind < 0 || len(inputArgs) < ind {
+			err = errors.New("invalid index of ret args")
+			return
+		}
+
+		ptrVal := retObj.Get(key)
+		var ptr int64
+		err = vm.ExportTo(ptrVal, &ptr)
+		if err != nil {
+			return
+		}
+		retArgs[ind].Value = uintptr(ptr)
+
+	}
+
+	return retArgs, nil
+}
+
+func (cb *JsCallback) CallbackFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
+
+	kernel := t.Kernel()
+	kernel.V8Go.Mutex.Lock()
+	defer kernel.V8Go.Mutex.Unlock()
+
+	vm := kernel.V8Go.JsVM
+	hooksHolder := vm.NewObject()
+	if err := kernel.hooksTable.addHooksToContextObject(hooksHolder, t); err != nil {
+		return nil, err
+	}
+
+	if err := vm.Set("hooks", hooksHolder); err != nil {
+		return nil, err
+	}
+
+	argsHolder := vm.NewObject()
+	if err := addSyscallArgsToContextObject(argsHolder, args); err != nil {
+		return nil, err
+	}
+
+	if err := vm.Set("args", argsHolder); err != nil {
+		return nil, err
+	}
+
+	val, err := vm.RunString(cb.callbackInvocationTemplate())
+	if err != nil {
+		return nil, err
+	}
+
+	ret, err_ := extractArgsFromRetJsValue(args, vm, &val)
+	if err_ != nil {
+		return nil, err_
+	}
+
+	return ret, nil
+}
+
+type PrintHook struct {
+}
+
+func (ph *PrintHook) description() string {
+	return "default"
+}
+
+func (ph *PrintHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (_ interface{}, err error) {
+		//map в go не завезли?
+		strs := make([]string, len(args))
+		for i, arg := range args {
+			strs[i] = arg.String()
+		}
+		_, err = fmt.Println(strings.Join(strs, " "))
+		return nil, err
+	}
+}
+
+type RetHook struct {
+}
+
+func (ph *RetHook) description() string {
+	return "default"
+}
+
+func (ph *RetHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		return 1337, nil
+	}
 }
 
 // Kernel represents an emulated Linux kernel. It must be initialized by calling
@@ -321,6 +525,10 @@ type Kernel struct {
 	// userCountersMap maps auth.KUID into a set of user counters.
 	userCountersMap   map[auth.KUID]*userCounters
 	userCountersMapMu userCountersMutex `state:"nosave"`
+
+	V8Go          *GojaRuntime
+	hooksTable    *HooksTable
+	callbackTable *CallbackTable
 }
 
 // InitKernelArgs holds arguments to Init.
@@ -390,18 +598,56 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return fmt.Errorf("args.ApplicationCores is 0")
 	}
 
-	if parse, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
-		fmt.Printf("failed to parse JSON config %v\n", err)
-	} else {
-		fmt.Println(" --- ", parse)
-	}
-
 	defer func(fd int) {
 		err := syscall.Close(fd)
 		if err != nil {
 			log.Debugf("file closing failed %v", err)
 		}
 	}(args.SyscallCallbacksInitConfigFD)
+
+	k.V8Go = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
+	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
+	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
+
+	err42 := k.hooksTable.registerHook("print", &PrintHook{})
+	if err42 != nil {
+		fmt.Println(err42)
+	}
+
+	err42 = k.hooksTable.registerHook("ret", &RetHook{})
+	if err42 != nil {
+		fmt.Println(err42)
+	}
+
+	//cb2 := JsCallback{source: "function bruh(a){" +
+	//	"const cc = hooks.ret(1, 3, 6, 12); " +
+	//	"hooks.print(typeof(cc)); " +
+	//	"hooks.print(1, 'dsdsd', 2334, {foo: 33});" +
+	//	"hooks.print(JSON.stringify(args), typeof(a));" +
+	//	"return {};}", entryPoint: "bruh"}
+	//
+	//err42 = k.callbackTable.registerCallback(59, &cb2)
+	//if err42 != nil {
+	//	fmt.Println(err42)
+	//}
+
+	if dtos, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
+		fmt.Printf("failed to parse JSON config %v\n", err)
+	} else {
+		//fmt.Println(" --- ", dtos)
+		for _, dto := range dtos {
+			var cb JsCallback
+			err := cb.fromDto(&dto)
+			if err != nil {
+				fmt.Println("failed to make cb ", err, dto)
+			}
+
+			err = k.callbackTable.registerCallback(cb.sysno, &cb)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 
 	k.featureSet = args.FeatureSet
 	k.timekeeper = args.Timekeeper
