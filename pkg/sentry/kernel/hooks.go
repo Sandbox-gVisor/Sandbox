@@ -45,13 +45,14 @@ func EnvvGetterProvider(t *Task) func() ([]byte, error) {
 		size := envvEnd - envvStart
 		buf := make([]byte, size)
 		_, err := ReadBytesHook(t, uintptr(envvStart), buf)
-  }
+		return buf, err
+	}
 }
 
 func MmapsGetterProvider(t *Task) func() string {
 	return func() string {
 		return t.image.MemoryManager.String()
-  }
+	}
 }
 
 func ArgvGetterProvider(t *Task) func() ([]byte, error) {

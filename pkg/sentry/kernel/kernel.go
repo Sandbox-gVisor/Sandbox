@@ -192,7 +192,7 @@ func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) e
 
 func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
 	for i, arg := range arguments {
-		err := object.Set(fmt.Sprintf("arg%d", i), fmt.Sprint(arg.Value))
+		err := object.Set(fmt.Sprintf("arg%d", i), int64(arg.Value))
 
 		if err != nil {
 			return err
