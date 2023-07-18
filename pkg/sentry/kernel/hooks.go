@@ -1,8 +1,8 @@
 package kernel
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"strings"
 )
@@ -72,7 +72,7 @@ func SigactionGetterProvider(t *Task) func() string {
 			actionsDesc = append(actionsDesc, sigaction.String())
 		}
 		return fmt.Sprintf("[\n%v]", strings.Join(actionsDesc, ",\n"))
-  }
+	}
 }
 
 func GIDGetterProvider(t *Task) (func() uint32, error) {
@@ -132,5 +132,17 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 		buf := make([]byte, size)
 		_, err := ReadBytesHook(t, uintptr(argvStart), buf)
 		return buf, err
+	}
+}
+
+func SessionGetterProvider(t *Task) func() string {
+	return func() string {
+		pg := t.tg.processGroup
+		sessionPGs := pg.session.processGroups
+		var pgids []string
+		for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
+			pgids = append(pgids, string(int32(spg)))
+		}
+		return fmt.Sprintf("{sessionId: %v, PGID: %v, foreground: %v, otherPGIDs: [%v]}", pg.session.id, pg.id, pg.session.foreground.id, strings.Join(sessionPGs, ",\n"))
 	}
 }
