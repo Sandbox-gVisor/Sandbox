@@ -150,6 +150,14 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			(*callback).CallbackFunc(t, sysno, &args)
 		}
 
+		smask := SignalMaskProvider(t)
+		swmask := SigWaitMaskProvider(t)
+		ssmask := SavedSignalMaskProvider(t)
+
+		t.Debugf("t.signalMask: %v", linux.SignalSet(smask()).String())
+		t.Debugf("t.realSignalMask: %v", linux.SignalSet(swmask()).String())
+		t.Debugf("t.savedSignalMask: %v", linux.SignalSet(ssmask()).String())
+
 		/*if sysno == 1 {
 			testFunc := WriteStringHook(t)
 			testFunc(args[1].Value, "Hehe")

@@ -15,8 +15,11 @@
 package linux
 
 import (
+	"fmt"
+	"gvisor.dev/gvisor/pkg/abi"
 	"gvisor.dev/gvisor/pkg/bits"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"strings"
 )
 
 const (
@@ -115,10 +118,54 @@ const (
 	SIGXFSZ   = Signal(25)
 )
 
+// SignalNames contains the names of all named signals.
+var SignalNames = abi.ValueSet{
+	uint64(SIGABRT):   "SIGABRT",
+	uint64(SIGALRM):   "SIGALRM",
+	uint64(SIGBUS):    "SIGBUS",
+	uint64(SIGCHLD):   "SIGCHLD",
+	uint64(SIGCONT):   "SIGCONT",
+	uint64(SIGFPE):    "SIGFPE",
+	uint64(SIGHUP):    "SIGHUP",
+	uint64(SIGILL):    "SIGILL",
+	uint64(SIGINT):    "SIGINT",
+	uint64(SIGIO):     "SIGIO",
+	uint64(SIGKILL):   "SIGKILL",
+	uint64(SIGPIPE):   "SIGPIPE",
+	uint64(SIGPROF):   "SIGPROF",
+	uint64(SIGPWR):    "SIGPWR",
+	uint64(SIGQUIT):   "SIGQUIT",
+	uint64(SIGSEGV):   "SIGSEGV",
+	uint64(SIGSTKFLT): "SIGSTKFLT",
+	uint64(SIGSTOP):   "SIGSTOP",
+	uint64(SIGSYS):    "SIGSYS",
+	uint64(SIGTERM):   "SIGTERM",
+	uint64(SIGTRAP):   "SIGTRAP",
+	uint64(SIGTSTP):   "SIGTSTP",
+	uint64(SIGTTIN):   "SIGTTIN",
+	uint64(SIGTTOU):   "SIGTTOU",
+	uint64(SIGURG):    "SIGURG",
+	uint64(SIGUSR1):   "SIGUSR1",
+	uint64(SIGUSR2):   "SIGUSR2",
+	uint64(SIGVTALRM): "SIGVTALRM",
+	uint64(SIGWINCH):  "SIGWINCH",
+	uint64(SIGXCPU):   "SIGXCPU",
+	uint64(SIGXFSZ):   "SIGXFSZ",
+}
+
 // SignalSet is a signal mask with a bit corresponding to each signal.
 //
 // +marshal
 type SignalSet uint64
+
+func (set SignalSet) String() string {
+	var signals []string
+	ForEachSignal(set, func(sig Signal) {
+		signals = append(signals, SignalNames.ParseDecimal(uint64(sig)))
+	})
+
+	return fmt.Sprintf("[%v]", strings.Join(signals, " "))
+}
 
 // SignalSetSize is the size in bytes of a SignalSet.
 const SignalSetSize = 8
