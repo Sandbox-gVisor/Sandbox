@@ -396,6 +396,21 @@ var SigActionFlags = abi.FlagSet{
 	},
 }
 
+func (sa SigAction) String() string {
+
+	var handler string
+	switch sa.Handler {
+	case SIG_IGN:
+		handler = "SIG_IGN"
+	case SIG_DFL:
+		handler = "SIG_DFL"
+	default:
+		handler = fmt.Sprintf("%#x", sa.Handler)
+	}
+
+	return fmt.Sprintf("{Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", handler, SigActionFlags.Parse(sa.Flags), sa.Restorer, sa.Mask.String())
+}
+
 // SignalStack represents information about a user stack, and is equivalent to
 // stack_t.
 //

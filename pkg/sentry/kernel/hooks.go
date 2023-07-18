@@ -1,7 +1,9 @@
 package kernel
 
 import (
+	"fmt"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"strings"
 )
 
 func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -60,13 +62,14 @@ func SavedSignalMaskProvider(t *Task) func() uint64 {
 	}
 }
 
-/*func SigactionGetterProvider(t *Task) func() {
-	return func() {
+// SigactionGetterProvider provides functions to return sigactions in JSON format
+func SigactionGetterProvider(t *Task) func() string {
+	return func() string {
 		actions := t.tg.signalHandlers.actions
 		var actionsDesc []string
-		for sig, sigaction := range actions {
-
-			append(actionsDesc)
+		for _, sigaction := range actions {
+			actionsDesc = append(actionsDesc, sigaction.String())
 		}
+		return fmt.Sprintf("[\n%v]", strings.Join(actionsDesc, ",\n"))
 	}
-}*/
+}
