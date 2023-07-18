@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"errors"
 	"gvisor.dev/gvisor/pkg/hostarch"
 )
 
@@ -37,20 +38,32 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 	}
 }
 
-func GIDGetterProvider(t *Task) func() uint32 {
+func GIDGetterProvider(t *Task) (func() uint32, error) {
+	if t == nil {
+		return nil, errors.New("task is nil")
+	}
+
 	return func() uint32 {
 		return t.KGID()
-	}
+	}, nil
 }
 
-func UIDGetterProvider(t *Task) func() uint32 {
+func UIDGetterProvider(t *Task) (func() uint32, error) {
+	if t == nil {
+		return nil, errors.New("task is nil")
+	}
+
 	return func() uint32 {
 		return t.KUID()
-	}
+	}, nil
 }
 
-func PIDGetterProvider(t *Task) func() int32 {
-	return func() int32 {
-		return int32(t.childPIDNamespace.IDOfTask(t))
+func PIDGetterProvider(t *Task) (func() int32, error) {
+	if t == nil {
+		return nil, errors.New("task is nil")
 	}
+
+	return func() int32 {
+		return int32(t.PIDNamespace().IDOfTask(t))
+	}, nil
 }

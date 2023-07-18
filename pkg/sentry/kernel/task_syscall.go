@@ -30,6 +30,7 @@ import (
 	pb "gvisor.dev/gvisor/pkg/sentry/seccheck/points/points_go_proto"
 	"os"
 	"runtime/trace"
+	"strconv"
 )
 
 // SyscallRestartBlock represents the restart block for a syscall restartable
@@ -150,20 +151,27 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			(*callback).CallbackFunc(t, sysno, &args)
 		}
 
+		if testUid, testErr := UIDGetterProvider(t); testErr == nil {
+			t.Debugf("UID : %v", strconv.Itoa(int(testUid())))
+		}
+
+		if testGid, testErr := GIDGetterProvider(t); testErr == nil {
+			t.Debugf("GID : %v", strconv.Itoa(int(testGid())))
+		}
+
+		if testPid, testErr := PIDGetterProvider(t); testErr == nil {
+			t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
+
+		}
 		/*if sysno == 1 {
-			testFunc := WriteStringProvider(t)
-			_, err := testFunc(args[1].Value, "Hehe")
-			if err != nil {
-				return 0, nil, err
-			}
+			testFunc := WriteStringHook(t)
+			testFunc(args[1].Value, "Hehe")
 		}*/
 
 		//if sysno == 1 {
 		//	changer := WriteBytesProvider(t)
 		//	changer(args[1].Value, []byte("A"))
 		//}
-
-		//t.Debugf(strconv.FormatInt(t.goid.Load(), 10))
 
 		if fn != nil {
 			// Call our syscall implementation.
