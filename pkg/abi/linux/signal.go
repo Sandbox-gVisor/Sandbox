@@ -153,6 +153,10 @@ var SignalNames = abi.ValueSet{
 	uint64(SIGXFSZ):   "SIGXFSZ",
 }
 
+func (sig Signal) String() string {
+	return SignalNames.ParseDecimal(uint64(sig))
+}
+
 // SignalSet is a signal mask with a bit corresponding to each signal.
 //
 // +marshal
@@ -161,7 +165,7 @@ type SignalSet uint64
 func (set SignalSet) String() string {
 	var signals []string
 	ForEachSignal(set, func(sig Signal) {
-		signals = append(signals, SignalNames.ParseDecimal(uint64(sig)))
+		signals = append(signals, sig.String())
 	})
 
 	return fmt.Sprintf("[%v]", strings.Join(signals, " "))
