@@ -158,8 +158,20 @@ func (ht *HooksTable) getHook(hookName string) GoHook {
 }
 
 type JsCallback struct {
-	source       string
-	functionName string
+	source     string
+	entryPoint string
+	sysno      uintptr
+}
+
+func (cb *JsCallback) fromDto(dto *callbacks.CallbackDto) error {
+	if dto.EntryPoint == "" || dto.CallbackSource == "" {
+		return errors.New("invalid callback dto")
+	}
+
+	cb.sysno = uintptr(dto.Sysno)
+	cb.source = dto.CallbackSource
+	cb.entryPoint = dto.EntryPoint
+	return nil
 }
 
 func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
@@ -180,7 +192,7 @@ func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) e
 
 func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
 	for i, arg := range arguments {
-		err := object.Set(fmt.Sprintf("arg%d", i), arg)
+		err := object.Set(fmt.Sprintf("arg%d", i), fmt.Sprint(arg.Value))
 
 		if err != nil {
 			return err
@@ -196,7 +208,7 @@ func (cb *JsCallback) callbackInvocationTemplate() string {
 		args[i] = fmt.Sprintf("args.arg%d", i)
 	}
 
-	return fmt.Sprintf("%s; %s(%s)", cb.source, cb.functionName, strings.Join(args, ", "))
+	return fmt.Sprintf("%s; %s(%s)", cb.source, cb.entryPoint, strings.Join(args, ", "))
 }
 
 func extractArgsFromRetJsValue(
@@ -293,10 +305,6 @@ type RetHook struct {
 
 func (ph *RetHook) description() string {
 	return "default"
-}
-
-type Foo struct {
-	Bruh int
 }
 
 func (ph *RetHook) createCallBack(t *Task) HookCallback {
@@ -590,12 +598,6 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return fmt.Errorf("args.ApplicationCores is 0")
 	}
 
-	if parse, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
-		fmt.Printf("failed to parse JSON config %v\n", err)
-	} else {
-		fmt.Println(" --- ", parse)
-	}
-
 	defer func(fd int) {
 		err := syscall.Close(fd)
 		if err != nil {
@@ -617,44 +619,35 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		fmt.Println(err42)
 	}
 
-	cb2 := JsCallback{source: "function bruh(a){" +
-		"const cc = hooks.ret(1, 3, 6, 12); " +
-		"hooks.print(typeof(cc)); " +
-		"hooks.print(1, 'dsdsd', 2334, {foo: 33});" +
-		"return {};}", functionName: "bruh"}
+	//cb2 := JsCallback{source: "function bruh(a){" +
+	//	"const cc = hooks.ret(1, 3, 6, 12); " +
+	//	"hooks.print(typeof(cc)); " +
+	//	"hooks.print(1, 'dsdsd', 2334, {foo: 33});" +
+	//	"hooks.print(JSON.stringify(args), typeof(a));" +
+	//	"return {};}", entryPoint: "bruh"}
+	//
+	//err42 = k.callbackTable.registerCallback(59, &cb2)
+	//if err42 != nil {
+	//	fmt.Println(err42)
+	//}
 
-	argsSyscall := &arch.SyscallArguments{}
-	argsSyscall[0].Value = uintptr(42)
+	if dtos, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
+		fmt.Printf("failed to parse JSON config %v\n", err)
+	} else {
+		//fmt.Println(" --- ", dtos)
+		for _, dto := range dtos {
+			var cb JsCallback
+			err := cb.fromDto(&dto)
+			if err != nil {
+				fmt.Println("failed to make cb ", err, dto)
+			}
 
-	//var cbbb Callback = &cb2
-
-	err42 = k.callbackTable.registerCallback(59, &cb2)
-	if err42 != nil {
-		fmt.Println(err42)
+			err = k.callbackTable.registerCallback(cb.sysno, &cb)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
-
-	//res, err42 := cb2.CallbackFunc(t, uintptr(2), argsSyscall)
-	//fmt.Println(res, err42)
-
-	const SCRIPT = `
-	function f(param) {
-		return +param + 2;
-	}
-	`
-
-	vm := goja.New()
-	_, err1 := vm.RunString(SCRIPT)
-	if err1 != nil {
-		panic(err1)
-	}
-
-	var fn func(string) string
-	err1 = vm.ExportTo(vm.Get("f"), &fn)
-	if err1 != nil {
-		panic(err1)
-	}
-
-	fmt.Println(fn("40")) // note, _this_ value in the function will be undefined.
 
 	k.featureSet = args.FeatureSet
 	k.timekeeper = args.Timekeeper
