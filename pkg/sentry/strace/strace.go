@@ -445,9 +445,9 @@ func (i *SyscallInfo) pre(t *kernel.Task, args arch.SyscallArguments, maximumBlo
 		case ItimerType:
 			output = append(output, ItimerTypes.Parse(uint64(args[arg].Int())))
 		case Signal:
-			output = append(output, signalNames.ParseDecimal(args[arg].Uint64()))
+			output = append(output, linux.SignalNames.ParseDecimal(args[arg].Uint64()))
 		case SignalMaskAction:
-			output = append(output, signalMaskActions.Parse(uint64(args[arg].Int())))
+			output = append(output, linux.SignalMaskActions.Parse(uint64(args[arg].Int())))
 		case SigSet:
 			output = append(output, sigSet(t, args[arg].Pointer()))
 		case SigAction:

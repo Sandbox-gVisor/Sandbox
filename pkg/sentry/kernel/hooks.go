@@ -1,8 +1,10 @@
 package kernel
 
 import (
+	"fmt"
 	"errors"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"strings"
 )
 
 func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -36,6 +38,41 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 		bytes := []byte(str)
 		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 	}
+}
+
+// SignalMaskProvider provides functions to return Task.signalMask
+// (signals which delivery is blocked)
+func SignalMaskProvider(t *Task) func() uint64 {
+	return func() uint64 {
+		return t.signalMask.Load()
+	}
+}
+
+// SigWaitMaskProvider provides functions to return Task.realSignalMask
+// (Task will be blocked until one of signals in Task.realSignalMask is pending)
+func SigWaitMaskProvider(t *Task) func() uint64 {
+	return func() uint64 {
+		return uint64(t.realSignalMask)
+	}
+}
+
+// SavedSignalMaskProvider provides functions to return Task.savedSignalMask
+func SavedSignalMaskProvider(t *Task) func() uint64 {
+	return func() uint64 {
+		return uint64(t.savedSignalMask)
+	}
+}
+
+// SigactionGetterProvider provides functions to return sigactions in JSON format
+func SigactionGetterProvider(t *Task) func() string {
+	return func() string {
+		actions := t.tg.signalHandlers.actions
+		var actionsDesc []string
+		for _, sigaction := range actions {
+			actionsDesc = append(actionsDesc, sigaction.String())
+		}
+		return fmt.Sprintf("[\n%v]", strings.Join(actionsDesc, ",\n"))
+  }
 }
 
 func GIDGetterProvider(t *Task) (func() uint32, error) {

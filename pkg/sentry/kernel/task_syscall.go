@@ -158,10 +158,20 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			t.Debugf("GID : %v", strconv.Itoa(int(testGid())))
 		}
 
-		if testPid, testErr := PIDGetterProvider(t); testErr == nil {
-			t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
+		//smask := SignalMaskProvider(t)
+		//swmask := SigWaitMaskProvider(t)
+		//ssmask := SavedSignalMaskProvider(t)
 
-		}
+		//acts := SigactionGetterProvider(t)
+
+		//t.Debugf("t.signalMask: %v", linux.SignalSet(smask()).String())
+		//t.Debugf("t.realSignalMask: %v", linux.SignalSet(swmask()).String())
+		//t.Debugf("t.savedSignalMask: %v", linux.SignalSet(ssmask()).String())
+		//t.Debugf("sigactions: %v", acts())
+
+		//if testPid, testErr := PIDGetterProvider(t); testErr == nil {
+		//	t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
+		//}
     
 		/*if sysno == 1 {
 			testFunc := WriteStringHook(t)
