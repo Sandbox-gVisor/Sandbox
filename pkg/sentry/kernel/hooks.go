@@ -37,6 +37,12 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 	}
 }
 
+func MmapsGetterProvider(t *Task) func() string {
+	return func() string {
+		return t.image.MemoryManager.String()
+  }
+}
+
 func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 	return func() ([]byte, error) {
 		mm := t.image.MemoryManager
