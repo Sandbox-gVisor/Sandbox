@@ -355,6 +355,47 @@ type SigAction struct {
 	Mask     SignalSet
 }
 
+var SignalMaskActions = abi.ValueSet{
+	SIG_BLOCK:   "SIG_BLOCK",
+	SIG_UNBLOCK: "SIG_UNBLOCK",
+	SIG_SETMASK: "SIG_SETMASK",
+}
+
+var SigActionFlags = abi.FlagSet{
+	{
+		Flag: SA_NOCLDSTOP,
+		Name: "SA_NOCLDSTOP",
+	},
+	{
+		Flag: SA_NOCLDWAIT,
+		Name: "SA_NOCLDWAIT",
+	},
+	{
+		Flag: SA_SIGINFO,
+		Name: "SA_SIGINFO",
+	},
+	{
+		Flag: SA_RESTORER,
+		Name: "SA_RESTORER",
+	},
+	{
+		Flag: SA_ONSTACK,
+		Name: "SA_ONSTACK",
+	},
+	{
+		Flag: SA_RESTART,
+		Name: "SA_RESTART",
+	},
+	{
+		Flag: SA_NODEFER,
+		Name: "SA_NODEFER",
+	},
+	{
+		Flag: SA_RESETHAND,
+		Name: "SA_RESETHAND",
+	},
+}
+
 // SignalStack represents information about a user stack, and is equivalent to
 // stack_t.
 //

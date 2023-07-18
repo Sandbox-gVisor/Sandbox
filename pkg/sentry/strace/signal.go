@@ -18,53 +18,11 @@ import (
 	"fmt"
 	"strings"
 
-	"gvisor.dev/gvisor/pkg/abi"
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
 
 	"gvisor.dev/gvisor/pkg/hostarch"
 )
-
-var signalMaskActions = abi.ValueSet{
-	linux.SIG_BLOCK:   "SIG_BLOCK",
-	linux.SIG_UNBLOCK: "SIG_UNBLOCK",
-	linux.SIG_SETMASK: "SIG_SETMASK",
-}
-
-var sigActionFlags = abi.FlagSet{
-	{
-		Flag: linux.SA_NOCLDSTOP,
-		Name: "SA_NOCLDSTOP",
-	},
-	{
-		Flag: linux.SA_NOCLDWAIT,
-		Name: "SA_NOCLDWAIT",
-	},
-	{
-		Flag: linux.SA_SIGINFO,
-		Name: "SA_SIGINFO",
-	},
-	{
-		Flag: linux.SA_RESTORER,
-		Name: "SA_RESTORER",
-	},
-	{
-		Flag: linux.SA_ONSTACK,
-		Name: "SA_ONSTACK",
-	},
-	{
-		Flag: linux.SA_RESTART,
-		Name: "SA_RESTART",
-	},
-	{
-		Flag: linux.SA_NODEFER,
-		Name: "SA_NODEFER",
-	},
-	{
-		Flag: linux.SA_RESETHAND,
-		Name: "SA_RESETHAND",
-	},
-}
 
 func sigSet(t *kernel.Task, addr hostarch.Addr) string {
 	if addr == 0 {
@@ -110,5 +68,5 @@ func sigAction(t *kernel.Task, addr hostarch.Addr) string {
 		handler = fmt.Sprintf("%#x", sa.Handler)
 	}
 
-	return fmt.Sprintf("%#x {Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", addr, handler, sigActionFlags.Parse(sa.Flags), sa.Restorer, formatSigSet(sa.Mask))
+	return fmt.Sprintf("%#x {Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", addr, handler, linux.SigActionFlags.Parse(sa.Flags), sa.Restorer, formatSigSet(sa.Mask))
 }

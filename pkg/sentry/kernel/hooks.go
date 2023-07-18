@@ -59,3 +59,14 @@ func SavedSignalMaskProvider(t *Task) func() uint64 {
 		return uint64(t.savedSignalMask)
 	}
 }
+
+/*func SigactionGetterProvider(t *Task) func() {
+	return func() {
+		actions := t.tg.signalHandlers.actions
+		var actionsDesc []string
+		for sig, sigaction := range actions {
+
+			append(actionsDesc)
+		}
+	}
+}*/
