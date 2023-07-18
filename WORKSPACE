@@ -3254,3 +3254,65 @@ go_repository(
     sum = "h1:t5ivNIH2PK+zw4OBul/iJjsoG9K6kXo4nMDoBpciC8A=",
     version = "v2.3.0",
 )
+
+#github.com/robertkrimen/otto v0.2.1 h1:FVP0PJ0AHIjC+N4pKCG9yCDz6LHNPCwi/GKID5pGGF0=
+#dependencies for otto
+
+go_repository(
+    name = "com_github_robertkrime_otto",
+    importpath = "github.com/robertkrimen/otto",
+    sum = "h1:FVP0PJ0AHIjC+N4pKCG9yCDz6LHNPCwi/GKID5pGGF0=",
+    version = "v0.2.1",
+)
+
+go_repository(
+    name = "golang_org_x_text",
+    importpath = "golang.org/x/text",
+    version = "v0.4.0",
+    sum = "dsds"
+)
+
+go_repository(
+    name = "gopkg_in_sourcemap",
+    importpath = "gopkg.in/sourcemap.v1",
+    version = "v1.0.5",
+    sum = "h1:inv58fC9f9J3TK2Y2R1NPntXEn3/wjWHkonhIUODNTI="
+)
+
+#dependecies for gojo
+
+go_repository(
+    name = "github_com_dop251_goja",
+    importpath = "github.com/dop251/goja",
+    version = "v0.0.0-20230707174833-636fdf960de1",
+    sum = "h1:sC/DYk3eEi5cKkpJX1vl+CpAM138dmuW7rutje9Eo4E=",
+)
+
+
+#go_repository(
+#    name = "github_com_dop251_goja_nodejs",
+#    importpath = "github.com/dop251/goja_nodejs",
+#    version = "v0.0.0-20230602164024-804a84515562",
+#    sum = "h1:0gomDSJiLLlpfKxQAHt5zj+9toIcyLMPgkI/Mgv7FAU=",
+#)
+
+go_repository(
+    name = "github_com_dlclark_regexp2",
+    importpath = "github.com/dlclark/regexp2",
+    version = "v1.7.0",
+    sum = "h1:7lJfhqlPssTb1WQx4yvTHN0uElPEv52sbaECrAQxjAo=",
+)
+
+go_repository(
+    name = "github_com_go_sourcemap_sourcemap",
+    importpath = "github.com/go-sourcemap/sourcemap",
+    version = "v2.1.3+incompatible",
+    sum = "h1:W1iEw64niKVGogNgBN3ePyLFfuisuzeidWPMPWmECqU=",
+)
+
+go_repository(
+    name = "github_com_google_pprof",
+    importpath = "github.com/google/pprof",
+    version = "v0.0.0-20230207041349-798e818bf904",
+    sum = "h1:4/hN5RUoecvl+RmJRE2YxKWtnnQls6rQjjW5oV7qg2U=",
+)

@@ -7,9 +7,9 @@ import (
 )
 
 type CallbackDto struct {
-	Sysno          string `json:"sysno"`
-	CallbackName   string `json:"callbackName"`
-	CallbackSource string `json:"callbackSource"`
+	Sysno          int    `json:"sysno"`
+	EntryPoint     string `json:"entry-point"`
+	CallbackSource string `json:"callback-source"`
 	Type           string `json:"type"`
 }
 
