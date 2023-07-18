@@ -9,6 +9,7 @@ go_library(
     name = "callbacks",
     srcs = [
         "callback_config.go",
+        "util.go"
     ],
     visibility = ["//pkg/sentry:internal"],
     imports = [

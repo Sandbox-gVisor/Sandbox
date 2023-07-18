@@ -133,6 +133,31 @@ type HooksTable struct {
 	mutex sync.Mutex
 }
 
+func disposableDecorator(callback HookCallback) HookCallback {
+	callbackWasInvoked := false
+	return func(args ...goja.Value) (interface{}, error) {
+		if callbackWasInvoked {
+			panic("this callback should use only one time")
+		}
+
+		callbackWasInvoked = true
+		return callback(args...)
+	}
+}
+
+type GoHookDecorator struct {
+	wrapped GoHook
+}
+
+func (decorator *GoHookDecorator) description() string {
+	return decorator.wrapped.description()
+}
+
+func (decorator *GoHookDecorator) createCallBack(t *Task) HookCallback {
+	cb := decorator.wrapped.createCallBack(t)
+	return disposableDecorator(cb)
+}
+
 func (ht *HooksTable) registerHook(hookName string, hook GoHook) error {
 	if ht == nil {
 		return errors.New("hooks table is nil")
@@ -141,7 +166,7 @@ func (ht *HooksTable) registerHook(hookName string, hook GoHook) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	ht.hooks[hookName] = hook
+	ht.hooks[hookName] = &GoHookDecorator{wrapped: hook}
 	return nil
 }
 
@@ -308,9 +333,10 @@ func (ph *RetHook) description() string {
 }
 
 func (ph *RetHook) createCallBack(t *Task) HookCallback {
-	return func(args ...goja.Value) (interface{}, error) {
+	return disposableDecorator(func(args ...goja.Value) (interface{}, error) {
+
 		return 1337, nil
-	}
+	})
 }
 
 // Kernel represents an emulated Linux kernel. It must be initialized by calling
