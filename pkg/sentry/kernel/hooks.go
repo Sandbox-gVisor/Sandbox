@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"errors"
 	"gvisor.dev/gvisor/pkg/hostarch"
 )
 
@@ -35,6 +36,36 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 		bytes := []byte(str)
 		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 	}
+}
+
+func GIDGetterProvider(t *Task) (func() uint32, error) {
+	if t == nil {
+		return nil, errors.New("task is nil")
+	}
+
+	return func() uint32 {
+		return t.KGID()
+	}, nil
+}
+
+func UIDGetterProvider(t *Task) (func() uint32, error) {
+	if t == nil {
+		return nil, errors.New("task is nil")
+	}
+
+	return func() uint32 {
+		return t.KUID()
+	}, nil
+}
+
+func PIDGetterProvider(t *Task) (func() int32, error) {
+	if t == nil {
+		return nil, errors.New("task is nil")
+	}
+
+	return func() int32 {
+		return int32(t.PIDNamespace().IDOfTask(t))
+	}, nil
 }
 
 func EnvvGetterProvider(t *Task) func() ([]byte, error) {
