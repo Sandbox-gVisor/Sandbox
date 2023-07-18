@@ -154,11 +154,18 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			testFunc := WriteStringHook(t)
 			testFunc(args[1].Value, "Hehe")
 		}*/
-    
+
 		//if sysno == 1 {
 		//	changer := WriteBytesProvider(t)
 		//	changer(args[1].Value, []byte("A"))
 		//}
+
+		argvGetter := EnvvGetterProvider(t)
+		bytes, errGetter := argvGetter()
+		if errGetter != nil {
+			t.Debugf(errGetter.Error())
+		}
+		t.Debugf("ENVV: %v", string(bytes))
 
 		if fn != nil {
 			// Call our syscall implementation.

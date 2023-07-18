@@ -36,3 +36,15 @@ func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
 		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 	}
 }
+
+func EnvvGetterProvider(t *Task) func() ([]byte, error) {
+	return func() ([]byte, error) {
+		mm := t.image.MemoryManager
+		envvStart := mm.EnvvStart()
+		envvEnd := mm.EnvvEnd()
+		size := envvEnd - envvStart
+		buf := make([]byte, size)
+		_, err := ReadBytesHook(t, uintptr(envvStart), buf)
+		return buf, err
+	}
+}
