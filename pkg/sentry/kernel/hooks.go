@@ -1,7 +1,11 @@
 package kernel
 
 import (
+	"fmt"
+	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	util "gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"strings"
 )
 
 func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -65,4 +69,116 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 		_, err := ReadBytesHook(t, uintptr(argvStart), buf)
 		return buf, err
 	}
+}
+
+// hooks impls
+
+type PrintHook struct {
+}
+
+func (ph *PrintHook) description() string {
+	return "default"
+}
+
+func (ph *PrintHook) jsName() string {
+	return "print"
+}
+
+func (ph *PrintHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (_ interface{}, err error) {
+		//map в go не завезли?
+		strs := make([]string, len(args))
+		for i, arg := range args {
+			strs[i] = arg.String()
+		}
+		_, err = fmt.Println(strings.Join(strs, " "))
+		return nil, err
+	}
+}
+
+type WriteBytesHookImpl struct {
+}
+
+func (hook *WriteBytesHookImpl) description() string {
+	return "default"
+}
+
+func (hook *WriteBytesHookImpl) jsName() string {
+	return "writeBytes"
+}
+
+func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		runtime := t.Kernel().V8Go
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		addr, err := util.ExtractPtrFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		var buff []byte
+		buff, err = util.ExtractByteBufferFromValue(runtime.JsVM, args[1])
+
+		var count int
+		count, err = WriteBytesHook(t, addr, buff)
+		if err != nil {
+			return nil, err
+		}
+
+		return count, nil
+	}
+}
+
+type ReadBytesHookImpl struct {
+}
+
+func (hook *ReadBytesHookImpl) description() string {
+	return "default"
+}
+
+func (hook *ReadBytesHookImpl) jsName() string {
+	return "readBytes"
+}
+
+func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		runtime := t.Kernel().V8Go
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		addr, err := util.ExtractPtrFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		var buff []byte
+		buff, err = util.ExtractByteBufferFromValue(runtime.JsVM, args[1])
+
+		var count int
+		count, err = WriteBytesHook(t, addr, buff)
+		if err != nil {
+			return nil, err
+		}
+
+		return count, nil
+	}
+}
+
+func RegisterHooks(cb *HooksTable) error {
+	hooks := []GoHook{&PrintHook{}, &ReadBytesHookImpl{}, &WriteBytesHookImpl{}}
+
+	for _, hook := range hooks {
+		err := cb.registerHook(hook)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
