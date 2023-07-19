@@ -1,6 +1,10 @@
 package callbacks
 
-import "sync"
+import (
+	"errors"
+	"fmt"
+	"sync"
+)
 
 // fuck atomic
 type Flag struct {
@@ -29,4 +33,8 @@ func (flag *Flag) SetValueAndActionAtomically(value bool, fn func()) bool {
 
 func (flag *Flag) SetValue(value bool) bool {
 	return flag.SetValueAndActionAtomically(value, nil)
+}
+
+func ArgsCountMismatchError(expected int, provided int) error {
+	return errors.New(fmt.Sprintf("Incorrect count of args. Expected %d, but provided %d", expected, provided))
 }

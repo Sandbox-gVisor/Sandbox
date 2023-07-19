@@ -236,6 +236,26 @@ func (cb *JsCallback) callbackInvocationTemplate() string {
 	return fmt.Sprintf("%s; %s(%s)", cb.source, cb.entryPoint, strings.Join(args, ", "))
 }
 
+func extractPtrFromValue(vm *goja.Runtime, value goja.Value) (uintptr, error) {
+	var ptr int64
+	err := vm.ExportTo(value, &ptr)
+	if err != nil {
+		return 0, err
+	}
+
+	return uintptr(ptr), nil
+}
+
+func extractByteBufferFromValue(vm *goja.Runtime, value goja.Value) ([]byte, error) {
+	var arrBuf goja.ArrayBuffer
+	err := vm.ExportTo(value, &arrBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	return arrBuf.Bytes(), nil
+}
+
 func extractArgsFromRetJsValue(
 	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value *goja.Value) (retArgs *arch.SyscallArguments, err error) {
 
@@ -256,13 +276,12 @@ func extractArgsFromRetJsValue(
 		}
 
 		ptrVal := retObj.Get(key)
-		var ptr int64
-		err = vm.ExportTo(ptrVal, &ptr)
+		var ptr uintptr
+		ptr, err = extractPtrFromValue(vm, ptrVal)
 		if err != nil {
 			return
 		}
-		retArgs[ind].Value = uintptr(ptr)
-
+		retArgs[ind].Value = ptr
 	}
 
 	return retArgs, nil
@@ -325,18 +344,37 @@ func (ph *PrintHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type RetHook struct {
+type TrueWriteBytesHook struct {
 }
 
-func (ph *RetHook) description() string {
+func (ph *TrueWriteBytesHook) description() string {
 	return "default"
 }
 
-func (ph *RetHook) createCallBack(t *Task) HookCallback {
-	return disposableDecorator(func(args ...goja.Value) (interface{}, error) {
+func (ph *TrueWriteBytesHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
 
-		return 1337, nil
-	})
+		runtime := t.Kernel().V8Go
+		if len(args) != 2 {
+			return nil, callbacks.ArgsCountMismatchError(2, len(args))
+		}
+
+		addr, err := extractPtrFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		var buff []byte
+		buff, err = extractByteBufferFromValue(runtime.JsVM, args[1])
+
+		var count int
+		count, err = WriteBytesHook(t, addr, buff)
+		if err != nil {
+			return nil, err
+		}
+
+		return count, nil
+	}
 }
 
 // Kernel represents an emulated Linux kernel. It must be initialized by calling
@@ -640,7 +678,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		fmt.Println(err42)
 	}
 
-	err42 = k.hooksTable.registerHook("ret", &RetHook{})
+	err42 = k.hooksTable.registerHook("ret", &TrueWriteBytesHook{})
 	if err42 != nil {
 		fmt.Println(err42)
 	}
