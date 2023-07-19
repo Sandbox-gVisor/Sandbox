@@ -16,18 +16,6 @@ func WriteBytesHook(t *Task, addr uintptr, src []byte) (int, error) {
 	return t.CopyOutBytes(hostarch.Addr(addr), src)
 }
 
-func ReadBytesProvider(t *Task) func(addr uintptr, dst []byte) (int, error) {
-	return func(addr uintptr, dst []byte) (int, error) {
-		return t.CopyInBytes(hostarch.Addr(addr), dst)
-	}
-}
-
-func WriteBytesProvider(t *Task) func(addr uintptr, src []byte) (int, error) {
-	return func(addr uintptr, src []byte) (int, error) {
-		return t.CopyOutBytes(hostarch.Addr(addr), src)
-	}
-}
-
 func ReadStringProvider(t *Task) func(addr uintptr, len int) (string, error) {
 	return func(addr uintptr, length int) (string, error) {
 		return t.CopyInString(hostarch.Addr(addr), length)
@@ -84,7 +72,7 @@ func (ph *PrintHook) jsName() string {
 	return "print"
 }
 
-func (ph *PrintHook) createCallBack(t *Task) HookCallback {
+func (ph *PrintHook) createCallBack(_ *Task) HookCallback {
 	return func(args ...goja.Value) (_ interface{}, err error) {
 		//map в go не завезли?
 		strs := make([]string, len(args))
@@ -259,6 +247,83 @@ func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
+type EnvvGetterHookImpl struct {
+}
+
+func (hook *EnvvGetterHookImpl) description() string {
+	return "default"
+}
+
+func (hook *EnvvGetterHookImpl) jsName() string {
+	return "envvGet"
+}
+
+func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		bytes, err := EnvvGetterProvider(t)()
+		splitStrings := strings.Split(string(bytes), "\x00")
+		if err != nil {
+			return nil, err
+		}
+
+		return splitStrings, nil
+	}
+}
+
+type MmapGetterHookImpl struct{}
+
+func (hook *MmapGetterHookImpl) description() string {
+	return "default"
+}
+
+func (hook *MmapGetterHookImpl) jsName() string {
+	return "mmapGet"
+}
+
+func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		res := MmapsGetterProvider(t)()
+		return res, nil
+	}
+}
+
+type ArgvHookImpl struct{}
+
+func (hook *ArgvHookImpl) description() string {
+	return "default"
+}
+
+func (hook *ArgvHookImpl) jsName() string {
+	return "argvGet"
+}
+
+func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		bytes, err := ArgvGetterProvider(t)()
+		splitStrings := strings.Split(string(bytes), "\x00")
+		if err != nil {
+			return nil, err
+		}
+
+		return splitStrings, nil
+	}
+}
+
 func RegisterHooks(cb *HooksTable) error {
 	hooks := []GoHook{
 		&PrintHook{},
@@ -266,6 +331,9 @@ func RegisterHooks(cb *HooksTable) error {
 		&WriteBytesHookImpl{},
 		&ReadStringHookImpl{},
 		&WriteStringHookImpl{},
+		&EnvvGetterHookImpl{},
+		&MmapGetterHookImpl{},
+		&ArgvHookImpl{},
 	}
 
 	for _, hook := range hooks {
