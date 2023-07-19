@@ -9,7 +9,6 @@ import (
 	"sync"
 )
 
-// Flag fuck atomic
 type Flag struct {
 	mutex sync.Mutex
 	flag  bool

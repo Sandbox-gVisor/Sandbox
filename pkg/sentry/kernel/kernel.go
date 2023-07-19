@@ -249,10 +249,10 @@ func (cb *JsCallback) callbackInvocationTemplate() string {
 func (cb *JsCallback) CallbackFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
 
 	kernel := t.Kernel()
-	kernel.V8Go.Mutex.Lock()
-	defer kernel.V8Go.Mutex.Unlock()
+	kernel.GojaRuntime.Mutex.Lock()
+	defer kernel.GojaRuntime.Mutex.Unlock()
 
-	vm := kernel.V8Go.JsVM
+	vm := kernel.GojaRuntime.JsVM
 	hooksHolder := vm.NewObject()
 	if err := kernel.hooksTable.addHooksToContextObject(hooksHolder, t); err != nil {
 		return nil, err
@@ -497,7 +497,7 @@ type Kernel struct {
 	userCountersMap   map[auth.KUID]*userCounters
 	userCountersMapMu userCountersMutex `state:"nosave"`
 
-	V8Go          *GojaRuntime
+	GojaRuntime   *GojaRuntime
 	hooksTable    *HooksTable
 	callbackTable *CallbackTable
 }
@@ -576,7 +576,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		}
 	}(args.SyscallCallbacksInitConfigFD)
 
-	k.V8Go = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
+	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
 	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
 	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
 
