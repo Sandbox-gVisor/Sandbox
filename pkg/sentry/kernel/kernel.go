@@ -35,6 +35,8 @@ import (
 	"errors"
 	"fmt"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -509,6 +511,8 @@ type Kernel struct {
 	GojaRuntime   *GojaRuntime
 	hooksTable    *HooksTable
 	callbackTable *CallbackTable
+
+	runtimeCmdTable map[string]Command
 }
 
 // InitKernelArgs holds arguments to Init.
@@ -562,6 +566,28 @@ type InitKernelArgs struct {
 	RuntimeSocketFD int
 }
 
+type Request struct {
+	Message string `json:"message"`
+}
+
+type Response struct {
+	Message string `json:"message"`
+}
+
+func Accepter(kernel *Kernel, listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Ошибка подключения клиента:", err)
+			continue
+		}
+
+		// Обработка подключения в отдельной горутине
+		fmt.Println("Еще один чел...")
+		go handleRequest(kernel, conn)
+	}
+}
+
 // Init initialize the Kernel with no tasks.
 //
 // Callers must manually set Kernel.Platform and call Kernel.SetMemoryFile
@@ -580,6 +606,11 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return fmt.Errorf("args.ApplicationCores is 0")
 	}
 
+	k.runtimeCmdTable = make(map[string]Command)
+	if err := registerCommands(&k.runtimeCmdTable); err != nil {
+		return err
+	}
+
 	defer func(fd int) {
 		err := syscall.Close(fd)
 		if err != nil {
@@ -588,6 +619,18 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	}(args.SyscallCallbacksInitConfigFD)
 
 	fmt.Println("  +++++  ", args.RuntimeSocketFD)
+
+	file := os.NewFile(uintptr(args.RuntimeSocketFD), "socket")
+	var listener net.Listener
+	var err42 error
+	if listener, err42 = net.FileListener(file); err42 != nil {
+		fmt.Println(err42)
+	}
+	fmt.Println("Сервер запущен и ожидает подключений...")
+
+	// Принимаем подключения от клиентов
+
+	go Accepter(k, listener)
 
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
 	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
