@@ -140,22 +140,34 @@ func SessionGetterProvider(t *Task) func() string {
 		if t.tg == nil {
 			return fmt.Sprintf("{error: %v}", "thread group is nil")
 		}
+		t.Debugf("t.tg is not nil")
 		pg := t.tg.processGroup
 		if pg == nil {
 			return fmt.Sprintf("{error: %v}", "process group is nil")
 		}
+		t.Debugf("t.tg.processGroup (pg) is not nil")
 		var pgids []string
-		/*if pg.session != nil {
+		if pg.session != nil {
+			t.Debugf("pg.session is not nil")
 			sessionPGs := pg.session.processGroups
 			if &sessionPGs != nil {
+				t.Debugf("pg.session.processGroups is not nil")
 				for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
 					pgids = append(pgids, string(int32(spg.id)))
 				}
 			}
-		}*/
-		if pg.Session() == nil {
+		}
+		if pg.session == nil {
 			return fmt.Sprintf("{error: %v}", "session is nil")
 		}
-		return fmt.Sprintf("{sessionId: %v, PGID: %v, foreground: %v, otherPGIDs: [%v]}", pg.Session().id, pg.id, pg.Session().foreground.id, strings.Join(pgids, ",\n"))
+		foreground := pg.session.foreground
+		var foregroundId string
+		if foreground == nil {
+			t.Debugf("sesionId: %v, foreground is nil", pg.session.id)
+			foregroundId = "nil"
+		} else {
+			foregroundId = string(foreground.id)
+		}
+		return fmt.Sprintf("{sessionId: %v, PGID: %v, foreground: %v, otherPGIDs: [%v]}", pg.session.id, pg.id, foregroundId, strings.Join(pgids, ",\n"))
 	}
 }
