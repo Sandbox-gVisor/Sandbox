@@ -16,6 +16,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"runtime/trace"
 	"sync/atomic"
 
@@ -593,6 +594,8 @@ type Task struct {
 	// The userCounters pointer is exclusive to the task goroutine, but the
 	// userCounters instance must be atomically accessed.
 	userCounters *userCounters
+
+	vmFlag callbacks.Flag
 }
 
 // Task related metrics

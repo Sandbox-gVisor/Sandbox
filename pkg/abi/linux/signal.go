@@ -15,8 +15,11 @@
 package linux
 
 import (
+	"fmt"
+	"gvisor.dev/gvisor/pkg/abi"
 	"gvisor.dev/gvisor/pkg/bits"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"strings"
 )
 
 const (
@@ -115,10 +118,58 @@ const (
 	SIGXFSZ   = Signal(25)
 )
 
+// SignalNames contains the names of all named signals.
+var SignalNames = abi.ValueSet{
+	uint64(SIGABRT):   "SIGABRT",
+	uint64(SIGALRM):   "SIGALRM",
+	uint64(SIGBUS):    "SIGBUS",
+	uint64(SIGCHLD):   "SIGCHLD",
+	uint64(SIGCONT):   "SIGCONT",
+	uint64(SIGFPE):    "SIGFPE",
+	uint64(SIGHUP):    "SIGHUP",
+	uint64(SIGILL):    "SIGILL",
+	uint64(SIGINT):    "SIGINT",
+	uint64(SIGIO):     "SIGIO",
+	uint64(SIGKILL):   "SIGKILL",
+	uint64(SIGPIPE):   "SIGPIPE",
+	uint64(SIGPROF):   "SIGPROF",
+	uint64(SIGPWR):    "SIGPWR",
+	uint64(SIGQUIT):   "SIGQUIT",
+	uint64(SIGSEGV):   "SIGSEGV",
+	uint64(SIGSTKFLT): "SIGSTKFLT",
+	uint64(SIGSTOP):   "SIGSTOP",
+	uint64(SIGSYS):    "SIGSYS",
+	uint64(SIGTERM):   "SIGTERM",
+	uint64(SIGTRAP):   "SIGTRAP",
+	uint64(SIGTSTP):   "SIGTSTP",
+	uint64(SIGTTIN):   "SIGTTIN",
+	uint64(SIGTTOU):   "SIGTTOU",
+	uint64(SIGURG):    "SIGURG",
+	uint64(SIGUSR1):   "SIGUSR1",
+	uint64(SIGUSR2):   "SIGUSR2",
+	uint64(SIGVTALRM): "SIGVTALRM",
+	uint64(SIGWINCH):  "SIGWINCH",
+	uint64(SIGXCPU):   "SIGXCPU",
+	uint64(SIGXFSZ):   "SIGXFSZ",
+}
+
+func (sig Signal) String() string {
+	return SignalNames.ParseDecimal(uint64(sig))
+}
+
 // SignalSet is a signal mask with a bit corresponding to each signal.
 //
 // +marshal
 type SignalSet uint64
+
+func (set SignalSet) String() string {
+	var signals []string
+	ForEachSignal(set, func(sig Signal) {
+		signals = append(signals, sig.String())
+	})
+
+	return fmt.Sprintf("[%v]", strings.Join(signals, " "))
+}
 
 // SignalSetSize is the size in bytes of a SignalSet.
 const SignalSetSize = 8
@@ -302,6 +353,62 @@ type SigAction struct {
 	Flags    uint64
 	Restorer uint64
 	Mask     SignalSet
+}
+
+var SignalMaskActions = abi.ValueSet{
+	SIG_BLOCK:   "SIG_BLOCK",
+	SIG_UNBLOCK: "SIG_UNBLOCK",
+	SIG_SETMASK: "SIG_SETMASK",
+}
+
+var SigActionFlags = abi.FlagSet{
+	{
+		Flag: SA_NOCLDSTOP,
+		Name: "SA_NOCLDSTOP",
+	},
+	{
+		Flag: SA_NOCLDWAIT,
+		Name: "SA_NOCLDWAIT",
+	},
+	{
+		Flag: SA_SIGINFO,
+		Name: "SA_SIGINFO",
+	},
+	{
+		Flag: SA_RESTORER,
+		Name: "SA_RESTORER",
+	},
+	{
+		Flag: SA_ONSTACK,
+		Name: "SA_ONSTACK",
+	},
+	{
+		Flag: SA_RESTART,
+		Name: "SA_RESTART",
+	},
+	{
+		Flag: SA_NODEFER,
+		Name: "SA_NODEFER",
+	},
+	{
+		Flag: SA_RESETHAND,
+		Name: "SA_RESETHAND",
+	},
+}
+
+func (sa SigAction) String() string {
+
+	var handler string
+	switch sa.Handler {
+	case SIG_IGN:
+		handler = "SIG_IGN"
+	case SIG_DFL:
+		handler = "SIG_DFL"
+	default:
+		handler = fmt.Sprintf("%#x", sa.Handler)
+	}
+
+	return fmt.Sprintf("{Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", handler, SigActionFlags.Parse(sa.Flags), sa.Restorer, sa.Mask.String())
 }
 
 // SignalStack represents information about a user stack, and is equivalent to
