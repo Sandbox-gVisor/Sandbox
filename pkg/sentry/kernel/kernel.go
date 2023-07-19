@@ -558,6 +558,8 @@ type InitKernelArgs struct {
 	PIDNamespace *PIDNamespace
 
 	SyscallCallbacksInitConfigFD int
+
+	RuntimeSocketFD int
 }
 
 // Init initialize the Kernel with no tasks.
@@ -585,6 +587,8 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		}
 	}(args.SyscallCallbacksInitConfigFD)
 
+	fmt.Println("  +++++  ", args.RuntimeSocketFD)
+
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
 	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
 	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
@@ -593,11 +597,11 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return err
 	}
 
-	if dtos, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
+	if configDto, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
 		fmt.Printf("failed to parse JSON config %v\n", err)
 	} else {
-		//fmt.Println(" --- ", dtos)
-		for _, dto := range dtos {
+		//fmt.Println(" --- ", configDto.SocketFileName)
+		for _, dto := range configDto.CallbackDtos {
 			var cb JsCallback
 			err := cb.fromDto(&dto)
 			if err != nil {

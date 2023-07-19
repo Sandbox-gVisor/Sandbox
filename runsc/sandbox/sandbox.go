@@ -20,8 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"io"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -764,6 +766,52 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 
 	if err := donations.OpenAndDonate("syscall-init-config-fd", conf.SyscallCallbacksConfig, os.O_RDONLY); err != nil {
 		return err
+	}
+
+	if conf.SyscallCallbacksConfig != "" {
+		var configFd int
+		var err error
+		var configDto *callbacks.CallbackConfigDto
+
+		if configFd, err = syscall.Open(conf.SyscallCallbacksConfig, 0644, syscall.O_RDONLY); err != nil {
+			return err
+		}
+
+		if configDto, err = callbacks.Parse(configFd); err != nil {
+			return err
+		} else if configDto.SocketFileName != "" {
+			dir := filepath.Dir(configDto.SocketFileName)
+			err := os.MkdirAll(dir, 0777)
+			if err != nil {
+				return err
+			}
+
+			_ = os.Remove(configDto.SocketFileName)
+
+			addr, err := net.ResolveUnixAddr("unix", configDto.SocketFileName)
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(" ---> ", addr, err)
+
+			listener, err := net.ListenUnix("unix", addr)
+			if err != nil {
+				return err
+			}
+
+			file, err := listener.File()
+			if err != nil {
+				return err
+			}
+
+			err = listener.Close()
+			if err != nil {
+				return err
+			}
+
+			donations.Donate("cb-runtime-socket-fd", file)
+		}
 	}
 
 	gPlatform, err := platform.Lookup(conf.Platform)
