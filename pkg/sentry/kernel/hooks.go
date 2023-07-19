@@ -427,6 +427,39 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
+type SignalMaskHook struct{}
+
+func (hook *SignalMaskHook) description() string {
+	return "default"
+}
+
+func (hook *SignalMaskHook) jsName() string {
+	return "getSignalMask"
+}
+
+type SignalMaskDto struct {
+	SignalMask      int64
+	SignalWaitMask  int64
+	SavedSignalMask int64
+}
+
+func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		dto := SignalMaskDto{
+			SignalMask:      int64(SignalMaskProvider(t)()),
+			SignalWaitMask:  int64(SigWaitMaskProvider(t)()),
+			SavedSignalMask: int64(SigWaitMaskProvider(t)()),
+		}
+
+		return dto, nil
+	}
+}
+
 func RegisterHooks(cb *HooksTable) error {
 	hooks := []GoHook{
 		&PrintHook{},
@@ -437,6 +470,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&EnvvGetterHookImpl{},
 		&MmapGetterHookImpl{},
 		&ArgvHookImpl{},
+		&SignalMaskHook{},
 	}
 
 	for _, hook := range hooks {
