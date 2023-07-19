@@ -1,13 +1,11 @@
 package kernel
 
 import (
+	"errors"
 	"fmt"
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	util "gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
-	"errors"
-	"fmt"
-	"gvisor.dev/gvisor/pkg/hostarch"
 	"strconv"
 	"strings"
 )
@@ -450,4 +448,3 @@ func RegisterHooks(cb *HooksTable) error {
 
 	return nil
 }
-
