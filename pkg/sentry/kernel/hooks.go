@@ -137,7 +137,13 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 
 func SessionGetterProvider(t *Task) func() string {
 	return func() string {
+		if t.tg == nil {
+			return fmt.Sprintf("{error: %v}", "thread group is nil")
+		}
 		pg := t.tg.processGroup
+		if pg == nil {
+			return fmt.Sprintf("{error: %v}", "process group is nil")
+		}
 		var pgids []string
 		if pg.session != nil {
 			sessionPGs := pg.session.processGroups
