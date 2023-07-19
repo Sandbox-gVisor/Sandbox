@@ -172,7 +172,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		//if testPid, testErr := PIDGetterProvider(t); testErr == nil {
 		//	t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
 		//}
-    
+
 		/*if sysno == 1 {
 			testFunc := WriteStringHook(t)
 			testFunc(args[1].Value, "Hehe")
@@ -182,6 +182,9 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		//	changer := WriteBytesProvider(t)
 		//	changer(args[1].Value, []byte("A"))
 		//}
+
+		sessionGetter := SessionGetterProvider(t)
+		t.Debugf(sessionGetter())
 
 		if fn != nil {
 			// Call our syscall implementation.

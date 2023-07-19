@@ -1,9 +1,10 @@
 package kernel
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"strconv"
 	"strings"
 )
 
@@ -72,7 +73,7 @@ func SigactionGetterProvider(t *Task) func() string {
 			actionsDesc = append(actionsDesc, sigaction.String())
 		}
 		return fmt.Sprintf("[\n%v]", strings.Join(actionsDesc, ",\n"))
-  }
+	}
 }
 
 func GIDGetterProvider(t *Task) (func() uint32, error) {
@@ -132,5 +133,41 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 		buf := make([]byte, size)
 		_, err := ReadBytesHook(t, uintptr(argvStart), buf)
 		return buf, err
+	}
+}
+
+func SessionGetterProvider(t *Task) func() string {
+	return func() string {
+		if t.tg == nil {
+			return fmt.Sprintf("{\"error\": \"%v\"}", "thread group is nil")
+		}
+		pg := t.tg.processGroup
+		if pg == nil {
+			return fmt.Sprintf("{\"error\": \"%v\"}", "process group is nil")
+		}
+		var pgids []string
+		if pg.session != nil {
+			sessionPGs := pg.session.processGroups
+			if &sessionPGs != nil {
+				for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
+					pgids = append(pgids, strconv.Itoa(int(spg.id)))
+				}
+			}
+		}
+		if pg.session == nil {
+			return fmt.Sprintf("{\"error\": \"%v\"}", "session is nil")
+		}
+		var foregroundGroupId ProcessGroupID
+		if t.tg.TTY() == nil {
+			t.Debugf("{\"error\": \"%v\"}", "t.tg.TTY() is nil")
+			foregroundGroupId = 0
+		} else {
+			var err error
+			foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
+			if err != nil {
+				t.Debugf("{\"error\": \"%v\"}", err.Error())
+			}
+		}
+		return fmt.Sprintf("{\"sessionId\": %v, \"PGID\": %v, \"foreground\": %v, \"otherPGIDs\": [%v]}", pg.session.id, pg.id, foregroundGroupId, strings.Join(pgids, ", "))
 	}
 }
