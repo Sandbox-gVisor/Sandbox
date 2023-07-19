@@ -153,6 +153,9 @@ func SessionGetterProvider(t *Task) func() string {
 				}
 			}
 		}*/
-		return fmt.Sprintf("{sessionId: %v, PGID: %v, foreground: %v, otherPGIDs: [%v]}", pg.session.id, pg.id, pg.session.foreground.id, strings.Join(pgids, ",\n"))
+		if pg.Session() == nil {
+			return fmt.Sprintf("{error: %v}", "session is nil")
+		}
+		return fmt.Sprintf("{sessionId: %v, PGID: %v, foreground: %v, otherPGIDs: [%v]}", pg.Session().id, pg.id, pg.Session().foreground.id, strings.Join(pgids, ",\n"))
 	}
 }
