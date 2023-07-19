@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"errors"
 	"fmt"
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/hostarch"
@@ -66,34 +65,16 @@ func SigactionGetterProvider(t *Task) func() string {
 	}
 }
 
-func GIDGetterProvider(t *Task) (func() uint32, error) {
-	if t == nil {
-		return nil, errors.New("task is nil")
-	}
-
-	return func() uint32 {
-		return t.KGID()
-	}, nil
+func GIDGetter(t *Task) uint32 {
+	return t.KGID()
 }
 
-func UIDGetterProvider(t *Task) (func() uint32, error) {
-	if t == nil {
-		return nil, errors.New("task is nil")
-	}
-
-	return func() uint32 {
-		return t.KUID()
-	}, nil
+func UIDGetter(t *Task) uint32 {
+	return t.KUID()
 }
 
-func PIDGetterProvider(t *Task) (func() int32, error) {
-	if t == nil {
-		return nil, errors.New("task is nil")
-	}
-
-	return func() int32 {
-		return int32(t.PIDNamespace().IDOfTask(t))
-	}, nil
+func PIDGetter(t *Task) int32 {
+	return int32(t.PIDNamespace().IDOfTask(t))
 }
 
 func EnvvGetterProvider(t *Task) func() ([]byte, error) {
@@ -434,13 +415,14 @@ func (hook *SignalMaskHook) description() string {
 }
 
 func (hook *SignalMaskHook) jsName() string {
-	return "getSignalMask"
+	return "getSignalInfo"
 }
 
 type SignalMaskDto struct {
 	SignalMask      int64
 	SignalWaitMask  int64
 	SavedSignalMask int64
+	SigActions      string
 }
 
 func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
@@ -453,7 +435,41 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 		dto := SignalMaskDto{
 			SignalMask:      int64(SignalMaskProvider(t)()),
 			SignalWaitMask:  int64(SigWaitMaskProvider(t)()),
-			SavedSignalMask: int64(SigWaitMaskProvider(t)()),
+			SavedSignalMask: int64(SavedSignalMaskProvider(t)()),
+			SigActions:      SigactionGetterProvider(t)(),
+		}
+
+		return dto, nil
+	}
+}
+
+type PidHook struct{}
+
+func (hook *PidHook) description() string {
+	return "default"
+}
+
+func (hook *PidHook) jsName() string {
+	return "getPidInfo"
+}
+
+type PidDto struct {
+	Pid int32
+	Gid int32
+	Uid int32
+}
+
+func (hook *PidHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		dto := PidDto{
+			Pid: PIDGetter(t),
+			Gid: int32(GIDGetter(t)),
+			Uid: int32(UIDGetter(t)),
 		}
 
 		return dto, nil
@@ -471,6 +487,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&MmapGetterHookImpl{},
 		&ArgvHookImpl{},
 		&SignalMaskHook{},
+		&PidHook{},
 	}
 
 	for _, hook := range hooks {
