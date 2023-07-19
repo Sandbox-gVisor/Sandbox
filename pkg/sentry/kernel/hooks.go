@@ -122,6 +122,9 @@ func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
 
 		var buff []byte
 		buff, err = util.ExtractByteBufferFromValue(runtime.JsVM, args[1])
+		if err != nil {
+			return nil, err
+		}
 
 		var count int
 		count, err = WriteBytesHook(t, addr, buff)
@@ -157,16 +160,20 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, err
 		}
 
-		var buff []byte
-		buff, err = util.ExtractByteBufferFromValue(runtime.JsVM, args[1])
-
-		var count int
-		count, err = WriteBytesHook(t, addr, buff)
+		var count int64
+		count, err = util.ExtractInt64FromValue(runtime.JsVM, args[1])
 		if err != nil {
 			return nil, err
 		}
 
-		return count, nil
+		buff := make([]byte, count)
+		var countRead int
+		countRead, err = ReadBytesHook(t, addr, buff)
+		if err != nil {
+			return nil, err
+		}
+
+		return buff[:countRead], nil
 	}
 }
 

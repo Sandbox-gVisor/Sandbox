@@ -172,7 +172,7 @@ func (ht *HooksTable) registerHook(hook GoHook) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	ht.hooks[hook.jsName()] = &GoHookDecorator{wrapped: hook}
+	ht.hooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
 	return nil
 }
 
