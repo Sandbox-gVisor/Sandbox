@@ -158,23 +158,16 @@ func SessionGetterProvider(t *Task) func() string {
 			return fmt.Sprintf("{\"error\": \"%v\"}", "session is nil")
 		}
 		var foregroundGroupId ProcessGroupID
-		if t.tg.tty == nil {
-			t.Debugf("{\"error\": \"%v\"}", "t.tg.tty is nil")
+		if t.tg.TTY() == nil {
+			t.Debugf("{\"error\": \"%v\"}", "t.tg.TTY() is nil")
 			foregroundGroupId = 0
 		} else {
 			var err error
-			foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.tty)
+			foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
 			if err != nil {
 				t.Debugf("{\"error\": \"%v\"}", err.Error())
 			}
 		}
-		/*foreground := pg.session.foreground
-		var foregroundIdStr string
-		if foreground == nil {
-			foregroundIdStr = "nil"
-		} else {
-			foregroundIdStr = string(foreground.id)
-		}*/
 		return fmt.Sprintf("{\"sessionId\": %v, \"PGID\": %v, \"foreground\": %v, \"otherPGIDs\": [%v]}", pg.session.id, pg.id, foregroundGroupId, strings.Join(pgids, ", "))
 	}
 }
