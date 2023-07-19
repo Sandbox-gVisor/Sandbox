@@ -339,7 +339,7 @@ func (hook *EnvvGetterHookImpl) description() string {
 }
 
 func (hook *EnvvGetterHookImpl) jsName() string {
-	return "envvGet"
+	return "getEnvs"
 }
 
 func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
@@ -366,7 +366,7 @@ func (hook *MmapGetterHookImpl) description() string {
 }
 
 func (hook *MmapGetterHookImpl) jsName() string {
-	return "mmapGet"
+	return "getMmaps"
 }
 
 func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
@@ -388,7 +388,7 @@ func (hook *ArgvHookImpl) description() string {
 }
 
 func (hook *ArgvHookImpl) jsName() string {
-	return "argvGet"
+	return "getArgv"
 }
 
 func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
@@ -454,9 +454,10 @@ func (hook *PidHook) jsName() string {
 }
 
 type PidDto struct {
-	Pid int32
-	Gid int32
-	Uid int32
+	Pid     int32
+	Gid     int32
+	Uid     int32
+	Session string
 }
 
 func (hook *PidHook) createCallBack(t *Task) HookCallback {
@@ -467,9 +468,10 @@ func (hook *PidHook) createCallBack(t *Task) HookCallback {
 		}
 
 		dto := PidDto{
-			Pid: PIDGetter(t),
-			Gid: int32(GIDGetter(t)),
-			Uid: int32(UIDGetter(t)),
+			Pid:     PIDGetter(t),
+			Gid:     int32(GIDGetter(t)),
+			Uid:     int32(UIDGetter(t)),
+			Session: SessionGetterProvider(t)(),
 		}
 
 		return dto, nil
