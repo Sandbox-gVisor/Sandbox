@@ -147,10 +147,8 @@ func SessionGetterProvider(t *Task) func() string {
 		var pgids []string
 		if pg.session != nil {
 			sessionPGs := pg.session.processGroups
-			if sessionPGs != nil {
-				for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-					pgids = append(pgids, string(int32(spg.id)))
-				}
+			for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
+				pgids = append(pgids, string(int32(spg.id)))
 			}
 		}
 		return fmt.Sprintf("{sessionId: %v, PGID: %v, foreground: %v, otherPGIDs: [%v]}", pg.session.id, pg.id, pg.session.foreground.id, strings.Join(pgids, ",\n"))
