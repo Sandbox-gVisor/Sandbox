@@ -66,8 +66,7 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 		}
 	}
 
-	return []byte(fmt.Sprintf("{\"type\": \"ok\", \"cause\": \"%s\"}",
-		"Все хорошо. Повеситься или повесить ружьё?")), nil
+	return messageResponse("ok", "Все хорошо. Повеситься или повесить ружьё?"), nil
 }
 
 func registerCommands(table *map[string]Command) error {
@@ -94,6 +93,7 @@ func handleRequest(kernel *Kernel, conn net.Conn) {
 		}
 	}(conn)
 
+	//TODO так делать не круто
 	buffer := make([]byte, 1<<15)
 	n, err := conn.Read(buffer)
 	if err != nil {
@@ -121,9 +121,12 @@ func handleRequest(kernel *Kernel, conn net.Conn) {
 		}
 	}
 
-	_, err = conn.Write(response)
-	if err != nil {
-		fmt.Println(err)
-		return
+	for len(response) > 0 {
+		n, err = conn.Write(response)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		response = response[n:]
 	}
 }
