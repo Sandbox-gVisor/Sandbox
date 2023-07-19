@@ -138,10 +138,12 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 func SessionGetterProvider(t *Task) func() string {
 	return func() string {
 		pg := t.tg.processGroup
-		sessionPGs := pg.session.processGroups
 		var pgids []string
-		for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-			pgids = append(pgids, string(int32(spg.id)))
+		if pg.session != nil {
+			sessionPGs := pg.session.processGroups
+			for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
+				pgids = append(pgids, string(int32(spg.id)))
+			}
 		}
 		return fmt.Sprintf("{sessionId: %v, PGID: %v, foreground: %v, otherPGIDs: [%v]}", pg.session.id, pg.id, pg.session.foreground.id, strings.Join(pgids, ",\n"))
 	}
