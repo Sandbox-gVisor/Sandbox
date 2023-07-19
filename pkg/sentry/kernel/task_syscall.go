@@ -30,6 +30,7 @@ import (
 	pb "gvisor.dev/gvisor/pkg/sentry/seccheck/points/points_go_proto"
 	"os"
 	"runtime/trace"
+	"strconv"
 )
 
 // SyscallRestartBlock represents the restart block for a syscall restartable
@@ -148,6 +149,42 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 				args_ = retArgs
 			}
 		}
+
+		if testUid, testErr := UIDGetterProvider(t); testErr == nil {
+			t.Debugf("UID : %v", strconv.Itoa(int(testUid())))
+		}
+
+		if testGid, testErr := GIDGetterProvider(t); testErr == nil {
+			t.Debugf("GID : %v", strconv.Itoa(int(testGid())))
+		}
+
+		//smask := SignalMaskProvider(t)
+		//swmask := SigWaitMaskProvider(t)
+		//ssmask := SavedSignalMaskProvider(t)
+
+		//acts := SigactionGetterProvider(t)
+
+		//t.Debugf("t.signalMask: %v", linux.SignalSet(smask()).String())
+		//t.Debugf("t.realSignalMask: %v", linux.SignalSet(swmask()).String())
+		//t.Debugf("t.savedSignalMask: %v", linux.SignalSet(ssmask()).String())
+		//t.Debugf("sigactions: %v", acts())
+
+		//if testPid, testErr := PIDGetterProvider(t); testErr == nil {
+		//	t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
+		//}
+
+		/*if sysno == 1 {
+			testFunc := WriteStringHook(t)
+			testFunc(args[1].Value, "Hehe")
+		}*/
+
+		//if sysno == 1 {
+		//	changer := WriteBytesProvider(t)
+		//	changer(args[1].Value, []byte("A"))
+		//}
+
+		sessionGetter := SessionGetterProvider(t)
+		t.Debugf(sessionGetter())
 
 		if fn != nil {
 			// Call our syscall implementation.
