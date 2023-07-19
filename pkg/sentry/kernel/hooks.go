@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"strconv"
 	"strings"
 )
 
@@ -153,7 +154,7 @@ func SessionGetterProvider(t *Task) func() string {
 			if &sessionPGs != nil {
 				t.Debugf("pg.session.processGroups is not nil")
 				for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-					pgids = append(pgids, string(int32(spg.id)))
+					pgids = append(pgids, strconv.Itoa(int(spg.id)))
 				}
 			}
 		}
