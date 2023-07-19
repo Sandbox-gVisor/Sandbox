@@ -793,8 +793,6 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				return err
 			}
 
-			fmt.Println(" ---> ", addr, err)
-
 			listener, err := net.ListenUnix("unix", addr)
 			if err != nil {
 				return err

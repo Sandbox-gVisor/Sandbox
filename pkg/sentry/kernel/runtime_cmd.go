@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"net"
 )
 
@@ -13,19 +14,60 @@ type Command interface {
 	execute(kernel *Kernel, raw []byte) ([]byte, error)
 }
 
-type NoSuchCommand struct{}
-
-func (n NoSuchCommand) name() string {
-	return ""
-}
-
-func (n NoSuchCommand) execute(_ *Kernel, _ []byte) ([]byte, error) {
-	ret := "{\"type\": \"not_ok\", \"cause\": \"no such command\"}"
-	return []byte(ret), nil
+func messageResponse(type_ string, message string) []byte {
+	return []byte(fmt.Sprintf("{\"type\": \"%s\", \"message\": \"%s\"}\x00", type_, message))
 }
 
 type TypeDto struct {
 	Type string `json:"type"`
+}
+
+type ChangeSyscallCallbackCommand struct{}
+
+func (c ChangeSyscallCallbackCommand) name() string {
+	return "change-callbacks"
+}
+
+type ChangeSyscallDto struct {
+	Type string `json:"type"`
+
+	CallbackDto []callbacks.CallbackDto `json:"callbacks"`
+}
+
+func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+
+	var request ChangeSyscallDto
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(request.CallbackDto) == 0 {
+		return nil, errors.New("callbacks list is empty")
+	}
+
+	var jsCallbacks []JsCallback
+	for _, dto := range request.CallbackDto {
+		var cb JsCallback
+		err := cb.fromDto(&dto)
+		if err != nil {
+			return nil, err
+		}
+		jsCallbacks = append(jsCallbacks, cb)
+	}
+
+	kernel.callbackTable.mutex.Lock()
+	defer kernel.callbackTable.mutex.Unlock()
+
+	for _, cb := range jsCallbacks {
+		err = kernel.callbackTable.registerCallbackWithoutLock(cb.sysno, &cb)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return []byte(fmt.Sprintf("{\"type\": \"ok\", \"cause\": \"%s\"}",
+		"Все хорошо. Повеситься или повесить ружьё?")), nil
 }
 
 func registerCommands(table *map[string]Command) error {
@@ -34,7 +76,7 @@ func registerCommands(table *map[string]Command) error {
 	}
 
 	commands := []Command{
-		NoSuchCommand{},
+		&ChangeSyscallCallbackCommand{},
 	}
 
 	for _, command := range commands {
@@ -52,7 +94,7 @@ func handleRequest(kernel *Kernel, conn net.Conn) {
 		}
 	}(conn)
 
-	buffer := make([]byte, 1024)
+	buffer := make([]byte, 1<<15)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		fmt.Println(err)
@@ -60,17 +102,24 @@ func handleRequest(kernel *Kernel, conn net.Conn) {
 	}
 
 	var request TypeDto
+	var response []byte
+
+	// очень плохо не понятно, исправить вложенность
 	err = json.Unmarshal(buffer[:n], &request)
 	if err != nil {
-		fmt.Println(err)
-		return
-	}
+		response = messageResponse("error", err.Error())
+	} else {
+		command, ok := kernel.runtimeCmdTable[request.Type]
 
-	command, ok := kernel.runtimeCmdTable[request.Type]
-	if !ok {
-		command = NoSuchCommand{}
+		if !ok {
+			response = messageResponse("error", "no such command: "+request.Type)
+		} else {
+			response, err = command.execute(kernel, buffer[:n])
+			if err != nil {
+				response = messageResponse("error", err.Error())
+			}
+		}
 	}
-	response, err := command.execute(kernel, buffer[:n])
 
 	_, err = conn.Write(response)
 	if err != nil {

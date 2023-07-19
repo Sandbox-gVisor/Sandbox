@@ -566,24 +566,14 @@ type InitKernelArgs struct {
 	RuntimeSocketFD int
 }
 
-type Request struct {
-	Message string `json:"message"`
-}
-
-type Response struct {
-	Message string `json:"message"`
-}
-
-func Accepter(kernel *Kernel, listener net.Listener) {
+func accepter(kernel *Kernel, listener net.Listener) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Println("Ошибка подключения клиента:", err)
+			log.Infof(err.Error())
 			continue
 		}
 
-		// Обработка подключения в отдельной горутине
-		fmt.Println("Еще один чел...")
 		go handleRequest(kernel, conn)
 	}
 }
@@ -618,19 +608,16 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		}
 	}(args.SyscallCallbacksInitConfigFD)
 
-	fmt.Println("  +++++  ", args.RuntimeSocketFD)
+	if args.RuntimeSocketFD != -1 {
+		file := os.NewFile(uintptr(args.RuntimeSocketFD), "socket")
+		var listener net.Listener
+		var err error
+		if listener, err = net.FileListener(file); err != nil {
+			fmt.Println(err)
+		}
 
-	file := os.NewFile(uintptr(args.RuntimeSocketFD), "socket")
-	var listener net.Listener
-	var err42 error
-	if listener, err42 = net.FileListener(file); err42 != nil {
-		fmt.Println(err42)
+		go accepter(k, listener)
 	}
-	fmt.Println("Сервер запущен и ожидает подключений...")
-
-	// Принимаем подключения от клиентов
-
-	go Accepter(k, listener)
 
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
 	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
