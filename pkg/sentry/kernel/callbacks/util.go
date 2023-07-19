@@ -72,6 +72,16 @@ func ExtractByteBufferFromValue(vm *goja.Runtime, value goja.Value) ([]byte, err
 	return arrBuf.Bytes(), nil
 }
 
+func ExtractStringFromValue(vm *goja.Runtime, value goja.Value) (string, error) {
+	var ret string
+	err := vm.ExportTo(value, &ret)
+	if err != nil {
+		return "", err
+	}
+
+	return ret, nil
+}
+
 func ExtractArgsFromRetJsValue(
 	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value *goja.Value) (retArgs *arch.SyscallArguments, err error) {
 

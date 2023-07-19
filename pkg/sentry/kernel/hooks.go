@@ -177,8 +177,96 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
+type WriteStringHookImpl struct {
+}
+
+func (hook *WriteStringHookImpl) description() string {
+	return "default"
+}
+
+func (hook *WriteStringHookImpl) jsName() string {
+	return "writeString"
+}
+
+func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		runtime := t.Kernel().V8Go
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		addr, err := util.ExtractPtrFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		var str string
+		str, err = util.ExtractStringFromValue(runtime.JsVM, args[1])
+		if err != nil {
+			return nil, err
+		}
+
+		cb := WriteStringProvider(t)
+		var count int
+		count, err = cb(addr, str)
+		if err != nil {
+			return nil, err
+		}
+
+		return count, nil
+	}
+}
+
+type ReadStringHookImpl struct {
+}
+
+func (hook *ReadStringHookImpl) description() string {
+	return "default"
+}
+
+func (hook *ReadStringHookImpl) jsName() string {
+	return "readString"
+}
+
+func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		runtime := t.Kernel().V8Go
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		addr, err := util.ExtractPtrFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		var count int64
+		count, err = util.ExtractInt64FromValue(runtime.JsVM, args[1])
+		if err != nil {
+			return nil, err
+		}
+
+		cb := ReadStringProvider(t)
+		var ret string
+		ret, err = cb(addr, int(count))
+		if err != nil {
+			return nil, err
+		}
+
+		return ret, nil
+	}
+}
+
 func RegisterHooks(cb *HooksTable) error {
-	hooks := []GoHook{&PrintHook{}, &ReadBytesHookImpl{}, &WriteBytesHookImpl{}}
+	hooks := []GoHook{
+		&PrintHook{},
+		&ReadBytesHookImpl{},
+		&WriteBytesHookImpl{},
+		&ReadStringHookImpl{},
+		&WriteStringHookImpl{},
+	}
 
 	for _, hook := range hooks {
 		err := cb.registerHook(hook)
