@@ -478,6 +478,7 @@ func (hook *PidHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+// RegisterHooks register all hooks from this file in provided table
 func RegisterHooks(cb *HooksTable) error {
 	hooks := []GoHook{
 		&PrintHook{},

@@ -115,13 +115,16 @@ func (uc *userCounters) decRLimitNProc() {
 	uc.rlimitNProc.Add(^uint64(0))
 }
 
+// GojaRuntime is a js engine, where running user callbacks
 type GojaRuntime struct {
 	JsVM  *goja.Runtime
 	Mutex *sync.Mutex
 }
 
+// HookCallback is signature of hooks that are called from user`s js callback
 type HookCallback func(...goja.Value) (interface{}, error)
 
+// GoHook is an interface for hooks, that user can call from js callback
 type GoHook interface {
 	description() string
 
@@ -130,6 +133,7 @@ type GoHook interface {
 	createCallBack(*Task) HookCallback
 }
 
+// HooksTable user`s js callback takes hooks from this table before execution
 type HooksTable struct {
 	hooks map[string]GoHook
 	mutex sync.Mutex
@@ -147,6 +151,7 @@ func disposableDecorator(callback HookCallback) HookCallback {
 	}
 }
 
+// GoHookDecorator added for future restrictions of hooks
 type GoHookDecorator struct {
 	wrapped GoHook
 }
@@ -192,6 +197,7 @@ func (ht *HooksTable) getHook(hookName string) GoHook {
 	}
 }
 
+// JsCallback implements Callback
 type JsCallback struct {
 	source     string
 	entryPoint string
@@ -209,6 +215,7 @@ func (cb *JsCallback) fromDto(dto *callbacks.CallbackDto) error {
 	return nil
 }
 
+// addHooksToContextObject from this context object user`s callback will take hooks
 func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
@@ -225,6 +232,7 @@ func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) e
 	return nil
 }
 
+// addSyscallArgsToContextObject from this context object user`s callback will take syscall args
 func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
 	for i, arg := range arguments {
 		err := object.Set(fmt.Sprintf("arg%d", i), int64(arg.Value))
@@ -237,6 +245,7 @@ func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallA
 	return nil
 }
 
+// callbackInvocationTemplate generate string that represent user callback script + invocation of it with injected args
 func (cb *JsCallback) callbackInvocationTemplate() string {
 	args := make([]string, len(arch.SyscallArguments{}))
 	for i := range args {
@@ -246,8 +255,8 @@ func (cb *JsCallback) callbackInvocationTemplate() string {
 	return fmt.Sprintf("%s; %s(%s)", cb.source, cb.entryPoint, strings.Join(args, ", "))
 }
 
+// CallbackFunc execution of user callback for syscall on js VM with our hooks
 func (cb *JsCallback) CallbackFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
-
 	kernel := t.Kernel()
 	kernel.GojaRuntime.Mutex.Lock()
 	defer kernel.GojaRuntime.Mutex.Unlock()

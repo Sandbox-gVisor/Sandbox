@@ -14,7 +14,7 @@ type Flag struct {
 	flag  bool
 }
 
-// SetValueAndActionAtomically returns previous
+// SetValueAndActionAtomically returns previous value of flag
 func (flag *Flag) SetValueAndActionAtomically(value bool, fn func()) bool {
 	if flag == nil {
 		panic("null pointer")
@@ -40,6 +40,8 @@ func (flag *Flag) SetValue(value bool) bool {
 func ArgsCountMismatchError(expected int, provided int) error {
 	return errors.New(fmt.Sprintf("Incorrect count of args. Expected %d, but provided %d", expected, provided))
 }
+
+// methods below extract go types from goja types
 
 func ExtractPtrFromValue(vm *goja.Runtime, value goja.Value) (uintptr, error) {
 	var ptr int64
