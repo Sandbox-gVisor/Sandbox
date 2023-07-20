@@ -75,10 +75,8 @@ func EnvvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
-func MmapsGetterProvider(t *Task) func() string {
-	return func() string {
-		return t.image.MemoryManager.String()
-	}
+func MmapsGetter(t *Task) string {
+	return t.image.MemoryManager.String()
 }
 
 func ArgvGetter(t *Task) ([]byte, error) {
@@ -356,7 +354,7 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		res := MmapsGetterProvider(t)()
+		res := MmapsGetter(t)
 		return res, nil
 	}
 }
