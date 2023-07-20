@@ -9,25 +9,21 @@ import (
 	"strings"
 )
 
-func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
+func ReadBytes(t *Task, addr uintptr, dst []byte) (int, error) {
 	return t.CopyInBytes(hostarch.Addr(addr), dst)
 }
 
-func WriteBytesHook(t *Task, addr uintptr, src []byte) (int, error) {
+func WriteBytes(t *Task, addr uintptr, src []byte) (int, error) {
 	return t.CopyOutBytes(hostarch.Addr(addr), src)
 }
 
-func ReadStringProvider(t *Task) func(addr uintptr, len int) (string, error) {
-	return func(addr uintptr, length int) (string, error) {
-		return t.CopyInString(hostarch.Addr(addr), length)
-	}
+func ReadString(t *Task, addr uintptr, len int) (string, error) {
+	return t.CopyInString(hostarch.Addr(addr), len)
 }
 
-func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
-	return func(addr uintptr, str string) (int, error) {
-		bytes := []byte(str)
-		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
-	}
+func WriteString(t *Task, addr uintptr, str string) (int, error) {
+	bytes := []byte(str)
+	return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 }
 
 // SignalMaskProvider provides functions to return Task.signalMask
@@ -83,7 +79,7 @@ func EnvvGetter(t *Task) ([]byte, error) {
 	envvEnd := mm.EnvvEnd()
 	size := envvEnd - envvStart
 	buf := make([]byte, size)
-	_, err := ReadBytesHook(t, uintptr(envvStart), buf)
+	_, err := ReadBytes(t, uintptr(envvStart), buf)
 	return buf, err
 }
 
@@ -99,7 +95,7 @@ func ArgvGetter(t *Task) ([]byte, error) {
 	argvEnd := mm.ArgvEnd()
 	size := argvEnd - argvStart
 	buf := make([]byte, size)
-	_, err := ReadBytesHook(t, uintptr(argvStart), buf)
+	_, err := ReadBytes(t, uintptr(argvStart), buf)
 	return buf, err
 }
 
@@ -195,7 +191,7 @@ func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
 		}
 
 		var count int
-		count, err = WriteBytesHook(t, addr, buff)
+		count, err = WriteBytes(t, addr, buff)
 		if err != nil {
 			return nil, err
 		}
@@ -236,7 +232,7 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 
 		buff := make([]byte, count)
 		var countRead int
-		countRead, err = ReadBytesHook(t, addr, buff)
+		countRead, err = ReadBytes(t, addr, buff)
 		if err != nil {
 			return nil, err
 		}
@@ -275,9 +271,8 @@ func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, err
 		}
 
-		cb := WriteStringProvider(t)
 		var count int
-		count, err = cb(addr, str)
+		count, err = WriteString(t, addr, str)
 		if err != nil {
 			return nil, err
 		}
@@ -316,9 +311,8 @@ func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, err
 		}
 
-		cb := ReadStringProvider(t)
 		var ret string
-		ret, err = cb(addr, int(count))
+		ret, err = ReadString(t, addr, int(count))
 		if err != nil {
 			return nil, err
 		}
