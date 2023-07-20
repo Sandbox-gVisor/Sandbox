@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	json2 "encoding/json"
 	"errors"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
@@ -100,23 +101,73 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 	}
 }
 
-func FdResolverProvider(t *Task) func() []string {
-	return func() []string {
-		fdt := t.fdTable
-		privileges := make([]string, 10)
+type FDInfo struct {
+	Name     string `json:"name"`
+	FD       string `json:"fd"`
+	Mode     string `json:"mode"`
+	Readable bool   `json:"readable"`
+	Writable bool   `json:"writable"`
+}
 
-		fdt.forEach(t, func(fd int32, fdesc *vfs.FileDescription, _ FDFlags) {
+// FdsResolver resolves all file descriptors that belong to given task and returns
+// path to fd, fd num and fd mask in JSON format
+func FdsResolver(t *Task) []byte {
+	jsonPrivs := make([]FDInfo, 5)
 
-			stat, err := fdesc.Stat(t, vfs.StatOptions{})
-			if err != nil {
-				return
-			}
-			name := findPath(t, fd)
-			privileges = append(privileges, "("+name+")"+strconv.FormatInt(int64(fd), 10)+":"+parseMask(stat.Mode))
+	fdt := t.fdTable
+
+	fdt.forEach(t, func(fd int32, fdesc *vfs.FileDescription, _ FDFlags) {
+		stat, err := fdesc.Stat(t, vfs.StatOptions{})
+		if err != nil {
+			return
+		}
+
+		name := findPath(t, fd)
+		num := strconv.FormatInt(int64(fd), 10)
+		privMask := parseMask(stat.Mode)
+
+		jsonPrivs = append(jsonPrivs, FDInfo{
+			FD:       num,
+			Name:     name,
+			Mode:     privMask,
+			Writable: fdesc.IsWritable(),
+			Readable: fdesc.IsReadable(),
 		})
+	})
 
-		return privileges
+	jsonForm, _ := json2.Marshal(jsonPrivs)
+
+	return jsonForm
+}
+
+// FdResolver resolves one specific fd for given task and returns
+// path to fd, fd num and fd mask in JSON format
+func FdResolver(t *Task, fd int32) []byte {
+	fdesc, _ := t.fdTable.Get(fd)
+	if fdesc == nil {
+		return nil
 	}
+	defer fdesc.DecRef(t)
+	stat, err := fdesc.Stat(t, vfs.StatOptions{})
+	if err != nil {
+		return nil
+	}
+
+	name := findPath(t, fd)
+	num := strconv.FormatInt(int64(fd), 10)
+	privMask := parseMask(stat.Mode)
+
+	jsonPrivs := FDInfo{
+		Name:     name,
+		FD:       num,
+		Mode:     privMask,
+		Writable: fdesc.IsWritable(),
+		Readable: fdesc.IsReadable(),
+	}
+
+	jsonForm, _ := json2.Marshal(jsonPrivs)
+
+	return jsonForm
 }
 
 func findPath(t *Task, fd int32) string {

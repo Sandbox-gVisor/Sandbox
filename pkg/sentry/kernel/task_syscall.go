@@ -173,8 +173,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		//	changer(args[1].Value, []byte("A"))
 		//}
 
-		testPrivs := FdResolverProvider(t)
-		t.Debugf("Privileges : %v", testPrivs())
+		t.Debugf("Hehe Privileges : %v", string(FdResolver(t, 1)))
 
 		if fn != nil {
 			// Call our syscall implementation.
