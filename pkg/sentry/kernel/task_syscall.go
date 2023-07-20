@@ -139,7 +139,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 		args_ := &args
 		ct := t.Kernel().callbackTable
-		callback := ct.getCallback(sysno)
+		callback := ct.getCallbackBefore(sysno)
 		if callback != nil {
 			retArgs, err := callback.CallbackFunc(t, sysno, &args)
 			if err != nil {

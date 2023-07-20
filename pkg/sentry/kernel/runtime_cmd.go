@@ -56,11 +56,11 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 		jsCallbacks = append(jsCallbacks, cb)
 	}
 
-	kernel.callbackTable.mutex.Lock()
-	defer kernel.callbackTable.mutex.Unlock()
+	kernel.callbackTable.mutexBefore.Lock()
+	defer kernel.callbackTable.mutexBefore.Unlock()
 
 	for _, cb := range jsCallbacks {
-		err = kernel.callbackTable.registerCallbackWithoutLock(cb.sysno, &cb)
+		err = kernel.callbackTable.registerCallbackBeforeNoLock(cb.sysno, &cb)
 		if err != nil {
 			panic(err)
 		}

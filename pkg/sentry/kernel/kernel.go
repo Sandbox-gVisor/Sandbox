@@ -200,7 +200,7 @@ func (ht *HooksTable) getHook(hookName string) GoHook {
 	}
 }
 
-// JsCallback implements Callback
+// JsCallback implements CallbackBefore
 type JsCallback struct {
 	source     string
 	entryPoint string
@@ -621,7 +621,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	}
 
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
-	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
+	k.callbackTable = &CallbackTable{callbackBefore: make(map[uintptr]CallbackBefore)}
 	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
 
 	if err := RegisterHooks(k.hooksTable); err != nil {
@@ -639,7 +639,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 				fmt.Println("failed to make cb ", err, dto)
 			}
 
-			err = k.callbackTable.registerCallback(cb.sysno, &cb)
+			err = k.callbackTable.registerCallbackBefore(cb.sysno, &cb)
 			if err != nil {
 				panic(err)
 			}
