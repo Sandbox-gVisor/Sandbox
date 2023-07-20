@@ -259,7 +259,7 @@ func (cb *JsCallback) callbackInvocationTemplate() string {
 }
 
 // CallbackFunc execution of user callback for syscall on js VM with our hooks
-func (cb *JsCallback) CallbackFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
+func (cb *JsCallback) CallbackBeforeFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
 	kernel := t.Kernel()
 	kernel.GojaRuntime.Mutex.Lock()
 	defer kernel.GojaRuntime.Mutex.Unlock()
@@ -621,7 +621,10 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	}
 
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
-	k.callbackTable = &CallbackTable{callbackBefore: make(map[uintptr]CallbackBefore)}
+	k.callbackTable = &CallbackTable{
+		callbackBefore: make(map[uintptr]CallbackBefore),
+		callbackAfter:  make(map[uintptr]CallbackAfter),
+	}
 	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
 
 	if err := RegisterHooks(k.hooksTable); err != nil {

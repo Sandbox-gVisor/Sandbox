@@ -139,9 +139,9 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 		args_ := &args
 		ct := t.Kernel().callbackTable
-		callback := ct.getCallbackBefore(sysno)
-		if callback != nil {
-			retArgs, err := callback.CallbackFunc(t, sysno, &args)
+		callbackBefore := ct.getCallbackBefore(sysno)
+		if callbackBefore != nil {
+			retArgs, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)
 			if err != nil {
 				fmt.Println(err)
 			} else {
@@ -149,27 +149,35 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			}
 		}
 
-		if fn != nil {
-			// Call our syscall implementation.
-			rval, ctrl, err = fn(t, sysno, *args_)
+		callbackAfter := ct.getCallbackAfter(sysno)
+		if callbackAfter != nil {
+			rval_, err_, instead := callbackAfter.CallbackAfterFunc(t, sysno, &args)
+			t.Debugf("New rval: %v, new err: %v", rval_, err_)
+			if instead {
+				rval = rval_
+				// TODO: convert err_ to golang error
+				// err = magic(err_)
+			} else {
+				if fn != nil {
+					// Call our syscall implementation.
+					rval, ctrl, err = fn(t, sysno, *args_)
+				} else {
+					// Use the missing function if not found.
+					rval, err = t.SyscallTable().Missing(t, sysno, *args_)
+				}
+				rval = rval_
+				// TODO: convert err_ to golang error
+				// err = magic(err_)
+			}
 		} else {
-			// Use the missing function if not found.
-			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
+			if fn != nil {
+				// Call our syscall implementation.
+				rval, ctrl, err = fn(t, sysno, *args_)
+			} else {
+				// Use the missing function if not found.
+				rval, err = t.SyscallTable().Missing(t, sysno, *args_)
+			}
 		}
-
-		//if PIDGetter(t) > 6 && sysno == 1 && t.switcher%3 > 0 {
-		//	rval = 1
-		//} else {
-		//
-		//	// here call syscall implementation
-		//
-		//}
-		//t.switcher = (t.switcher + 1) % 3
-
-		// Working rval replacement for write
-		//if PIDGetter(t) > 6 && sysno == 1 {
-		//	rval = 1
-		//}
 
 		if region != nil {
 			region.End()
