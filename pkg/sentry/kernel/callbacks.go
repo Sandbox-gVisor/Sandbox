@@ -159,6 +159,8 @@ func (s *SimplePrinter) CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.Sy
 
 type JsCallback interface {
 	callbackInfo() *callbacks.JsCallbackInfo
+
+	registerAtCallbackTable(ct *CallbackTable) error
 }
 
 const JsCallbackTypeAfter = "after"
@@ -183,12 +185,33 @@ type JsCallbackAfter struct {
 	info callbacks.JsCallbackInfo
 }
 
+func JsCallbackByInfo(info callbacks.JsCallbackInfo) (JsCallback, error) {
+	if info.Type == JsCallbackTypeAfter {
+		cb := &JsCallbackAfter{info: info}
+		return cb, checkJsCallback(cb)
+	}
+	if info.Type == JsCallbackTypeBefore {
+		cb := &JsCallbackBefore{info: info}
+		return cb, checkJsCallback(cb)
+	}
+
+	return nil, errors.New("incorrect callback type " + info.Type)
+}
+
 func (cb *JsCallbackBefore) callbackInfo() *callbacks.JsCallbackInfo {
 	return &cb.info
 }
 
+func (cb *JsCallbackBefore) registerAtCallbackTable(ct *CallbackTable) error {
+	return ct.registerCallbackBefore(uintptr(cb.info.Sysno), cb)
+}
+
 func (cb *JsCallbackAfter) callbackInfo() *callbacks.JsCallbackInfo {
 	return &cb.info
+}
+
+func (cb *JsCallbackAfter) registerAtCallbackTable(ct *CallbackTable) error {
+	return ct.registerCallbackAfter(uintptr(cb.info.Sysno), cb)
 }
 
 func checkJsCallback(cb JsCallback) error {

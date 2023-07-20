@@ -459,30 +459,15 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	} else {
 		//fmt.Println(" --- ", configDto.SocketFileName)
 		for _, dto := range configDto.CallbackDtos {
-			if dto.Type == JsCallbackTypeAfter {
-				cb := JsCallbackAfter{info: dto}
-				err := checkJsCallback(&cb)
-				if err != nil {
-					fmt.Println(err)
-					continue
-				}
+			jsCallback, err := JsCallbackByInfo(dto)
+			if err != nil {
+				fmt.Println("incorrect callback in init config: " + err.Error())
+				continue
+			}
 
-				err = k.callbackTable.registerCallbackAfter(uintptr(cb.info.Sysno), &cb)
-				if err != nil {
-					panic(err)
-				}
-			} else {
-				cb := JsCallbackBefore{info: dto}
-				err := checkJsCallback(&cb)
-				if err != nil {
-					fmt.Println(err)
-					continue
-				}
-
-				err = k.callbackTable.registerCallbackBefore(uintptr(cb.info.Sysno), &cb)
-				if err != nil {
-					panic(err)
-				}
+			err = jsCallback.registerAtCallbackTable(k.callbackTable)
+			if err != nil {
+				panic(err)
 			}
 		}
 	}

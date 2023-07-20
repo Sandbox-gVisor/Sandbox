@@ -170,6 +170,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 				var newArgs *arch.SyscallArguments
 				var error_ error
 				newArgs, sub_, error_ = callbackAfter.CallbackAfterFunc(t, sysno, &args, sub_)
+				fmt.Println(sub_)
 				if error_ != nil {
 					t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
 				} else if sub_ != nil {
