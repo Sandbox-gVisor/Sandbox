@@ -288,16 +288,27 @@ func extractSubstitutionFromRetJsValue(vm *goja.Runtime, value *goja.Value) (*Sy
 	obj := (*value).ToObject(vm)
 
 	if contains(obj.Keys(), JsSyscallReturnValue) && contains(obj.Keys(), JsSyscallErrno) {
-		var sub SyscallReturnValueSubstitution
-		subVal := obj.Get(JsSyscallReturnValue)
+		retVal := obj.Get(JsSyscallReturnValue)
+		errnoVal := obj.Get(JsSyscallErrno)
 
+		ret, err := callbacks.ExtractPtrFromValue(vm, retVal)
+		if err != nil {
+			return nil, err
+		}
+
+		errno, err := callbacks.ExtractPtrFromValue(vm, errnoVal)
+		if err != nil {
+			return nil, err
+		}
+
+		return &SyscallReturnValueSubstitution{returnValue: ret, errno: errno}, nil
 	}
 
 	return nil, nil
 }
 
 // CallbackBeforeFunc execution of user callback for syscall on js VM with our hooks
-func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValueSubstitution, error) {
+func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValueSubstitution, error) {
 	kernel := t.Kernel()
 	kernel.GojaRuntime.Mutex.Lock()
 	defer kernel.GojaRuntime.Mutex.Unlock()
@@ -326,15 +337,65 @@ func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, sysno uintptr, args *arc
 		return nil, nil, err
 	}
 
-	retArgs, err_ := extractArgsFromRetJsValue(args, vm, &val)
-	if err_ != nil {
-		return nil, nil, err_
+	retArgs, err := extractArgsFromRetJsValue(args, vm, &val)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return retArgs, nil
+	retSub, err := extractSubstitutionFromRetJsValue(vm, &val)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return retArgs, retSub, nil
 }
 
-func (cb *JsCallbackAfter) CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments, rval uintptr, err error) (*arch.SyscallArguments, uintptr, uintptr, error) {
-	//TODO implement me
-	panic("implement me")
+func (cb *JsCallbackAfter) CallbackAfterFunc(t *Task, _ uintptr, args *arch.SyscallArguments,
+	substitution *SyscallReturnValueSubstitution) (*arch.SyscallArguments, *SyscallReturnValueSubstitution, error) {
+
+	kernel := t.Kernel()
+	kernel.GojaRuntime.Mutex.Lock()
+	defer kernel.GojaRuntime.Mutex.Unlock()
+
+	vm := kernel.GojaRuntime.JsVM
+	hooksHolder := vm.NewObject()
+	if err := kernel.hooksTable.addHooksToContextObject(hooksHolder, t); err != nil {
+		return nil, nil, err
+	}
+
+	if err := vm.Set(HooksJsName, hooksHolder); err != nil {
+		return nil, nil, err
+	}
+
+	argsHolder := vm.NewObject()
+	if err := addSyscallArgsToContextObject(argsHolder, args); err != nil {
+		return nil, nil, err
+	}
+
+	if substitution != nil {
+		if err := addSubstitutionToContextObject(argsHolder, substitution); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if err := vm.Set(ArgsJsName, argsHolder); err != nil {
+		return nil, nil, err
+	}
+
+	val, err := vm.RunString(jsCallbackInvocationTemplate(cb))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	retArgs, err := extractArgsFromRetJsValue(args, vm, &val)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	retSub, err := extractSubstitutionFromRetJsValue(vm, &val)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return retArgs, retSub, nil
 }
