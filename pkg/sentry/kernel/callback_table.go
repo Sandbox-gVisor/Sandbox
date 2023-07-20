@@ -10,21 +10,21 @@ import (
 type CallbackBefore interface {
 	// CallbackBeforeFunc accepts Task, sysno and syscall arguments returns:
 	//
-	// - new syscall arguments
-	//
-	// - error
+	// TODO: return new args, new rval, new err, instead, error
 	CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error)
 }
 
 type CallbackAfter interface {
 	// CallbackAfterFunc accepts Task, sysno and syscall arguments
 	//
+	// - new args
+	//
 	// - new rval
 	//
 	// - new err (should be converted to golang error)
 	//
-	// - bool flag which indicates if the rval should be set instead (true) or after (false) of syscall execution
-	CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (uintptr, uintptr, bool)
+	// - error if something went wrong
+	CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, uintptr, uintptr, error)
 }
 
 type CallbackTable struct {

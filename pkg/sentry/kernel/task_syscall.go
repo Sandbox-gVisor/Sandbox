@@ -142,6 +142,17 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		ct := t.Kernel().callbackTable
 		callbackBefore := ct.getCallbackBefore(sysno)
 		if callbackBefore != nil {
+			// TODO: get from callbackBefore:
+			//
+			// - new args
+			//
+			// - new rval
+			//
+			// - new err
+			//
+			// - instead
+			//
+			// - error
 			retArgs, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)
 			if err != nil {
 				fmt.Println(err)
@@ -150,32 +161,30 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			}
 		}
 
+		//TODO:
+		//if instead {
+		//	// DON'T call syscall impl
+		//} else {
+		//	// call syscall impl
+		//}
+
+		if fn != nil {
+			// Call our syscall implementation.
+			rval, ctrl, err = fn(t, sysno, *args_)
+		} else {
+			// Use the missing function if not found.
+			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
+		}
+
 		callbackAfter := ct.getCallbackAfter(sysno)
 		if callbackAfter != nil {
-			rval_, err_, instead := callbackAfter.CallbackAfterFunc(t, sysno, &args)
-			t.Debugf("New rval: %v, new err: %v", rval_, err_)
-			if instead {
-				rval = rval_
-				err = linuxerr.ErrorFromUnix(syscall.Errno(err_))
-			} else {
-				if fn != nil {
-					// Call our syscall implementation.
-					rval, ctrl, err = fn(t, sysno, *args_)
-				} else {
-					// Use the missing function if not found.
-					rval, err = t.SyscallTable().Missing(t, sysno, *args_)
-				}
-				rval = rval_
-				err = linuxerr.ErrorFromUnix(syscall.Errno(err_))
+			newArgs, newRval, newErr, error_ := callbackAfter.CallbackAfterFunc(t, sysno, &args)
+			if error_ != nil {
+				t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
 			}
-		} else {
-			if fn != nil {
-				// Call our syscall implementation.
-				rval, ctrl, err = fn(t, sysno, *args_)
-			} else {
-				// Use the missing function if not found.
-				rval, err = t.SyscallTable().Missing(t, sysno, *args_)
-			}
+			rval = newRval
+			err = linuxerr.ErrorFromUnix(syscall.Errno(newErr))
+			args = *newArgs
 		}
 
 		if region != nil {
