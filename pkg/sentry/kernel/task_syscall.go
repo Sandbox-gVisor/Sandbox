@@ -30,6 +30,7 @@ import (
 	pb "gvisor.dev/gvisor/pkg/sentry/seccheck/points/points_go_proto"
 	"os"
 	"runtime/trace"
+	"syscall"
 )
 
 // SyscallRestartBlock represents the restart block for a syscall restartable
@@ -155,7 +156,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			t.Debugf("New rval: %v, new err: %v", rval_, err_)
 			if instead {
 				rval = rval_
-				err = linuxerr.ErrorFromUnix(err_)
+				err = linuxerr.ErrorFromUnix(syscall.Errno(err_))
 			} else {
 				if fn != nil {
 					// Call our syscall implementation.
@@ -165,7 +166,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 					rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 				}
 				rval = rval_
-				err = linuxerr.ErrorFromUnix(err_)
+				err = linuxerr.ErrorFromUnix(syscall.Errno(err_))
 			}
 		} else {
 			if fn != nil {
