@@ -141,6 +141,7 @@ type HooksTable struct {
 	mutex sync.Mutex
 }
 
+// disposableDecorator is used to prevent deadlocks when same callback is called twice
 func disposableDecorator(callback HookCallback) HookCallback {
 	callbackWasInvoked := false
 	return func(args ...goja.Value) (interface{}, error) {

@@ -154,7 +154,7 @@ var SignalNames = abi.ValueSet{
 }
 
 func (sig Signal) String() string {
-	return SignalNames.ParseDecimal(uint64(sig))
+	return fmt.Sprintf("\"%v\"", SignalNames.ParseDecimal(uint64(sig)))
 }
 
 // SignalSet is a signal mask with a bit corresponding to each signal.
@@ -168,7 +168,7 @@ func (set SignalSet) String() string {
 		signals = append(signals, sig.String())
 	})
 
-	return fmt.Sprintf("[%v]", strings.Join(signals, " "))
+	return fmt.Sprintf("[%v]", strings.Join(signals, ", "))
 }
 
 // SignalSetSize is the size in bytes of a SignalSet.
@@ -408,7 +408,7 @@ func (sa SigAction) String() string {
 		handler = fmt.Sprintf("%#x", sa.Handler)
 	}
 
-	return fmt.Sprintf("{Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", handler, SigActionFlags.Parse(sa.Flags), sa.Restorer, sa.Mask.String())
+	return fmt.Sprintf("{\"Handler\": %s, \"Flags\": %s, \"Restorer\": %#x, \"Mask\": %s}", handler, SigActionFlags.Parse(sa.Flags), sa.Restorer, sa.Mask.String())
 }
 
 // SignalStack represents information about a user stack, and is equivalent to

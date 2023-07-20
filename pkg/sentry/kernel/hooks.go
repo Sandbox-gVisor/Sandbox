@@ -9,60 +9,48 @@ import (
 	"strings"
 )
 
-func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
+func ReadBytes(t *Task, addr uintptr, dst []byte) (int, error) {
 	return t.CopyInBytes(hostarch.Addr(addr), dst)
 }
 
-func WriteBytesHook(t *Task, addr uintptr, src []byte) (int, error) {
+func WriteBytes(t *Task, addr uintptr, src []byte) (int, error) {
 	return t.CopyOutBytes(hostarch.Addr(addr), src)
 }
 
-func ReadStringProvider(t *Task) func(addr uintptr, len int) (string, error) {
-	return func(addr uintptr, length int) (string, error) {
-		return t.CopyInString(hostarch.Addr(addr), length)
-	}
+func ReadString(t *Task, addr uintptr, len int) (string, error) {
+	return t.CopyInString(hostarch.Addr(addr), len)
 }
 
-func WriteStringProvider(t *Task) func(addr uintptr, str string) (int, error) {
-	return func(addr uintptr, str string) (int, error) {
-		bytes := []byte(str)
-		return t.CopyOutBytes(hostarch.Addr(addr), bytes)
-	}
+func WriteString(t *Task, addr uintptr, str string) (int, error) {
+	bytes := []byte(str)
+	return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 }
 
-// SignalMaskProvider provides functions to return Task.signalMask
+// SignalMaskGetter return Task.signalMask
 // (signals which delivery is blocked)
-func SignalMaskProvider(t *Task) func() uint64 {
-	return func() uint64 {
-		return t.signalMask.Load()
-	}
+func SignalMaskGetter(t *Task) uint64 {
+	return t.signalMask.Load()
 }
 
-// SigWaitMaskProvider provides functions to return Task.realSignalMask
+// SigWaitMaskGetter provides functions to return Task.realSignalMask
 // (Task will be blocked until one of signals in Task.realSignalMask is pending)
-func SigWaitMaskProvider(t *Task) func() uint64 {
-	return func() uint64 {
-		return uint64(t.realSignalMask)
-	}
+func SigWaitMaskGetter(t *Task) uint64 {
+	return uint64(t.realSignalMask)
 }
 
-// SavedSignalMaskProvider provides functions to return Task.savedSignalMask
-func SavedSignalMaskProvider(t *Task) func() uint64 {
-	return func() uint64 {
-		return uint64(t.savedSignalMask)
-	}
+// SavedSignalMaskGetter provides functions to return Task.savedSignalMask
+func SavedSignalMaskGetter(t *Task) uint64 {
+	return uint64(t.savedSignalMask)
 }
 
-// SigactionGetterProvider provides functions to return sigactions in JSON format
-func SigactionGetterProvider(t *Task) func() string {
-	return func() string {
-		actions := t.tg.signalHandlers.actions
-		var actionsDesc []string
-		for _, sigaction := range actions {
-			actionsDesc = append(actionsDesc, sigaction.String())
-		}
-		return fmt.Sprintf("[\n%v]", strings.Join(actionsDesc, ",\n"))
+// SigactionGetter provides functions to return sigactions in JSON format
+func SigactionGetter(t *Task) string {
+	actions := t.tg.signalHandlers.actions
+	var actionsDesc []string
+	for _, sigaction := range actions {
+		actionsDesc = append(actionsDesc, sigaction.String())
 	}
+	return fmt.Sprintf("[%v]", strings.Join(actionsDesc, ",\n"))
 }
 
 func GIDGetter(t *Task) uint32 {
@@ -77,70 +65,62 @@ func PIDGetter(t *Task) int32 {
 	return int32(t.PIDNamespace().IDOfTask(t))
 }
 
-func EnvvGetterProvider(t *Task) func() ([]byte, error) {
-	return func() ([]byte, error) {
-		mm := t.image.MemoryManager
-		envvStart := mm.EnvvStart()
-		envvEnd := mm.EnvvEnd()
-		size := envvEnd - envvStart
-		buf := make([]byte, size)
-		_, err := ReadBytesHook(t, uintptr(envvStart), buf)
-		return buf, err
-	}
+func EnvvGetter(t *Task) ([]byte, error) {
+	mm := t.image.MemoryManager
+	envvStart := mm.EnvvStart()
+	envvEnd := mm.EnvvEnd()
+	size := envvEnd - envvStart
+	buf := make([]byte, size)
+	_, err := ReadBytes(t, uintptr(envvStart), buf)
+	return buf, err
 }
 
-func MmapsGetterProvider(t *Task) func() string {
-	return func() string {
-		return t.image.MemoryManager.String()
-	}
+func MmapsGetter(t *Task) string {
+	return t.image.MemoryManager.String()
 }
 
-func ArgvGetterProvider(t *Task) func() ([]byte, error) {
-	return func() ([]byte, error) {
-		mm := t.image.MemoryManager
-		argvStart := mm.ArgvStart()
-		argvEnd := mm.ArgvEnd()
-		size := argvEnd - argvStart
-		buf := make([]byte, size)
-		_, err := ReadBytesHook(t, uintptr(argvStart), buf)
-		return buf, err
-	}
+func ArgvGetter(t *Task) ([]byte, error) {
+	mm := t.image.MemoryManager
+	argvStart := mm.ArgvStart()
+	argvEnd := mm.ArgvEnd()
+	size := argvEnd - argvStart
+	buf := make([]byte, size)
+	_, err := ReadBytes(t, uintptr(argvStart), buf)
+	return buf, err
 }
 
-func SessionGetterProvider(t *Task) func() string {
-	return func() string {
-		if t.tg == nil {
-			return fmt.Sprintf("{\"error\": \"%v\"}", "thread group is nil")
-		}
-		pg := t.tg.processGroup
-		if pg == nil {
-			return fmt.Sprintf("{\"error\": \"%v\"}", "process group is nil")
-		}
-		var pgids []string
-		if pg.session != nil {
-			sessionPGs := pg.session.processGroups
-			if &sessionPGs != nil {
-				for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-					pgids = append(pgids, strconv.Itoa(int(spg.id)))
-				}
+func SessionGetter(t *Task) string {
+	if t.tg == nil {
+		return fmt.Sprintf("{\"error\": \"%v\"}", "thread group is nil")
+	}
+	pg := t.tg.processGroup
+	if pg == nil {
+		return fmt.Sprintf("{\"error\": \"%v\"}", "process group is nil")
+	}
+	var pgids []string
+	if pg.session != nil {
+		sessionPGs := pg.session.processGroups
+		if &sessionPGs != nil {
+			for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
+				pgids = append(pgids, strconv.Itoa(int(spg.id)))
 			}
 		}
-		if pg.session == nil {
-			return fmt.Sprintf("{\"error\": \"%v\"}", "session is nil")
-		}
-		var foregroundGroupId ProcessGroupID
-		if t.tg.TTY() == nil {
-			t.Debugf("{\"error\": \"%v\"}", "t.tg.TTY() is nil")
-			foregroundGroupId = 0
-		} else {
-			var err error
-			foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
-			if err != nil {
-				t.Debugf("{\"error\": \"%v\"}", err.Error())
-			}
-		}
-		return fmt.Sprintf("{\"sessionId\": %v, \"PGID\": %v, \"foreground\": %v, \"otherPGIDs\": [%v]}", pg.session.id, pg.id, foregroundGroupId, strings.Join(pgids, ", "))
 	}
+	if pg.session == nil {
+		return fmt.Sprintf("{\"error\": \"%v\"}", "session is nil")
+	}
+	var foregroundGroupId ProcessGroupID
+	if t.tg.TTY() == nil {
+		t.Debugf("{\"error\": \"%v\"}", "t.tg.TTY() is nil")
+		foregroundGroupId = 0
+	} else {
+		var err error
+		foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
+		if err != nil {
+			t.Debugf("{\"error\": \"%v\"}", err.Error())
+		}
+	}
+	return fmt.Sprintf("{\"sessionId\": %v, \"PGID\": %v, \"foreground\": %v, \"otherPGIDs\": [%v]}", pg.session.id, pg.id, foregroundGroupId, strings.Join(pgids, ", "))
 }
 
 // hooks impls
@@ -149,7 +129,7 @@ type PrintHook struct {
 }
 
 func (ph *PrintHook) description() string {
-	return "default"
+	return "Prints passed arguments"
 }
 
 func (ph *PrintHook) jsName() string {
@@ -172,7 +152,7 @@ type WriteBytesHookImpl struct {
 }
 
 func (hook *WriteBytesHookImpl) description() string {
-	return "default"
+	return "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer"
 }
 
 func (hook *WriteBytesHookImpl) jsName() string {
@@ -199,7 +179,7 @@ func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
 		}
 
 		var count int
-		count, err = WriteBytesHook(t, addr, buff)
+		count, err = WriteBytes(t, addr, buff)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +192,7 @@ type ReadBytesHookImpl struct {
 }
 
 func (hook *ReadBytesHookImpl) description() string {
-	return "default"
+	return "Read bytes to provided buffer by provided addr. Always tries to read len(buffer) bytes"
 }
 
 func (hook *ReadBytesHookImpl) jsName() string {
@@ -240,7 +220,7 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 
 		buff := make([]byte, count)
 		var countRead int
-		countRead, err = ReadBytesHook(t, addr, buff)
+		countRead, err = ReadBytes(t, addr, buff)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +233,7 @@ type WriteStringHookImpl struct {
 }
 
 func (hook *WriteStringHookImpl) description() string {
-	return "default"
+	return "Write provided string by provided addr"
 }
 
 func (hook *WriteStringHookImpl) jsName() string {
@@ -279,9 +259,8 @@ func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, err
 		}
 
-		cb := WriteStringProvider(t)
 		var count int
-		count, err = cb(addr, str)
+		count, err = WriteString(t, addr, str)
 		if err != nil {
 			return nil, err
 		}
@@ -294,7 +273,7 @@ type ReadStringHookImpl struct {
 }
 
 func (hook *ReadStringHookImpl) description() string {
-	return "default"
+	return "Read string by provided addr"
 }
 
 func (hook *ReadStringHookImpl) jsName() string {
@@ -320,9 +299,8 @@ func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, err
 		}
 
-		cb := ReadStringProvider(t)
 		var ret string
-		ret, err = cb(addr, int(count))
+		ret, err = ReadString(t, addr, int(count))
 		if err != nil {
 			return nil, err
 		}
@@ -335,7 +313,7 @@ type EnvvGetterHookImpl struct {
 }
 
 func (hook *EnvvGetterHookImpl) description() string {
-	return "default"
+	return "Provides environment variables of the Task"
 }
 
 func (hook *EnvvGetterHookImpl) jsName() string {
@@ -349,7 +327,7 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		bytes, err := EnvvGetterProvider(t)()
+		bytes, err := EnvvGetter(t)
 		splitStrings := strings.Split(string(bytes), "\x00")
 		if err != nil {
 			return nil, err
@@ -362,7 +340,7 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 type MmapGetterHookImpl struct{}
 
 func (hook *MmapGetterHookImpl) description() string {
-	return "default"
+	return "Provides mapping info like in procfs"
 }
 
 func (hook *MmapGetterHookImpl) jsName() string {
@@ -376,7 +354,7 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		res := MmapsGetterProvider(t)()
+		res := MmapsGetter(t)
 		return res, nil
 	}
 }
@@ -384,7 +362,7 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 type ArgvHookImpl struct{}
 
 func (hook *ArgvHookImpl) description() string {
-	return "default"
+	return "Provides argv of the Task"
 }
 
 func (hook *ArgvHookImpl) jsName() string {
@@ -398,7 +376,7 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		bytes, err := ArgvGetterProvider(t)()
+		bytes, err := ArgvGetter(t)
 		splitStrings := strings.Split(string(bytes), "\x00")
 		if err != nil {
 			return nil, err
@@ -411,7 +389,7 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 type SignalMaskHook struct{}
 
 func (hook *SignalMaskHook) description() string {
-	return "default"
+	return "Provides signal masks and sigactions of the Task"
 }
 
 func (hook *SignalMaskHook) jsName() string {
@@ -433,10 +411,10 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 		}
 
 		dto := SignalMaskDto{
-			SignalMask:      int64(SignalMaskProvider(t)()),
-			SignalWaitMask:  int64(SigWaitMaskProvider(t)()),
-			SavedSignalMask: int64(SavedSignalMaskProvider(t)()),
-			SigActions:      SigactionGetterProvider(t)(),
+			SignalMask:      int64(SignalMaskGetter(t)),
+			SignalWaitMask:  int64(SigWaitMaskGetter(t)),
+			SavedSignalMask: int64(SavedSignalMaskGetter(t)),
+			SigActions:      SigactionGetter(t),
 		}
 
 		return dto, nil
@@ -446,7 +424,7 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 type PidHook struct{}
 
 func (hook *PidHook) description() string {
-	return "default"
+	return "Provides PID, GID, UID and session info of Task"
 }
 
 func (hook *PidHook) jsName() string {
@@ -471,7 +449,7 @@ func (hook *PidHook) createCallBack(t *Task) HookCallback {
 			Pid:     PIDGetter(t),
 			Gid:     int32(GIDGetter(t)),
 			Uid:     int32(UIDGetter(t)),
-			Session: SessionGetterProvider(t)(),
+			Session: SessionGetter(t),
 		}
 
 		return dto, nil
