@@ -9,7 +9,26 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+// HookCallback is signature of hooks that are called from user`s js callback
+type HookCallback func(...goja.Value) (interface{}, error)
+
+// GoHook is an interface for hooks, that user can call from js callback
+type GoHook interface {
+	description() string
+
+	jsName() string
+
+	createCallBack(*Task) HookCallback
+}
+
+// HooksTable user`s js callback takes hooks from this table before execution
+type HooksTable struct {
+	hooks map[string]GoHook
+	mutex sync.Mutex
+}
 
 func ReadBytes(t *Task, addr uintptr, dst []byte) (int, error) {
 	return t.CopyInBytes(hostarch.Addr(addr), dst)
@@ -127,8 +146,7 @@ func SessionGetter(t *Task) string {
 
 // hooks impls
 
-type PrintHook struct {
-}
+type PrintHook struct{}
 
 func (ph *PrintHook) description() string {
 	return "Prints passed arguments"
@@ -150,8 +168,7 @@ func (ph *PrintHook) createCallBack(_ *Task) HookCallback {
 	}
 }
 
-type WriteBytesHookImpl struct {
-}
+type WriteBytesHookImpl struct{}
 
 func (hook *WriteBytesHookImpl) description() string {
 	return "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer"
@@ -190,8 +207,7 @@ func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type ReadBytesHookImpl struct {
-}
+type ReadBytesHookImpl struct{}
 
 func (hook *ReadBytesHookImpl) description() string {
 	return "Read bytes to provided buffer by provided addr. Always tries to read len(buffer) bytes"
@@ -231,8 +247,7 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type WriteStringHookImpl struct {
-}
+type WriteStringHookImpl struct{}
 
 func (hook *WriteStringHookImpl) description() string {
 	return "Write provided string by provided addr"
@@ -271,8 +286,7 @@ func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type ReadStringHookImpl struct {
-}
+type ReadStringHookImpl struct{}
 
 func (hook *ReadStringHookImpl) description() string {
 	return "Read string by provided addr"
@@ -311,8 +325,7 @@ func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type EnvvGetterHookImpl struct {
-}
+type EnvvGetterHookImpl struct{}
 
 func (hook *EnvvGetterHookImpl) description() string {
 	return "Provides environment variables of the Task"
@@ -471,6 +484,8 @@ func RegisterHooks(cb *HooksTable) error {
 		&ArgvHookImpl{},
 		&SignalMaskHook{},
 		&PidHook{},
+		&FDHook{},
+		&FDsHook{},
 	}
 
 	for _, hook := range hooks {
@@ -481,6 +496,66 @@ func RegisterHooks(cb *HooksTable) error {
 	}
 
 	return nil
+}
+
+type FDsHook struct{}
+
+func (hook *FDsHook) description() string {
+	return "Provides information about all fds of Task"
+}
+
+func (hook *FDsHook) jsName() string {
+	return "getFdsInfo"
+}
+
+func (hook *FDsHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		dto := FdsResolver(t)
+
+		return dto, nil
+	}
+}
+
+type FDHook struct{}
+
+func (hook *FDHook) description() string {
+	return "Provides information about one specific fd of Task"
+}
+
+func (hook *FDHook) jsName() string {
+	return "getFdInfo"
+}
+
+func (hook *FDHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 1 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		runtime := t.Kernel().GojaRuntime
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		val, err := util.ExtractInt64FromValue(runtime, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		fd := int32(val)
+
+		dto := FdResolver(t, fd)
+
+		return dto, nil
+	}
 }
 
 type FDInfo struct {
