@@ -102,7 +102,7 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 }
 
 type FDInfo struct {
-	Name     string `json:"name"`
+	Path     string `json:"name"`
 	FD       string `json:"fd"`
 	Mode     string `json:"mode"`
 	Readable bool   `json:"readable"`
@@ -128,7 +128,7 @@ func FdsResolver(t *Task) []byte {
 
 		jsonPrivs = append(jsonPrivs, FDInfo{
 			FD:       num,
-			Name:     name,
+			Path:     name,
 			Mode:     privMask,
 			Writable: fdesc.IsWritable(),
 			Readable: fdesc.IsReadable(),
@@ -158,7 +158,7 @@ func FdResolver(t *Task, fd int32) []byte {
 	privMask := parseMask(stat.Mode)
 
 	jsonPrivs := FDInfo{
-		Name:     name,
+		Path:     name,
 		FD:       num,
 		Mode:     privMask,
 		Writable: fdesc.IsWritable(),
