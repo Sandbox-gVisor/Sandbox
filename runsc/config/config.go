@@ -257,6 +257,8 @@ type Config struct {
 	// take during pod creation.
 	PodInitConfig string `flag:"pod-init-config"`
 
+	SyscallCallbacksConfig string `flag:"syscall-init-config"`
+
 	// Use pools to manage buffer memory instead of heap.
 	BufferPooling bool `flag:"buffer-pooling"`
 

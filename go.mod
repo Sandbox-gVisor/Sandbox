@@ -35,6 +35,12 @@ require (
 	k8s.io/api v0.23.16
 	k8s.io/apimachinery v0.23.16
 	k8s.io/client-go v0.23.16
+
+	//our dependecies
+	github.com/robertkrimen/otto v0.2.1
+
+	github.com/dop251/goja v0.0.0-20230707174833-636fdf960de1
+    github.com/dop251/goja_nodejs v0.0.0-20230602164024-804a84515562
 )
 
 require (
@@ -80,4 +86,13 @@ require (
 	sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
+
+	//our
+	golang.org/x/text v0.4.0 // indirect
+    gopkg.in/sourcemap.v1 v1.0.5 // indirect
+
+	github.com/dlclark/regexp2 v1.7.0 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
+	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
+	golang.org/x/text v0.9.0 // indirect
 )

@@ -16,9 +16,6 @@ package kernel
 
 import (
 	"fmt"
-	"os"
-	"runtime/trace"
-
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/bits"
@@ -31,6 +28,9 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/memmap"
 	"gvisor.dev/gvisor/pkg/sentry/seccheck"
 	pb "gvisor.dev/gvisor/pkg/sentry/seccheck/points/points_go_proto"
+	"os"
+	"runtime/trace"
+	"syscall"
 )
 
 // SyscallRestartBlock represents the restart block for a syscall restartable
@@ -138,16 +138,56 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			region = trace.StartRegion(t.traceContext, s.LookupName(sysno))
 		}
 
-		t.Debugf("Bruh...")
+		args_ := &args
+		ct := t.Kernel().callbackTable
+		callbackBefore := ct.getCallbackBefore(sysno)
+		if callbackBefore != nil {
+			// TODO: get from callbackBefore:
+			//
+			// - new args
+			//
+			// - new rval
+			//
+			// - new err
+			//
+			// - instead
+			//
+			// - error
+			retArgs, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)
+			if err != nil {
+				fmt.Println(err)
+			} else {
+				args_ = retArgs
+			}
+		}
+
+		//TODO:
+		//if instead {
+		//	// DON'T call syscall impl
+		//} else {
+		//	// call syscall impl
+		//}
 
 		if fn != nil {
 			// Call our syscall implementation.
-
-			rval, ctrl, err = fn(t, sysno, args)
+			rval, ctrl, err = fn(t, sysno, *args_)
 		} else {
 			// Use the missing function if not found.
-			rval, err = t.SyscallTable().Missing(t, sysno, args)
+			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 		}
+
+		callbackAfter := ct.getCallbackAfter(sysno)
+		if callbackAfter != nil {
+			newArgs, newRval, newErr, error_ := callbackAfter.CallbackAfterFunc(t, sysno, &args)
+			if error_ != nil {
+				t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
+			} else {
+				rval = newRval
+				err = linuxerr.ErrorFromUnix(syscall.Errno(newErr))
+				args = *newArgs
+			}
+		}
+
 		if region != nil {
 			region.End()
 		}
