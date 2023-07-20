@@ -129,7 +129,7 @@ type PrintHook struct {
 }
 
 func (ph *PrintHook) description() string {
-	return "Prints passed args"
+	return "Prints passed arguments"
 }
 
 func (ph *PrintHook) jsName() string {
@@ -152,7 +152,7 @@ type WriteBytesHookImpl struct {
 }
 
 func (hook *WriteBytesHookImpl) description() string {
-	return "default"
+	return "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer"
 }
 
 func (hook *WriteBytesHookImpl) jsName() string {
@@ -192,7 +192,7 @@ type ReadBytesHookImpl struct {
 }
 
 func (hook *ReadBytesHookImpl) description() string {
-	return "default"
+	return "Read bytes to provided buffer by provided addr. Always tries to read len(buffer) bytes"
 }
 
 func (hook *ReadBytesHookImpl) jsName() string {
@@ -233,7 +233,7 @@ type WriteStringHookImpl struct {
 }
 
 func (hook *WriteStringHookImpl) description() string {
-	return "default"
+	return "Write provided string by provided addr"
 }
 
 func (hook *WriteStringHookImpl) jsName() string {
@@ -273,7 +273,7 @@ type ReadStringHookImpl struct {
 }
 
 func (hook *ReadStringHookImpl) description() string {
-	return "default"
+	return "Read string by provided addr"
 }
 
 func (hook *ReadStringHookImpl) jsName() string {
@@ -424,7 +424,7 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 type PidHook struct{}
 
 func (hook *PidHook) description() string {
-	return "default"
+	return "Provides PID, GID, UID and session info of Task"
 }
 
 func (hook *PidHook) jsName() string {
