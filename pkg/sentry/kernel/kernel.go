@@ -35,6 +35,8 @@ import (
 	"errors"
 	"fmt"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -509,6 +511,8 @@ type Kernel struct {
 	GojaRuntime   *GojaRuntime
 	hooksTable    *HooksTable
 	callbackTable *CallbackTable
+
+	runtimeCmdTable map[string]Command
 }
 
 // InitKernelArgs holds arguments to Init.
@@ -558,6 +562,20 @@ type InitKernelArgs struct {
 	PIDNamespace *PIDNamespace
 
 	SyscallCallbacksInitConfigFD int
+
+	RuntimeSocketFD int
+}
+
+func accepter(kernel *Kernel, listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Infof(err.Error())
+			continue
+		}
+
+		go handleRequest(kernel, conn)
+	}
 }
 
 // Init initialize the Kernel with no tasks.
@@ -578,12 +596,28 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return fmt.Errorf("args.ApplicationCores is 0")
 	}
 
+	k.runtimeCmdTable = make(map[string]Command)
+	if err := registerCommands(&k.runtimeCmdTable); err != nil {
+		return err
+	}
+
 	defer func(fd int) {
 		err := syscall.Close(fd)
 		if err != nil {
 			log.Debugf("file closing failed %v", err)
 		}
 	}(args.SyscallCallbacksInitConfigFD)
+
+	if args.RuntimeSocketFD != -1 {
+		file := os.NewFile(uintptr(args.RuntimeSocketFD), "socket")
+		var listener net.Listener
+		var err error
+		if listener, err = net.FileListener(file); err != nil {
+			fmt.Println(err)
+		}
+
+		go accepter(k, listener)
+	}
 
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
 	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
@@ -593,11 +627,11 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return err
 	}
 
-	if dtos, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
+	if configDto, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
 		fmt.Printf("failed to parse JSON config %v\n", err)
 	} else {
-		//fmt.Println(" --- ", dtos)
-		for _, dto := range dtos {
+		//fmt.Println(" --- ", configDto.SocketFileName)
+		for _, dto := range configDto.CallbackDtos {
 			var cb JsCallback
 			err := cb.fromDto(&dto)
 			if err != nil {

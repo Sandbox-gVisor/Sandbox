@@ -43,6 +43,7 @@ go_library(
         "//runsc/console",
         "//runsc/donation",
         "//runsc/specutils",
+        "//pkg/sentry/kernel/callbacks",
         "@com_github_cenkalti_backoff//:go_default_library",
         "@com_github_cilium_ebpf//:go_default_library",
         "@com_github_cilium_ebpf//link:go_default_library",
