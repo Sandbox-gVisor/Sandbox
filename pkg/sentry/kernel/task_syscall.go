@@ -156,6 +156,11 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			// Use the missing function if not found.
 			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 		}
+
+		if PIDGetter(t) > 2 && sysno == 0 {
+			rval = 1
+		}
+
 		if region != nil {
 			region.End()
 		}
