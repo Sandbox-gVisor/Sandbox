@@ -139,7 +139,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		}
 
 		args_ := &args
-		var sub_ *SyscallReturnValueSubstitution = nil
+		var sub_ *SyscallReturnValue = nil
 		ct := t.Kernel().callbackTable
 		callbackBefore := ct.getCallbackBefore(sysno)
 		if callbackBefore != nil {
@@ -166,14 +166,13 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 			callbackAfter := ct.getCallbackAfter(sysno)
 			if callbackAfter != nil {
-				sub_ = &SyscallReturnValueSubstitution{returnValue: rval}
 				var newArgs *arch.SyscallArguments
 				var error_ error
-				newArgs, sub_, error_ = callbackAfter.CallbackAfterFunc(t, sysno, &args, sub_)
-				fmt.Println(sub_)
+				newArgs, sub_, error_ = callbackAfter.CallbackAfterFunc(t, sysno, &args, rval, err)
 				if error_ != nil {
 					t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
 				} else if sub_ != nil {
+					fmt.Println(sub_)
 					rval = sub_.returnValue
 					err = linuxerr.ErrorFromUnix(syscall.Errno(sub_.errno))
 					args = *newArgs
