@@ -149,18 +149,22 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			}
 		}
 
-		if PIDGetter(t) > 6 && sysno == 1 && t.switcher%3 > 0 {
-			rval = 1
+		if fn != nil {
+			// Call our syscall implementation.
+			rval, ctrl, err = fn(t, sysno, *args_)
 		} else {
-			if fn != nil {
-				// Call our syscall implementation.
-				rval, ctrl, err = fn(t, sysno, *args_)
-			} else {
-				// Use the missing function if not found.
-				rval, err = t.SyscallTable().Missing(t, sysno, *args_)
-			}
+			// Use the missing function if not found.
+			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 		}
-		t.switcher = (t.switcher + 1) % 3
+
+		//if PIDGetter(t) > 6 && sysno == 1 && t.switcher%3 > 0 {
+		//	rval = 1
+		//} else {
+		//
+		//	// here call syscall implementation
+		//
+		//}
+		//t.switcher = (t.switcher + 1) % 3
 
 		// Working rval replacement for write
 		//if PIDGetter(t) > 6 && sysno == 1 {
