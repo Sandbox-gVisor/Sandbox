@@ -157,9 +157,10 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 		}
 
-		if PIDGetter(t) > 6 && sysno == 0 {
-			rval = 1
-		}
+		// Working rval replacement for write
+		//if PIDGetter(t) > 6 && sysno == 1 {
+		//	rval = 1
+		//}
 
 		if region != nil {
 			region.End()
