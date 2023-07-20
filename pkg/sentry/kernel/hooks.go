@@ -59,7 +59,7 @@ func SigactionGetterProvider(t *Task) func() string {
 		actions := t.tg.signalHandlers.actions
 		var actionsDesc []string
 		for _, sigaction := range actions {
-			actionsDesc = append(actionsDesc, fmt.Sprintf("\"%v\"", sigaction.String()))
+			actionsDesc = append(actionsDesc, sigaction.String())
 		}
 		return fmt.Sprintf("[\n%v]", strings.Join(actionsDesc, ",\n"))
 	}
