@@ -31,7 +31,7 @@ func (c ChangeSyscallCallbackCommand) name() string {
 type ChangeSyscallDto struct {
 	Type string `json:"type"`
 
-	CallbackDto []callbacks.CallbackDto `json:"callbacks"`
+	CallbackDto []callbacks.JsCallbackInfo `json:"callbacks"`
 }
 
 func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {

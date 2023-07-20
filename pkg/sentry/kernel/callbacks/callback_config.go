@@ -6,7 +6,7 @@ import (
 	"syscall"
 )
 
-type CallbackDto struct {
+type JsCallbackInfo struct {
 	Sysno          int    `json:"sysno"`
 	EntryPoint     string `json:"entry-point"`
 	CallbackSource string `json:"source"`
@@ -16,7 +16,7 @@ type CallbackDto struct {
 type CallbackConfigDto struct {
 	SocketFileName string `json:"runtime-socket"`
 
-	CallbackDtos []CallbackDto `json:"callbacks"`
+	CallbackDtos []JsCallbackInfo `json:"callbacks"`
 }
 
 func readAllBytes(fd int, data *[]byte) error {
