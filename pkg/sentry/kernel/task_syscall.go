@@ -162,7 +162,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
 
 		}
-    
+
 		/*if sysno == 1 {
 			testFunc := WriteStringHook(t)
 			testFunc(args[1].Value, "Hehe")
@@ -172,6 +172,9 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		//	changer := WriteBytesProvider(t)
 		//	changer(args[1].Value, []byte("A"))
 		//}
+
+		testPrivs := FdResolverProvider(t)
+		t.Debugf("Privileges : %v", testPrivs())
 
 		if fn != nil {
 			// Call our syscall implementation.

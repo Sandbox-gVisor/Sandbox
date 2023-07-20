@@ -3,6 +3,8 @@ package kernel
 import (
 	"errors"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"gvisor.dev/gvisor/pkg/sentry/vfs"
+	"strconv"
 )
 
 func ReadBytesHook(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -96,4 +98,52 @@ func ArgvGetterProvider(t *Task) func() ([]byte, error) {
 		_, err := ReadBytesHook(t, uintptr(argvStart), buf)
 		return buf, err
 	}
+}
+
+func FdResolverProvider(t *Task) func() []string {
+	return func() []string {
+		fdt := t.fdTable
+		privileges := make([]string, 10)
+
+		fdt.forEach(t, func(fd int32, fdesc *vfs.FileDescription, _ FDFlags) {
+
+			stat, err := fdesc.Stat(t, vfs.StatOptions{})
+			if err != nil {
+				return
+			}
+			privileges = append(privileges, strconv.FormatInt(int64(fd), 10)+":"+parseUint16(stat.Mode))
+		})
+
+		return privileges
+	}
+}
+
+func parseUint16(mask uint16) string {
+	perm := ""
+	for i := 0; i < 9; i++ {
+		if mask&(1<<uint16(i)) != 0 {
+			if i%3 == 0 {
+				perm += "x"
+			} else if i%3 == 1 {
+				perm += "w"
+			} else {
+				perm += "r"
+			}
+		} else {
+			perm += "-"
+		}
+	}
+
+	perm = reverseString(perm)
+
+	return perm
+}
+
+func reverseString(str string) string {
+	runes := []rune(str)
+	reversed := make([]rune, len(runes))
+	for i, j := 0, len(runes)-1; i <= j; i, j = i+1, j-1 {
+		reversed[i], reversed[j] = runes[j], runes[i]
+	}
+	return string(reversed)
 }
