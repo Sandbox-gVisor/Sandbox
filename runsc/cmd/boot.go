@@ -153,6 +153,8 @@ type Boot struct {
 	syncUsernsFD int
 
 	SyscallCallbacksInitConfigFD int
+
+	RuntimeSocketFD int
 }
 
 // Name implements subcommands.Command.Name.
@@ -200,6 +202,7 @@ func (b *Boot) SetFlags(f *flag.FlagSet) {
 	f.Var(&b.sinkFDs, "sink-fds", "ordered list of file descriptors to be used by the sinks defined in --pod-init-config.")
 
 	f.IntVar(&b.SyscallCallbacksInitConfigFD, "syscall-init-config-fd", -1, "FD to the syscall callbacks init conf file")
+	f.IntVar(&b.RuntimeSocketFD, "cb-runtime-socket-fd", -1, "FD to the syscall callbacks init conf file")
 
 	// Profiling flags.
 	b.profileFDs.SetFromFlags(f)
@@ -416,6 +419,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		SinkFDs:                      b.sinkFDs.GetArray(),
 		ProfileOpts:                  b.profileFDs.ToOpts(),
 		SyscallCallbacksInitConfigFD: b.SyscallCallbacksInitConfigFD,
+		RuntimeSocketFD:              b.RuntimeSocketFD,
 	}
 	l, err := boot.New(bootArgs)
 	if err != nil {
