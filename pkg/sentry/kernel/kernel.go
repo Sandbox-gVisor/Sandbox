@@ -38,7 +38,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -121,161 +120,6 @@ func (uc *userCounters) decRLimitNProc() {
 type GojaRuntime struct {
 	JsVM  *goja.Runtime
 	Mutex *sync.Mutex
-}
-
-// disposableDecorator is used to prevent deadlocks when same callback is called twice
-func disposableDecorator(callback HookCallback) HookCallback {
-	callbackWasInvoked := false
-	return func(args ...goja.Value) (interface{}, error) {
-		if callbackWasInvoked {
-			panic("this callback should use only one time")
-		}
-
-		callbackWasInvoked = true
-		return callback(args...)
-	}
-}
-
-// GoHookDecorator added for future restrictions of hooks
-type GoHookDecorator struct {
-	wrapped GoHook
-}
-
-func (decorator *GoHookDecorator) description() string {
-	return decorator.wrapped.description()
-}
-
-func (decorator *GoHookDecorator) jsName() string {
-	return decorator.wrapped.jsName()
-}
-
-func (decorator *GoHookDecorator) createCallBack(t *Task) HookCallback {
-	cb := decorator.wrapped.createCallBack(t)
-	return disposableDecorator(cb)
-}
-
-func (ht *HooksTable) registerHook(hook GoHook) error {
-	if ht == nil {
-		return errors.New("hooks table is nil")
-	}
-
-	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
-
-	ht.hooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
-	return nil
-}
-
-func (ht *HooksTable) getHook(hookName string) GoHook {
-	if ht == nil {
-		panic("hooks table is nil")
-	}
-
-	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
-
-	f, ok := ht.hooks[hookName]
-	if ok {
-		return f
-	} else {
-		return nil
-	}
-}
-
-// JsCallback implements CallbackBefore
-type JsCallback struct {
-	source     string
-	entryPoint string
-	sysno      uintptr
-}
-
-func (cb *JsCallback) fromDto(dto *callbacks.CallbackDto) error {
-	if dto.EntryPoint == "" || dto.CallbackSource == "" {
-		return errors.New("invalid callback dto")
-	}
-
-	cb.sysno = uintptr(dto.Sysno)
-	cb.source = dto.CallbackSource
-	cb.entryPoint = dto.EntryPoint
-	return nil
-}
-
-// addHooksToContextObject from this context object user`s callback will take hooks
-func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
-	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
-
-	for name, hook := range ht.hooks {
-		callback := hook.createCallBack(task)
-		err := object.Set(name, callback)
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// addSyscallArgsToContextObject from this context object user`s callback will take syscall args
-func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
-	for i, arg := range arguments {
-		err := object.Set(fmt.Sprintf("arg%d", i), int64(arg.Value))
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// callbackInvocationTemplate generate string that represent user callback script + invocation of it with injected args
-func (cb *JsCallback) callbackInvocationTemplate() string {
-	args := make([]string, len(arch.SyscallArguments{}))
-	for i := range args {
-		args[i] = fmt.Sprintf("args.arg%d", i)
-	}
-
-	return fmt.Sprintf("%s; %s(%s)", cb.source, cb.entryPoint, strings.Join(args, ", "))
-}
-
-// CallbackFunc execution of user callback for syscall on js VM with our hooks
-func (cb *JsCallback) CallbackBeforeFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
-	kernel := t.Kernel()
-	kernel.GojaRuntime.Mutex.Lock()
-	defer kernel.GojaRuntime.Mutex.Unlock()
-
-	vm := kernel.GojaRuntime.JsVM
-	hooksHolder := vm.NewObject()
-	if err := kernel.hooksTable.addHooksToContextObject(hooksHolder, t); err != nil {
-		return nil, err
-	}
-
-	if err := vm.Set("hooks", hooksHolder); err != nil {
-		return nil, err
-	}
-
-	argsHolder := vm.NewObject()
-	if err := addSyscallArgsToContextObject(argsHolder, args); err != nil {
-		return nil, err
-	}
-
-	if err := vm.Set("args", argsHolder); err != nil {
-		return nil, err
-	}
-
-	val, err := vm.RunString(cb.callbackInvocationTemplate())
-	if err != nil {
-		return nil, err
-	}
-
-	ret, err_ := callbacks.ExtractArgsFromRetJsValue(args, vm, &val)
-	if err_ != nil {
-		return nil, err_
-	}
-
-	return ret, nil
 }
 
 // Kernel represents an emulated Linux kernel. It must be initialized by calling
@@ -618,7 +462,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	} else {
 		//fmt.Println(" --- ", configDto.SocketFileName)
 		for _, dto := range configDto.CallbackDtos {
-			var cb JsCallback
+			var cb JsCallbackBefore
 			err := cb.fromDto(&dto)
 			if err != nil {
 				fmt.Println("failed to make cb ", err, dto)

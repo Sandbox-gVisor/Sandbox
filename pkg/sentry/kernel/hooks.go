@@ -2,6 +2,7 @@ package kernel
 
 import (
 	json2 "encoding/json"
+	"errors"
 	"fmt"
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/hostarch"
@@ -22,6 +23,65 @@ type GoHook interface {
 	jsName() string
 
 	createCallBack(*Task) HookCallback
+}
+
+// disposableDecorator is used to prevent deadlocks when same callback is called twice
+func disposableDecorator(callback HookCallback) HookCallback {
+	callbackWasInvoked := false
+	return func(args ...goja.Value) (interface{}, error) {
+		if callbackWasInvoked {
+			panic("this callback should use only one time")
+		}
+
+		callbackWasInvoked = true
+		return callback(args...)
+	}
+}
+
+// GoHookDecorator added for future restrictions of hooks
+type GoHookDecorator struct {
+	wrapped GoHook
+}
+
+func (decorator *GoHookDecorator) description() string {
+	return decorator.wrapped.description()
+}
+
+func (decorator *GoHookDecorator) jsName() string {
+	return decorator.wrapped.jsName()
+}
+
+func (decorator *GoHookDecorator) createCallBack(t *Task) HookCallback {
+	cb := decorator.wrapped.createCallBack(t)
+	return disposableDecorator(cb)
+}
+
+func (ht *HooksTable) registerHook(hook GoHook) error {
+	if ht == nil {
+		return errors.New("hooks table is nil")
+	}
+
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	ht.hooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
+	return nil
+}
+
+func (ht *HooksTable) getHook(hookName string) GoHook {
+	if ht == nil {
+		panic("hooks table is nil")
+	}
+
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	f, ok := ht.hooks[hookName]
+	if ok {
+		return f
+	} else {
+		return nil
+	}
 }
 
 // HooksTable user`s js callback takes hooks from this table before execution
@@ -545,7 +605,7 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
 
-		val, err := util.ExtractInt64FromValue(runtime, args[0])
+		val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
 		if err != nil {
 			return nil, err
 		}
@@ -668,4 +728,21 @@ func reverseString(str string) string {
 		reversed[i], reversed[j] = runes[j], runes[i]
 	}
 	return string(reversed)
+}
+
+// addHooksToContextObject from this context object user`s callback will take hooks
+func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	for name, hook := range ht.hooks {
+		callback := hook.createCallBack(task)
+		err := object.Set(name, callback)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
