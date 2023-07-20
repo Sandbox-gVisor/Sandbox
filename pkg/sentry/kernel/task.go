@@ -596,6 +596,9 @@ type Task struct {
 	userCounters *userCounters
 
 	vmFlag callbacks.Flag
+
+	// switcher is used for experiments
+	switcher int
 }
 
 // Task related metrics
