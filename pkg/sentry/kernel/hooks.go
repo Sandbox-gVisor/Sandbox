@@ -99,40 +99,38 @@ func ArgvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
-func SessionGetterProvider(t *Task) func() string {
-	return func() string {
-		if t.tg == nil {
-			return fmt.Sprintf("{\"error\": \"%v\"}", "thread group is nil")
-		}
-		pg := t.tg.processGroup
-		if pg == nil {
-			return fmt.Sprintf("{\"error\": \"%v\"}", "process group is nil")
-		}
-		var pgids []string
-		if pg.session != nil {
-			sessionPGs := pg.session.processGroups
-			if &sessionPGs != nil {
-				for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-					pgids = append(pgids, strconv.Itoa(int(spg.id)))
-				}
-			}
-		}
-		if pg.session == nil {
-			return fmt.Sprintf("{\"error\": \"%v\"}", "session is nil")
-		}
-		var foregroundGroupId ProcessGroupID
-		if t.tg.TTY() == nil {
-			t.Debugf("{\"error\": \"%v\"}", "t.tg.TTY() is nil")
-			foregroundGroupId = 0
-		} else {
-			var err error
-			foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
-			if err != nil {
-				t.Debugf("{\"error\": \"%v\"}", err.Error())
-			}
-		}
-		return fmt.Sprintf("{\"sessionId\": %v, \"PGID\": %v, \"foreground\": %v, \"otherPGIDs\": [%v]}", pg.session.id, pg.id, foregroundGroupId, strings.Join(pgids, ", "))
+func SessionGetter(t *Task) string {
+	if t.tg == nil {
+		return fmt.Sprintf("{\"error\": \"%v\"}", "thread group is nil")
 	}
+	pg := t.tg.processGroup
+	if pg == nil {
+		return fmt.Sprintf("{\"error\": \"%v\"}", "process group is nil")
+	}
+	var pgids []string
+	if pg.session != nil {
+		sessionPGs := pg.session.processGroups
+		if &sessionPGs != nil {
+			for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
+				pgids = append(pgids, strconv.Itoa(int(spg.id)))
+			}
+		}
+	}
+	if pg.session == nil {
+		return fmt.Sprintf("{\"error\": \"%v\"}", "session is nil")
+	}
+	var foregroundGroupId ProcessGroupID
+	if t.tg.TTY() == nil {
+		t.Debugf("{\"error\": \"%v\"}", "t.tg.TTY() is nil")
+		foregroundGroupId = 0
+	} else {
+		var err error
+		foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
+		if err != nil {
+			t.Debugf("{\"error\": \"%v\"}", err.Error())
+		}
+	}
+	return fmt.Sprintf("{\"sessionId\": %v, \"PGID\": %v, \"foreground\": %v, \"otherPGIDs\": [%v]}", pg.session.id, pg.id, foregroundGroupId, strings.Join(pgids, ", "))
 }
 
 // hooks impls
@@ -461,7 +459,7 @@ func (hook *PidHook) createCallBack(t *Task) HookCallback {
 			Pid:     PIDGetter(t),
 			Gid:     int32(GIDGetter(t)),
 			Uid:     int32(UIDGetter(t)),
-			Session: SessionGetterProvider(t)(),
+			Session: SessionGetter(t),
 		}
 
 		return dto, nil
