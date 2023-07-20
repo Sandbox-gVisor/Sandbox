@@ -331,7 +331,7 @@ type EnvvGetterHookImpl struct {
 }
 
 func (hook *EnvvGetterHookImpl) description() string {
-	return "default"
+	return "Provides environment variables of the Task"
 }
 
 func (hook *EnvvGetterHookImpl) jsName() string {
@@ -358,7 +358,7 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 type MmapGetterHookImpl struct{}
 
 func (hook *MmapGetterHookImpl) description() string {
-	return "default"
+	return "Provides mapping info like in procfs"
 }
 
 func (hook *MmapGetterHookImpl) jsName() string {
@@ -380,7 +380,7 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 type ArgvHookImpl struct{}
 
 func (hook *ArgvHookImpl) description() string {
-	return "default"
+	return "Provides argv of the Task"
 }
 
 func (hook *ArgvHookImpl) jsName() string {
@@ -407,7 +407,7 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 type SignalMaskHook struct{}
 
 func (hook *SignalMaskHook) description() string {
-	return "default"
+	return "Provides signal masks and sigactions of the Task"
 }
 
 func (hook *SignalMaskHook) jsName() string {
