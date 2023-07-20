@@ -15,7 +15,7 @@ type Command interface {
 }
 
 func messageResponse(type_ string, message string) []byte {
-	return []byte(fmt.Sprintf("{\"type\": \"%s\", \"message\": \"%s\"}\x00", type_, message))
+	return []byte(fmt.Sprintf("{\"type\": \"%s\", \"message\": \"%s\"}", type_, message))
 }
 
 type TypeDto struct {
@@ -60,7 +60,8 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 	defer kernel.callbackTable.mutex.Unlock()
 
 	for _, cb := range jsCallbacks {
-		err = kernel.callbackTable.registerCallbackWithoutLock(cb.sysno, &cb)
+		cbCopy := cb // не удалять иначе го сделает дичь
+		err = kernel.callbackTable.registerCallbackWithoutLock(cb.sysno, &cbCopy)
 		if err != nil {
 			panic(err)
 		}
