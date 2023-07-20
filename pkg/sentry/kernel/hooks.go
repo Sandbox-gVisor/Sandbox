@@ -627,6 +627,7 @@ func FdResolver(t *Task, fd int32) []byte {
 	return jsonForm
 }
 
+// findPath resolves fd's path in virtual file system
 func findPath(t *Task, fd int32) string {
 	root := t.FSContext().RootDirectory()
 	defer root.DecRef(t)
@@ -640,6 +641,8 @@ func findPath(t *Task, fd int32) string {
 	return name
 }
 
+// parseMask parses fd's mask into readable format
+// Example: rwx---r--
 func parseMask(mask uint16) string {
 	perm := ""
 	for i := 0; i < 9; i++ {
@@ -656,11 +659,14 @@ func parseMask(mask uint16) string {
 		}
 	}
 
+	// before reverseString perm is reversed because of algorithm above
 	perm = reverseString(perm)
 
 	return perm
 }
 
+// reverseString is helping function for parseMask that
+// reverses given string: bazel -> lezab
 func reverseString(str string) string {
 	runes := []rune(str)
 	reversed := make([]rune, len(runes))
