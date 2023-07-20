@@ -148,7 +148,6 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 				args_ = retArgs
 			}
 		}
-		t.Debugf(SigactionGetterProvider(t)())
 
 		if fn != nil {
 			// Call our syscall implementation.

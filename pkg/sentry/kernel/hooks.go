@@ -61,7 +61,7 @@ func SigactionGetterProvider(t *Task) func() string {
 		for _, sigaction := range actions {
 			actionsDesc = append(actionsDesc, sigaction.String())
 		}
-		return fmt.Sprintf("[\n%v]", strings.Join(actionsDesc, ",\n"))
+		return fmt.Sprintf("[%v]", strings.Join(actionsDesc, ",\n"))
 	}
 }
 
@@ -77,16 +77,14 @@ func PIDGetter(t *Task) int32 {
 	return int32(t.PIDNamespace().IDOfTask(t))
 }
 
-func EnvvGetterProvider(t *Task) func() ([]byte, error) {
-	return func() ([]byte, error) {
-		mm := t.image.MemoryManager
-		envvStart := mm.EnvvStart()
-		envvEnd := mm.EnvvEnd()
-		size := envvEnd - envvStart
-		buf := make([]byte, size)
-		_, err := ReadBytesHook(t, uintptr(envvStart), buf)
-		return buf, err
-	}
+func EnvvGetter(t *Task) ([]byte, error) {
+	mm := t.image.MemoryManager
+	envvStart := mm.EnvvStart()
+	envvEnd := mm.EnvvEnd()
+	size := envvEnd - envvStart
+	buf := make([]byte, size)
+	_, err := ReadBytesHook(t, uintptr(envvStart), buf)
+	return buf, err
 }
 
 func MmapsGetterProvider(t *Task) func() string {
@@ -95,16 +93,14 @@ func MmapsGetterProvider(t *Task) func() string {
 	}
 }
 
-func ArgvGetterProvider(t *Task) func() ([]byte, error) {
-	return func() ([]byte, error) {
-		mm := t.image.MemoryManager
-		argvStart := mm.ArgvStart()
-		argvEnd := mm.ArgvEnd()
-		size := argvEnd - argvStart
-		buf := make([]byte, size)
-		_, err := ReadBytesHook(t, uintptr(argvStart), buf)
-		return buf, err
-	}
+func ArgvGetter(t *Task) ([]byte, error) {
+	mm := t.image.MemoryManager
+	argvStart := mm.ArgvStart()
+	argvEnd := mm.ArgvEnd()
+	size := argvEnd - argvStart
+	buf := make([]byte, size)
+	_, err := ReadBytesHook(t, uintptr(argvStart), buf)
+	return buf, err
 }
 
 func SessionGetterProvider(t *Task) func() string {
@@ -149,7 +145,7 @@ type PrintHook struct {
 }
 
 func (ph *PrintHook) description() string {
-	return "default"
+	return "Prints passed args"
 }
 
 func (ph *PrintHook) jsName() string {
@@ -349,7 +345,7 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		bytes, err := EnvvGetterProvider(t)()
+		bytes, err := EnvvGetter(t)
 		splitStrings := strings.Split(string(bytes), "\x00")
 		if err != nil {
 			return nil, err
@@ -398,7 +394,7 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		bytes, err := ArgvGetterProvider(t)()
+		bytes, err := ArgvGetter(t)
 		splitStrings := strings.Split(string(bytes), "\x00")
 		if err != nil {
 			return nil, err
