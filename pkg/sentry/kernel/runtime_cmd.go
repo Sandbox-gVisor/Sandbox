@@ -56,18 +56,19 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 		jsCallbacks = append(jsCallbacks, cb)
 	}
 
-	kernel.callbackTable.mutex.Lock()
-	defer kernel.callbackTable.mutex.Unlock()
+	kernel.callbackTable.mutexBefore.Lock()
+	defer kernel.callbackTable.mutexBefore.Unlock()
 
 	for _, cb := range jsCallbacks {
-		cbCopy := cb // не удалять иначе го сделает дичь
-		err = kernel.callbackTable.registerCallbackWithoutLock(cb.sysno, &cbCopy)
+		cbCopy := cb // DON'T touch or golang will do trash
+    err = kernel.callbackTable.registerCallbackBeforeNoLock(cb.sysno, &cbCopy)
+
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	return messageResponse("ok", "Все хорошо. Повеситься или повесить ружьё?"), nil
+	return messageResponse("ok", "Everything is OK"), nil
 }
 
 func registerCommands(table *map[string]Command) error {

@@ -182,7 +182,7 @@ func (ht *HooksTable) getHook(hookName string) GoHook {
 	}
 }
 
-// JsCallback implements Callback
+// JsCallback implements CallbackBefore
 type JsCallback struct {
 	source     string
 	entryPoint string
@@ -241,7 +241,7 @@ func (cb *JsCallback) callbackInvocationTemplate() string {
 }
 
 // CallbackFunc execution of user callback for syscall on js VM with our hooks
-func (cb *JsCallback) CallbackFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
+func (cb *JsCallback) CallbackBeforeFunc(t *Task, _ uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
 	kernel := t.Kernel()
 	kernel.GojaRuntime.Mutex.Lock()
 	defer kernel.GojaRuntime.Mutex.Unlock()
@@ -603,7 +603,10 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	}
 
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
-	k.callbackTable = &CallbackTable{data: make(map[uintptr]Callback)}
+	k.callbackTable = &CallbackTable{
+		callbackBefore: make(map[uintptr]CallbackBefore),
+		callbackAfter:  make(map[uintptr]CallbackAfter),
+	}
 	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
 
 	if err := RegisterHooks(k.hooksTable); err != nil {
@@ -621,7 +624,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 				fmt.Println("failed to make cb ", err, dto)
 			}
 
-			err = k.callbackTable.registerCallback(cb.sysno, &cb)
+			err = k.callbackTable.registerCallbackBefore(cb.sysno, &cb)
 			if err != nil {
 				panic(err)
 			}

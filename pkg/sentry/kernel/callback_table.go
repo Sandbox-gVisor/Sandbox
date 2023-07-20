@@ -6,60 +6,110 @@ import (
 	"sync"
 )
 
-type Callback interface {
-	CallbackFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error)
+// CallbackBefore - interface which is used to observe and / or modify syscall arguments
+type CallbackBefore interface {
+	// CallbackBeforeFunc accepts Task, sysno and syscall arguments returns:
+	//
+	// TODO: return new args, new rval, new err, instead, error
+	CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error)
+}
+
+type CallbackAfter interface {
+	// CallbackAfterFunc accepts Task, sysno and syscall arguments
+	//
+	// - new args
+	//
+	// - new rval
+	//
+	// - new err (should be converted to golang error)
+	//
+	// - error if something went wrong
+	CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, uintptr, uintptr, error)
 }
 
 type CallbackTable struct {
-	data  map[uintptr]Callback
-	mutex sync.Mutex
+	// callbackBefore is a map of:
+	//
+	// key - sysno (uintptr)
+	//
+	// val - CallbackBefore
+	callbackBefore map[uintptr]CallbackBefore
+
+	// mutexBefore is sync.Mutex used to sync callbackBefore
+	mutexBefore sync.Mutex
+
+	// callbackAfter is a map of:
+	//
+	// key - sysno (uintptr)
+	//
+	// val - CallbackAfter
+	callbackAfter map[uintptr]CallbackAfter
+
+	// mutexAfter is sync.Mutex used to sync callbackAfter
+	mutexAfter sync.Mutex
 }
 
-func (ct *CallbackTable) registerCallback(sysno uintptr, f Callback) error {
+func (ct *CallbackTable) registerCallbackBefore(sysno uintptr, f CallbackBefore) error {
 	if f == nil {
 		return errors.New("callback func is nil")
 	}
-	ct.mutex.Lock()
-	defer ct.mutex.Unlock()
+	ct.mutexBefore.Lock()
+	defer ct.mutexBefore.Unlock()
 
-	ct.data[sysno] = f
+	ct.callbackBefore[sysno] = f
 	return nil
 }
 
-func (ct *CallbackTable) registerCallbackWithoutLock(sysno uintptr, f Callback) error {
+func (ct *CallbackTable) registerCallbackAfter(sysno uintptr, f CallbackAfter) error {
+	if f == nil {
+		return errors.New("callback func is nil")
+	}
+	ct.mutexAfter.Lock()
+	defer ct.mutexAfter.Unlock()
+
+	ct.callbackAfter[sysno] = f
+	return nil
+}
+
+func (ct *CallbackTable) registerCallbackBeforeNoLock(sysno uintptr, f CallbackBefore) error {
 	if f == nil {
 		return errors.New("callback func is nil")
 	}
 
-	ct.data[sysno] = f
+	ct.callbackBefore[sysno] = f
 	return nil
 }
 
-func (ct *CallbackTable) registerAllFromCollector(cc *CallbackCollector) {
-	if cc == nil {
-		return
+func (ct *CallbackTable) registerCallbackAfterNoLock(sysno uintptr, f CallbackAfter) error {
+	if f == nil {
+		return errors.New("callback func is nil")
 	}
-	pairs := cc.getAll()
-	ct.mutex.Lock()
-	defer ct.mutex.Unlock()
-	for i := 0; i < len(pairs); i += 1 {
-		ct.data[pairs[i].sysno] = pairs[i].callback
-	}
-}
 
-func (ct *CallbackTable) unregisterCallback(sysno uintptr) error {
-	ct.mutex.Lock()
-	defer ct.mutex.Unlock()
-
-	delete(ct.data, sysno)
+	ct.callbackAfter[sysno] = f
 	return nil
 }
 
-func (ct *CallbackTable) getCallback(sysno uintptr) Callback {
-	ct.mutex.Lock()
+func (ct *CallbackTable) unregisterCallbackBefore(sysno uintptr) error {
+	ct.mutexBefore.Lock()
+	defer ct.mutexBefore.Unlock()
 
-	f, ok := ct.data[sysno]
-	ct.mutex.Unlock()
+	delete(ct.callbackBefore, sysno)
+	return nil
+}
+
+func (ct *CallbackTable) unregisterCallbackAfter(sysno uintptr) error {
+	ct.mutexAfter.Lock()
+	defer ct.mutexAfter.Unlock()
+
+	delete(ct.callbackAfter, sysno)
+	return nil
+}
+
+func (ct *CallbackTable) getCallbackBefore(sysno uintptr) CallbackBefore {
+	ct.mutexBefore.Lock()
+
+	f, ok := ct.callbackBefore[sysno]
+	ct.mutexBefore.Unlock()
 	if ok && f != nil {
 		return f
 	} else {
@@ -67,21 +117,16 @@ func (ct *CallbackTable) getCallback(sysno uintptr) Callback {
 	}
 }
 
-type CallbackPair struct {
-	sysno    uintptr
-	callback Callback
-}
+func (ct *CallbackTable) getCallbackAfter(sysno uintptr) CallbackAfter {
+	ct.mutexAfter.Lock()
 
-type CallbackCollector struct {
-	collectedCallbacks []CallbackPair
-}
-
-func (cc *CallbackCollector) collect(sysno uintptr, callback Callback) {
-	cc.collectedCallbacks = append(cc.collectedCallbacks, CallbackPair{sysno, callback})
-}
-
-func (cc *CallbackCollector) getAll() []CallbackPair {
-	return cc.collectedCallbacks
+	f, ok := ct.callbackAfter[sysno]
+	ct.mutexAfter.Unlock()
+	if ok && f != nil {
+		return f
+	} else {
+		return nil
+	}
 }
 
 type SimplePrinter struct {
@@ -89,7 +134,7 @@ type SimplePrinter struct {
 	mu      sync.Mutex
 }
 
-func (s *SimplePrinter) CallbackFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
+func (s *SimplePrinter) CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
 	s.mu.Lock()
 	val := s.counter
 	s.counter += 1
