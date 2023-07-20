@@ -146,7 +146,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			//
 			// - new args
 			//
-			// - new rval
+			// - new returnValue
 			//
 			// - new err
 			//

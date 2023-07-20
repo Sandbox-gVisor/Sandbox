@@ -169,6 +169,10 @@ const HooksJsName = "hooks"
 
 const ArgsJsName = "args"
 
+const JsSyscallReturnValue = "ret"
+
+const JsSyscallErrno = "errno"
+
 // JsCallbackBefore implements CallbackBefore and JsCallback
 type JsCallbackBefore struct {
 	info callbacks.JsCallbackInfo
@@ -210,6 +214,20 @@ func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallA
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func addSubstitutionToContextObject(object *goja.Object, sub *SyscallReturnValueSubstitution) error {
+	err := object.Set(JsSyscallReturnValue, int64(sub.returnValue))
+	if err != nil {
+		return err
+	}
+
+	err = object.Set(JsSyscallErrno, int64(sub.errno))
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -257,8 +275,25 @@ func extractArgsFromRetJsValue(
 	return retArgs, nil
 }
 
-func extractSubstitutionFromRetJsValue() {
+func contains(slice []string, element string) bool {
+	for _, a := range slice {
+		if a == element {
+			return true
+		}
+	}
+	return false
+}
 
+func extractSubstitutionFromRetJsValue(vm *goja.Runtime, value *goja.Value) (*SyscallReturnValueSubstitution, error) {
+	obj := (*value).ToObject(vm)
+
+	if contains(obj.Keys(), JsSyscallReturnValue) && contains(obj.Keys(), JsSyscallErrno) {
+		var sub SyscallReturnValueSubstitution
+		subVal := obj.Get(JsSyscallReturnValue)
+
+	}
+
+	return nil, nil
 }
 
 // CallbackBeforeFunc execution of user callback for syscall on js VM with our hooks
