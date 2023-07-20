@@ -149,31 +149,6 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			}
 		}
 
-		if testUid, testErr := UIDGetterProvider(t); testErr == nil {
-			t.Debugf("UID : %v", strconv.Itoa(int(testUid())))
-		}
-
-		if testGid, testErr := GIDGetterProvider(t); testErr == nil {
-			t.Debugf("GID : %v", strconv.Itoa(int(testGid())))
-		}
-
-		if testPid, testErr := PIDGetterProvider(t); testErr == nil {
-			t.Debugf("PID : %v", strconv.Itoa(int(testPid())))
-
-		}
-
-		/*if sysno == 1 {
-			testFunc := WriteStringHook(t)
-			testFunc(args[1].Value, "Hehe")
-		}*/
-
-		//if sysno == 1 {
-		//	changer := WriteBytesProvider(t)
-		//	changer(args[1].Value, []byte("A"))
-		//}
-
-		t.Debugf("Hehe Privileges : %v", string(FdResolver(t, 1)))
-
 		if fn != nil {
 			// Call our syscall implementation.
 			rval, ctrl, err = fn(t, sysno, *args_)
