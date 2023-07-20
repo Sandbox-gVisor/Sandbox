@@ -317,7 +317,7 @@ go_library(
         "uts_namespace.go",
         "vdso.go",
         "version.go",
-        "callback_table.go",
+        "callbacks.go",
         "hooks.go",
         "runtime_cmd.go"
     ],

@@ -46,22 +46,24 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 		return nil, errors.New("callbacks list is empty")
 	}
 
-	var jsCallbacks []JsCallbackBefore
+	var jsCallbacksBefore []JsCallbackBefore
 	for _, dto := range request.CallbackDto {
-		var cb JsCallbackBefore
-		err := cb.fromDto(&dto)
-		if err != nil {
-			return nil, err
+		if dto.Type == JsCallbackTypeBefore {
+			cb := JsCallbackBefore{info: dto}
+			err := checkJsCallback(&cb)
+			if err != nil {
+				return nil, err
+			}
+			jsCallbacksBefore = append(jsCallbacksBefore, cb)
 		}
-		jsCallbacks = append(jsCallbacks, cb)
 	}
 
 	kernel.callbackTable.mutexBefore.Lock()
 	defer kernel.callbackTable.mutexBefore.Unlock()
 
-	for _, cb := range jsCallbacks {
+	for _, cb := range jsCallbacksBefore {
 		cbCopy := cb // DON'T touch or golang will do trash
-		err = kernel.callbackTable.registerCallbackBeforeNoLock(cb.sysno, &cbCopy)
+		err = kernel.callbackTable.registerCallbackBeforeNoLock(uintptr(cb.info.Sysno), &cbCopy)
 
 		if err != nil {
 			panic(err)

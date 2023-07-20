@@ -79,9 +79,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 
 	"github.com/dop251/goja"
-	//_ "github.com/dop251/goja_nodejs/console"
-	//_ "github.com/dop251/goja_nodejs/require"
-	//"github.com/robertkrimen/otto"
 )
 
 // IOUringEnabled is set to true when IO_URING is enabled. Added as a global to
@@ -462,15 +459,30 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	} else {
 		//fmt.Println(" --- ", configDto.SocketFileName)
 		for _, dto := range configDto.CallbackDtos {
-			var cb JsCallbackBefore
-			err := cb.fromDto(&dto)
-			if err != nil {
-				fmt.Println("failed to make cb ", err, dto)
-			}
+			if dto.Type == JsCallbackTypeAfter {
+				cb := JsCallbackAfter{info: dto}
+				err := checkJsCallback(&cb)
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
 
-			err = k.callbackTable.registerCallbackBefore(cb.sysno, &cb)
-			if err != nil {
-				panic(err)
+				err = k.callbackTable.registerCallbackAfter(uintptr(cb.info.Sysno), &cb)
+				if err != nil {
+					panic(err)
+				}
+			} else {
+				cb := JsCallbackBefore{info: dto}
+				err := checkJsCallback(&cb)
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
+
+				err = k.callbackTable.registerCallbackBefore(uintptr(cb.info.Sysno), &cb)
+				if err != nil {
+					panic(err)
+				}
 			}
 		}
 	}
