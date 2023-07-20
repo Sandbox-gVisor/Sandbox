@@ -155,8 +155,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			t.Debugf("New rval: %v, new err: %v", rval_, err_)
 			if instead {
 				rval = rval_
-				// TODO: convert err_ to golang error
-				// err = magic(err_)
+				err = linuxerr.ErrorFromUnix(err_)
 			} else {
 				if fn != nil {
 					// Call our syscall implementation.
@@ -166,8 +165,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 					rval, err = t.SyscallTable().Missing(t, sysno, *args_)
 				}
 				rval = rval_
-				// TODO: convert err_ to golang error
-				// err = magic(err_)
+				err = linuxerr.ErrorFromUnix(err_)
 			}
 		} else {
 			if fn != nil {
