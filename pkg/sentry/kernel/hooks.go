@@ -2,14 +2,11 @@ package kernel
 
 import (
 	json2 "encoding/json"
-	"errors"
-	"gvisor.dev/gvisor/pkg/hostarch"
-	"gvisor.dev/gvisor/pkg/sentry/vfs"
-	"strconv"
 	"fmt"
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	util "gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"strconv"
 	"strings"
 )
