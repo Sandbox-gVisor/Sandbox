@@ -123,24 +123,6 @@ type GojaRuntime struct {
 	Mutex *sync.Mutex
 }
 
-// HookCallback is signature of hooks that are called from user`s js callback
-type HookCallback func(...goja.Value) (interface{}, error)
-
-// GoHook is an interface for hooks, that user can call from js callback
-type GoHook interface {
-	description() string
-
-	jsName() string
-
-	createCallBack(*Task) HookCallback
-}
-
-// HooksTable user`s js callback takes hooks from this table before execution
-type HooksTable struct {
-	hooks map[string]GoHook
-	mutex sync.Mutex
-}
-
 // disposableDecorator is used to prevent deadlocks when same callback is called twice
 func disposableDecorator(callback HookCallback) HookCallback {
 	callbackWasInvoked := false
