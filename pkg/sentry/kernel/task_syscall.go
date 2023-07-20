@@ -30,7 +30,6 @@ import (
 	pb "gvisor.dev/gvisor/pkg/sentry/seccheck/points/points_go_proto"
 	"os"
 	"runtime/trace"
-	"strconv"
 )
 
 // SyscallRestartBlock represents the restart block for a syscall restartable

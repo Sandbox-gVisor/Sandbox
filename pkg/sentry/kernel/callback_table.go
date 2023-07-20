@@ -26,6 +26,15 @@ func (ct *CallbackTable) registerCallback(sysno uintptr, f Callback) error {
 	return nil
 }
 
+func (ct *CallbackTable) registerCallbackWithoutLock(sysno uintptr, f Callback) error {
+	if f == nil {
+		return errors.New("callback func is nil")
+	}
+
+	ct.data[sysno] = f
+	return nil
+}
+
 func (ct *CallbackTable) registerAllFromCollector(cc *CallbackCollector) {
 	if cc == nil {
 		return

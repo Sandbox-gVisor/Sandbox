@@ -276,6 +276,8 @@ type Args struct {
 	ProfileOpts profile.Opts
 
 	SyscallCallbacksInitConfigFD int
+
+	RuntimeSocketFD int
 }
 
 // make sure stdioFDs are always the same on initial start and on restore
@@ -436,6 +438,7 @@ func New(args Args) (*Loader, error) {
 		RootAbstractSocketNamespace:  kernel.NewAbstractSocketNamespace(),
 		PIDNamespace:                 kernel.NewRootPIDNamespace(creds.UserNamespace),
 		SyscallCallbacksInitConfigFD: args.SyscallCallbacksInitConfigFD,
+		RuntimeSocketFD:              args.RuntimeSocketFD,
 	}); err != nil {
 		return nil, fmt.Errorf("initializing kernel: %w", err)
 	}

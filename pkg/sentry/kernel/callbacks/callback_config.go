@@ -9,8 +9,14 @@ import (
 type CallbackDto struct {
 	Sysno          int    `json:"sysno"`
 	EntryPoint     string `json:"entry-point"`
-	CallbackSource string `json:"callback-source"`
+	CallbackSource string `json:"source"`
 	Type           string `json:"type"`
+}
+
+type CallbackConfigDto struct {
+	SocketFileName string `json:"runtime-socket"`
+
+	CallbackDtos []CallbackDto `json:"callbacks"`
 }
 
 func readAllBytes(fd int, data *[]byte) error {
@@ -37,17 +43,21 @@ func readAllBytes(fd int, data *[]byte) error {
 	return nil
 }
 
-func Parse(configFD int) ([]CallbackDto, error) {
+func Parse(configFD int) (*CallbackConfigDto, error) {
 
 	var data []byte
+	if _, err := syscall.Seek(configFD, 0, 0); err != nil {
+		return nil, err
+	}
+
 	if err := readAllBytes(configFD, &data); err != nil {
 		return nil, err
 	}
 
-	var callbacks []CallbackDto
-	if err := json.Unmarshal(data, &callbacks); err != nil {
+	var configDto CallbackConfigDto
+	if err := json.Unmarshal(data, &configDto); err != nil {
 		return nil, err
 	}
 
-	return callbacks, nil
+	return &configDto, nil
 }
