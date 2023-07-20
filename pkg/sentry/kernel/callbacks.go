@@ -6,35 +6,37 @@ import (
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"strconv"
 	"strings"
 	"sync"
 )
 
-type SyscallArgumentSubstitutionBeforeExecution struct {
-	rval uintptr
-	err  error
+type SyscallReturnValueSubstitution struct {
+	returnValue uintptr
+	errno       uintptr
 }
 
 // CallbackBefore - interface which is used to observe and / or modify syscall arguments
 type CallbackBefore interface {
 	// CallbackBeforeFunc accepts Task, sysno and syscall arguments returns:
 	//
-	// new args, rval/err if needed, error if something bad occurred
-	CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallArgumentSubstitutionBeforeExecution, error)
+	// new args, returnValue/err if needed, error if something bad occurred
+	CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValueSubstitution, error)
 }
 
 // CallbackAfter - interface which is used to replace args / return value / errno of syscall
 type CallbackAfter interface {
-	// CallbackAfterFunc accepts Task, sysno, syscall arguments and rval, err after as result of gvisor syscall impl
+	// CallbackAfterFunc accepts Task, sysno, syscall arguments and returnValue, err after as result of gvisor syscall impl
 	//
 	// - new args
 	//
-	// - new rval
+	// - new returnValue
 	//
 	// - new err (should be converted to golang error)
 	//
 	// - error if something went wrong
-	CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments, rval uintptr, err error) (*arch.SyscallArguments, uintptr, uintptr, error)
+	CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments,
+		substitution *SyscallReturnValueSubstitution) (*arch.SyscallArguments, *SyscallReturnValueSubstitution, error)
 }
 
 type CallbackTable struct {
@@ -218,14 +220,49 @@ func jsCallbackInvocationTemplate(jsCallback JsCallback) string {
 	info := jsCallback.callbackInfo()
 	args := make([]string, len(arch.SyscallArguments{}))
 	for i := range args {
-		args[i] = fmt.Sprintf("args.arg%d", i)
+		args[i] = fmt.Sprintf("%s.arg%d", ArgsJsName, i)
 	}
 
 	return fmt.Sprintf("%s; %s(%s)", info.CallbackSource, info.EntryPoint, strings.Join(args, ", "))
 }
 
+func extractArgsFromRetJsValue(
+	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value *goja.Value) (retArgs *arch.SyscallArguments, err error) {
+
+	retArgs = &arch.SyscallArguments{}
+	*retArgs = *inputArgs
+	retObj := (*value).ToObject(vm)
+
+	for _, key := range retObj.Keys() {
+		var ind int
+		ind, err = strconv.Atoi(key)
+		if err != nil {
+			continue
+		}
+
+		if ind < 0 || len(inputArgs) < ind {
+			err = errors.New("invalid index of ret args")
+			return
+		}
+
+		ptrVal := retObj.Get(key)
+		var ptr uintptr
+		ptr, err = callbacks.ExtractPtrFromValue(vm, ptrVal)
+		if err != nil {
+			return
+		}
+		retArgs[ind].Value = ptr
+	}
+
+	return retArgs, nil
+}
+
+func extractSubstitutionFromRetJsValue() {
+
+}
+
 // CallbackBeforeFunc execution of user callback for syscall on js VM with our hooks
-func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallArgumentSubstitutionBeforeExecution, error) {
+func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValueSubstitution, error) {
 	kernel := t.Kernel()
 	kernel.GojaRuntime.Mutex.Lock()
 	defer kernel.GojaRuntime.Mutex.Unlock()
@@ -236,7 +273,7 @@ func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, sysno uintptr, args *arc
 		return nil, nil, err
 	}
 
-	if err := vm.Set("hooks", hooksHolder); err != nil {
+	if err := vm.Set(HooksJsName, hooksHolder); err != nil {
 		return nil, nil, err
 	}
 
@@ -245,21 +282,21 @@ func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, sysno uintptr, args *arc
 		return nil, nil, err
 	}
 
-	if err := vm.Set("args", argsHolder); err != nil {
-		return nil, err
+	if err := vm.Set(ArgsJsName, argsHolder); err != nil {
+		return nil, nil, err
 	}
 
-	val, err := vm.RunString(cb.callbackInvocationTemplate())
+	val, err := vm.RunString(jsCallbackInvocationTemplate(cb))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	ret, err_ := callbacks.ExtractArgsFromRetJsValue(args, vm, &val)
+	retArgs, err_ := extractArgsFromRetJsValue(args, vm, &val)
 	if err_ != nil {
-		return nil, err_
+		return nil, nil, err_
 	}
 
-	return ret, nil
+	return retArgs, nil
 }
 
 func (cb *JsCallbackAfter) CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments, rval uintptr, err error) (*arch.SyscallArguments, uintptr, uintptr, error) {
