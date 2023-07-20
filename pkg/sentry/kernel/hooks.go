@@ -26,39 +26,31 @@ func WriteString(t *Task, addr uintptr, str string) (int, error) {
 	return t.CopyOutBytes(hostarch.Addr(addr), bytes)
 }
 
-// SignalMaskProvider provides functions to return Task.signalMask
+// SignalMaskGetter return Task.signalMask
 // (signals which delivery is blocked)
-func SignalMaskProvider(t *Task) func() uint64 {
-	return func() uint64 {
-		return t.signalMask.Load()
-	}
+func SignalMaskGetter(t *Task) uint64 {
+	return t.signalMask.Load()
 }
 
-// SigWaitMaskProvider provides functions to return Task.realSignalMask
+// SigWaitMaskGetter provides functions to return Task.realSignalMask
 // (Task will be blocked until one of signals in Task.realSignalMask is pending)
-func SigWaitMaskProvider(t *Task) func() uint64 {
-	return func() uint64 {
-		return uint64(t.realSignalMask)
-	}
+func SigWaitMaskGetter(t *Task) uint64 {
+	return uint64(t.realSignalMask)
 }
 
-// SavedSignalMaskProvider provides functions to return Task.savedSignalMask
-func SavedSignalMaskProvider(t *Task) func() uint64 {
-	return func() uint64 {
-		return uint64(t.savedSignalMask)
-	}
+// SavedSignalMaskGetter provides functions to return Task.savedSignalMask
+func SavedSignalMaskGetter(t *Task) uint64 {
+	return uint64(t.savedSignalMask)
 }
 
-// SigactionGetterProvider provides functions to return sigactions in JSON format
-func SigactionGetterProvider(t *Task) func() string {
-	return func() string {
-		actions := t.tg.signalHandlers.actions
-		var actionsDesc []string
-		for _, sigaction := range actions {
-			actionsDesc = append(actionsDesc, sigaction.String())
-		}
-		return fmt.Sprintf("[%v]", strings.Join(actionsDesc, ",\n"))
+// SigactionGetter provides functions to return sigactions in JSON format
+func SigactionGetter(t *Task) string {
+	actions := t.tg.signalHandlers.actions
+	var actionsDesc []string
+	for _, sigaction := range actions {
+		actionsDesc = append(actionsDesc, sigaction.String())
 	}
+	return fmt.Sprintf("[%v]", strings.Join(actionsDesc, ",\n"))
 }
 
 func GIDGetter(t *Task) uint32 {
@@ -421,10 +413,10 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 		}
 
 		dto := SignalMaskDto{
-			SignalMask:      int64(SignalMaskProvider(t)()),
-			SignalWaitMask:  int64(SigWaitMaskProvider(t)()),
-			SavedSignalMask: int64(SavedSignalMaskProvider(t)()),
-			SigActions:      SigactionGetterProvider(t)(),
+			SignalMask:      int64(SignalMaskGetter(t)),
+			SignalWaitMask:  int64(SigWaitMaskGetter(t)),
+			SavedSignalMask: int64(SavedSignalMaskGetter(t)),
+			SigActions:      SigactionGetter(t),
 		}
 
 		return dto, nil
