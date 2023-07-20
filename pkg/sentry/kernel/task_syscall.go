@@ -181,10 +181,11 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			newArgs, newRval, newErr, error_ := callbackAfter.CallbackAfterFunc(t, sysno, &args)
 			if error_ != nil {
 				t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
+			} else {
+				rval = newRval
+				err = linuxerr.ErrorFromUnix(syscall.Errno(newErr))
+				args = *newArgs
 			}
-			rval = newRval
-			err = linuxerr.ErrorFromUnix(syscall.Errno(newErr))
-			args = *newArgs
 		}
 
 		if region != nil {
