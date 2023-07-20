@@ -111,14 +111,28 @@ func FdResolverProvider(t *Task) func() []string {
 			if err != nil {
 				return
 			}
-			privileges = append(privileges, strconv.FormatInt(int64(fd), 10)+":"+parseUint16(stat.Mode))
+			name := findPath(t, fd)
+			privileges = append(privileges, "("+name+")"+strconv.FormatInt(int64(fd), 10)+":"+parseMask(stat.Mode))
 		})
 
 		return privileges
 	}
 }
 
-func parseUint16(mask uint16) string {
+func findPath(t *Task, fd int32) string {
+	root := t.FSContext().RootDirectory()
+	defer root.DecRef(t)
+
+	vfsobj := root.Mount().Filesystem().VirtualFilesystem()
+	file := t.GetFile(fd)
+	defer file.DecRef(t)
+
+	name, _ := vfsobj.PathnameInFilesystem(t, file.VirtualDentry())
+
+	return name
+}
+
+func parseMask(mask uint16) string {
 	perm := ""
 	for i := 0; i < 9; i++ {
 		if mask&(1<<uint16(i)) != 0 {
