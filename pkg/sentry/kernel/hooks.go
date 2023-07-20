@@ -597,14 +597,10 @@ func (hook *FDHook) jsName() string {
 func (hook *FDHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		if len(args) != 1 {
-			return nil, util.ArgsCountMismatchError(0, len(args))
+			return nil, util.ArgsCountMismatchError(1, len(args))
 		}
 
 		runtime := t.Kernel().GojaRuntime
-		if len(args) != 2 {
-			return nil, util.ArgsCountMismatchError(2, len(args))
-		}
-
 		val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
 		if err != nil {
 			return nil, err
@@ -614,7 +610,7 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 
 		dto := FdResolver(t, fd)
 
-		return dto, nil
+		return string(dto), nil
 	}
 }
 
