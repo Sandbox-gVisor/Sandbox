@@ -139,52 +139,44 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		}
 
 		args_ := &args
+		var sub_ *SyscallReturnValue = nil
 		ct := t.Kernel().callbackTable
 		callbackBefore := ct.getCallbackBefore(sysno)
 		if callbackBefore != nil {
-			// TODO: get from callbackBefore:
-			//
-			// - new args
-			//
-			// - new rval
-			//
-			// - new err
-			//
-			// - instead
-			//
-			// - error
-			retArgs, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)
+			retArgs, retSub, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)
 			if err != nil {
 				fmt.Println(err)
 			} else {
 				args_ = retArgs
+				sub_ = retSub
 			}
 		}
 
-		//TODO:
-		//if instead {
-		//	// DON'T call syscall impl
-		//} else {
-		//	// call syscall impl
-		//}
-
-		if fn != nil {
-			// Call our syscall implementation.
-			rval, ctrl, err = fn(t, sysno, *args_)
+		if sub_ != nil {
+			rval = sub_.returnValue
+			err = linuxerr.ErrorFromUnix(syscall.Errno(sub_.errno))
 		} else {
-			// Use the missing function if not found.
-			rval, err = t.SyscallTable().Missing(t, sysno, *args_)
-		}
-
-		callbackAfter := ct.getCallbackAfter(sysno)
-		if callbackAfter != nil {
-			newArgs, newRval, newErr, error_ := callbackAfter.CallbackAfterFunc(t, sysno, &args)
-			if error_ != nil {
-				t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
+			if fn != nil {
+				// Call our syscall implementation.
+				rval, ctrl, err = fn(t, sysno, *args_)
 			} else {
-				rval = newRval
-				err = linuxerr.ErrorFromUnix(syscall.Errno(newErr))
-				args = *newArgs
+				// Use the missing function if not found.
+				rval, err = t.SyscallTable().Missing(t, sysno, *args_)
+			}
+
+			callbackAfter := ct.getCallbackAfter(sysno)
+			if callbackAfter != nil {
+				var newArgs *arch.SyscallArguments
+				var error_ error
+				newArgs, sub_, error_ = callbackAfter.CallbackAfterFunc(t, sysno, &args, rval, err)
+				if error_ != nil {
+					t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
+				} else if sub_ != nil {
+					fmt.Println(sub_)
+					rval = sub_.returnValue
+					err = linuxerr.ErrorFromUnix(syscall.Errno(sub_.errno))
+					args = *newArgs
+				}
 			}
 		}
 

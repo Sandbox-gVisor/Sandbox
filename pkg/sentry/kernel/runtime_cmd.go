@@ -31,7 +31,7 @@ func (c ChangeSyscallCallbackCommand) name() string {
 type ChangeSyscallDto struct {
 	Type string `json:"type"`
 
-	CallbackDto []callbacks.CallbackDto `json:"callbacks"`
+	CallbackDto []callbacks.JsCallbackInfo `json:"callbacks"`
 }
 
 func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
@@ -48,23 +48,18 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 
 	var jsCallbacks []JsCallback
 	for _, dto := range request.CallbackDto {
-		var cb JsCallback
-		err := cb.fromDto(&dto)
+		jsCallback, err := JsCallbackByInfo(dto)
 		if err != nil {
 			return nil, err
 		}
-		jsCallbacks = append(jsCallbacks, cb)
+		jsCallbacks = append(jsCallbacks, jsCallback)
 	}
-
-	kernel.callbackTable.mutexBefore.Lock()
-	defer kernel.callbackTable.mutexBefore.Unlock()
 
 	for _, cb := range jsCallbacks {
 		cbCopy := cb // DON'T touch or golang will do trash
-    err = kernel.callbackTable.registerCallbackBeforeNoLock(cb.sysno, &cbCopy)
-
+		err := cbCopy.registerAtCallbackTable(kernel.callbackTable)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 	}
 

@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
-	"gvisor.dev/gvisor/pkg/sentry/arch"
-	"strconv"
 	"sync"
 )
 
@@ -81,35 +79,4 @@ func ExtractStringFromValue(vm *goja.Runtime, value goja.Value) (string, error) 
 	}
 
 	return ret, nil
-}
-
-func ExtractArgsFromRetJsValue(
-	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value *goja.Value) (retArgs *arch.SyscallArguments, err error) {
-
-	retArgs = &arch.SyscallArguments{}
-	*retArgs = *inputArgs
-	retObj := (*value).ToObject(vm)
-
-	for _, key := range retObj.Keys() {
-		var ind int
-		ind, err = strconv.Atoi(key)
-		if err != nil {
-			return
-		}
-
-		if ind < 0 || len(inputArgs) < ind {
-			err = errors.New("invalid index of ret args")
-			return
-		}
-
-		ptrVal := retObj.Get(key)
-		var ptr uintptr
-		ptr, err = ExtractPtrFromValue(vm, ptrVal)
-		if err != nil {
-			return
-		}
-		retArgs[ind].Value = ptr
-	}
-
-	return retArgs, nil
 }
