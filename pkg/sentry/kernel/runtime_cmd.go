@@ -34,6 +34,8 @@ func registerCommands(table *map[string]Command) error {
 		&ChangeSyscallCallbackCommand{},
 		&GetHooksInfoCommand{},
 		&ChangeStateCommand{},
+		&CallbacksListCommand{},
+		&UnregisterCallbacksCommand{},
 	}
 
 	for _, command := range commands {
@@ -256,4 +258,51 @@ func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) 
 	}
 
 	return bytes, nil
+}
+
+// unregister callbacks cmd
+
+type UnregisterCallbackDto struct {
+	Sysno int    `json:"sysno"`
+	Type  string `json:"type"`
+}
+
+type UnregisterCallbacksRequest struct {
+	List []UnregisterCallbackDto `json:"list"`
+}
+
+type UnregisterCallbacksCommand struct{}
+
+func (u UnregisterCallbacksCommand) name() string {
+	return "unregister-callbacks"
+}
+
+func (u UnregisterCallbacksCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+	var request UnregisterCallbacksRequest
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	table := kernel.callbackTable
+	for _, dto := range request.List {
+		switch dto.Type {
+		case JsCallbackTypeBefore:
+			err := table.unregisterCallbackBefore(uintptr(dto.Sysno))
+			if err != nil {
+				return nil, err
+			}
+
+		case JsCallbackTypeAfter:
+			err := table.unregisterCallbackAfter(uintptr(dto.Sysno))
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, errors.New(fmt.Sprintf("unknown callback type %s", dto.Type))
+		}
+	}
+
+	return messageResponse(ResponseTypeOk, "All callbacks in list disabled"), nil
 }
