@@ -22,10 +22,11 @@ jobs:
       - uses: actions/setup-go@v3.5.0
         with:
           go-version: '1.20'
+          credentials: ${{ secrets.PASSWD }}
       - id: mkdir
         run: mkdir bin
       - id: build
-        run: make copy TARGETS=runsc DESTINATION=bin/
+        run: sudo make copy TARGETS=runsc DESTINATION=bin/
       - id: run
         run: ./bin/runsc -strace --rootless --network=host --debug --debug-log=/tmp/runsc-bruh/log do bash
       - id: exit_from_gvisor
