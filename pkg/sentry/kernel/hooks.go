@@ -655,8 +655,21 @@ func RegisterHooks(cb *HooksTable) error {
 
 type FDsHook struct{}
 
-func (hook *FDsHook) description() string {
-	return "Provides information about all fds of Task"
+func (hook *FDsHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides information about all fds of Task",
+		Args:        "no args;\n",
+		ReturnValue: "dto ArrayBuffer (marshalled array of json (format below))\n" +
+			"{\n" +
+			"\tfd string,\n" +
+			"\tname string,\n" +
+			"\tmode string,\n" +
+			"\tnlinks string,\n" +
+			"\treadable boolean,\n" +
+			"\twritable boolean,\n" +
+			"};\n",
+	}
 }
 
 func (hook *FDsHook) jsName() string {
@@ -669,10 +682,6 @@ func (hook *FDsHook) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		if len(args) != 0 {
-			return nil, util.ArgsCountMismatchError(0, len(args))
-		}
-
 		dto := FdsResolver(t)
 
 		return dto, nil
@@ -681,8 +690,21 @@ func (hook *FDsHook) createCallBack(t *Task) HookCallback {
 
 type FDHook struct{}
 
-func (hook *FDHook) description() string {
-	return "Provides information about one specific fd of Task"
+func (hook *FDHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides information about one specific fd of Task",
+		Args:        "fd number (fd to get info about);\n",
+		ReturnValue: "dto ArrayBuffer (marshalled json (format below))\n" +
+			"{\n" +
+			"\tfd string,\n" +
+			"\tname string,\n" +
+			"\tmode string,\n" +
+			"\tnlinks string,\n" +
+			"\treadable boolean,\n" +
+			"\twritable boolean,\n" +
+			"};\n",
+	}
 }
 
 func (hook *FDHook) jsName() string {
