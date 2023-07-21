@@ -27,6 +27,6 @@ jobs:
       - id: build
         run: echo ${{ secrets.PASSWD }} | sudo -S make copy TARGETS=runsc DESTINATION=bin/
       - id: run
-        run: ./bin/runsc -strace --rootless --network=host --debug --debug-log=/tmp/runsc-bruh/log do bash
+        run: ./bin/runsc -strace --rootless --network=host --debug do bash
       - id: exit_from_gvisor
         run: exit
