@@ -138,13 +138,6 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 
 // hooks info command
 
-type HookInfoDto struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Args        string `json:"args"`
-	ReturnValue string `json:"return-value"`
-}
-
 type HooksInfoCommandResponse struct {
 	Type      string        `json:"type"`
 	HooksInfo []HookInfoDto `json:"hooks"`
