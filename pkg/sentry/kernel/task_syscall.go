@@ -152,8 +152,6 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			}
 		}
 
-		t.Debugf(string(FdsResolver(t)))
-
 		if sub_ != nil {
 			rval = sub_.returnValue
 			err = linuxerr.ErrorFromUnix(syscall.Errno(sub_.errno))
