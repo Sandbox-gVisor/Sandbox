@@ -255,8 +255,8 @@ func (hook *WriteBytesHookImpl) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer",
-		Args: "addr\tnumber\t(data from buffer will be written starting from this addr)\n" +
-			"buffer\tArrayBuffer\t(buffer which contains data to be written)\n",
+		Args: "addr\tnumber\t(data from buffer will be written starting from this addr);\n" +
+			"buffer\tArrayBuffer\t(buffer which contains data to be written);\n",
 		ReturnValue: "counter\tnumber\t(amount of really written bytes)",
 	}
 }
@@ -300,8 +300,8 @@ func (hook *ReadBytesHookImpl) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Read bytes to provided buffer by provided addr. Always tries to read count bytes",
-		Args: "addr\tnumber\t(data from address space will be read starting from this addr)\n" +
-			"count\tnumber\t(amount of bytes to read from address space)\n",
+		Args: "addr\tnumber\t(data from address space will be read starting from this addr);\n" +
+			"count\tnumber\t(amount of bytes to read from address space);\n",
 		ReturnValue: "buffer\tArrayBuffer\t(contains read data)",
 	}
 }
@@ -346,8 +346,8 @@ func (hook *WriteStringHookImpl) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Write provided string by provided addr",
-		Args: "addr\tnumber\t(string will be written starting from this addr)\n" +
-			"str\tstringt\t(string to be written)\n",
+		Args: "addr\tnumber\t(string will be written starting from this addr);\n" +
+			"str\tstringt\t(string to be written);\n",
 		ReturnValue: "count number (amount of bytes really written)",
 	}
 }
@@ -391,8 +391,8 @@ func (hook *ReadStringHookImpl) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Read string str by provided addr",
-		Args: "addr\tnumber\t(string will be read starting from this addr)\n" +
-			"count\tnumber\t(amount of bytes to read from address space)\n",
+		Args: "addr\tnumber\t(string will be read starting from this addr);\n" +
+			"count\tnumber\t(amount of bytes to read from address space);\n",
 		ReturnValue: "str\tstring\t(read string)",
 	}
 }
@@ -432,8 +432,13 @@ func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
 
 type EnvvGetterHookImpl struct{}
 
-func (hook *EnvvGetterHookImpl) description() string {
-	return "Provides environment variables of the Task"
+func (hook *EnvvGetterHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides environment variables of the Task",
+		Args:        "no args;\n",
+		ReturnValue: "envs\t[]string\t(array of strings, each string has the format ENV_NAME=env_val)",
+	}
 }
 
 func (hook *EnvvGetterHookImpl) jsName() string {
@@ -459,8 +464,14 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 
 type MmapGetterHookImpl struct{}
 
-func (hook *MmapGetterHookImpl) description() string {
-	return "Provides mapping info like in procfs"
+func (hook *MmapGetterHookImpl) description() HookInfoDto {
+	//return "Provides mapping info like in procfs"
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides mapping info like in procfs",
+		Args:        "no args;\n",
+		ReturnValue: "str\tstring\t(mappings like in procfs)",
+	}
 }
 
 func (hook *MmapGetterHookImpl) jsName() string {
@@ -481,8 +492,13 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 
 type ArgvHookImpl struct{}
 
-func (hook *ArgvHookImpl) description() string {
-	return "Provides argv of the Task"
+func (hook *ArgvHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides argv of the Task",
+		Args:        "no args;\n",
+		ReturnValue: "argv\t[]string\t(array of strings)",
+	}
 }
 
 func (hook *ArgvHookImpl) jsName() string {
