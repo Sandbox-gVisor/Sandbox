@@ -32,6 +32,8 @@ func registerCommands(table *map[string]Command) error {
 
 	commands := []Command{
 		&ChangeSyscallCallbackCommand{},
+		&GetHooksInfoCommand{},
+		&ChangeStateCommand{},
 	}
 
 	for _, command := range commands {
@@ -153,17 +155,54 @@ func (g GetHooksInfoCommand) name() string {
 }
 
 func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
-	//var hookInfoDtos []HookInfoDto
-	//
-	//table := kernel.hooksTable
-	//table.mutex.Lock()
-	//defer table.mutex.Unlock()
-	//
-	//for _, hook := range table.hooks {
-	//	hookInfoDtos = append(hookInfoDtos, HookInfoDto{Description: hook.description()})
-	//}
-	//
-	//response := HooksInfoCommandResponse{Type: ResponseTypeOk}
+	var hookInfoDtos []HookInfoDto
 
-	panic("not implement yet")
+	table := kernel.hooksTable
+	table.mutex.Lock()
+	defer table.mutex.Unlock()
+
+	for _, hook := range table.hooks {
+		hookInfoDtos = append(hookInfoDtos, HookInfoDto{Description: hook.description()})
+	}
+
+	response := HooksInfoCommandResponse{Type: ResponseTypeOk, HooksInfo: hookInfoDtos}
+	bytes, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
 }
+
+// change state command
+
+type ChangeStateRequest struct {
+	EntryPoint string `json:"entry-point"`
+	Source     string `json:"source"`
+}
+
+type ChangeStateCommand struct{}
+
+func (c ChangeStateCommand) name() string {
+	return "change-state"
+}
+
+func (c ChangeStateCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+	var request ChangeStateRequest
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	if request.EntryPoint == "" || request.Source == "" {
+		return nil, errors.New("script source or/and entry point is empty")
+	}
+
+	fmt.Println(request)
+
+	// TODO implements (after adding persistence state)
+
+	return messageResponse(ResponseTypeOk, "stub"), nil
+}
+
+//
