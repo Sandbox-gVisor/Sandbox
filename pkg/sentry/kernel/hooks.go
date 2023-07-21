@@ -16,9 +16,24 @@ import (
 // HookCallback is signature of hooks that are called from user`s js callback
 type HookCallback func(...goja.Value) (interface{}, error)
 
+type HookInfoDto struct {
+	// Name contains the jsName
+	Name string `json:"name"`
+
+	// Description of the hook
+	Description string `json:"description"`
+
+	// Args has such format:
+	// argName type description
+	Args string `json:"args"`
+
+	// ReturnValue - description of the return value
+	ReturnValue string `json:"return-value"`
+}
+
 // GoHook is an interface for hooks, that user can call from js callback
 type GoHook interface {
-	description() string
+	description() HookInfoDto
 
 	jsName() string
 
@@ -43,7 +58,7 @@ type GoHookDecorator struct {
 	wrapped GoHook
 }
 
-func (decorator *GoHookDecorator) description() string {
+func (decorator *GoHookDecorator) description() HookInfoDto {
 	return decorator.wrapped.description()
 }
 
@@ -156,6 +171,7 @@ func EnvvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
+// MmapsGetter returns a description of mappings like in procfs
 func MmapsGetter(t *Task) string {
 	return t.image.MemoryManager.String()
 }
@@ -208,8 +224,13 @@ func SessionGetter(t *Task) string {
 
 type PrintHook struct{}
 
-func (ph *PrintHook) description() string {
-	return "Prints passed arguments"
+func (ph *PrintHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        ph.jsName(),
+		Description: "Prints all passed args",
+		Args:        "msgs\t...any\t(values to be printed);\n",
+		ReturnValue: "null",
+	}
 }
 
 func (ph *PrintHook) jsName() string {
@@ -230,8 +251,14 @@ func (ph *PrintHook) createCallBack(_ *Task) HookCallback {
 
 type WriteBytesHookImpl struct{}
 
-func (hook *WriteBytesHookImpl) description() string {
-	return "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer"
+func (hook *WriteBytesHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer",
+		Args: "addr\tnumber\t(data from buffer will be written starting from this addr);\n" +
+			"buffer\tArrayBuffer\t(buffer which contains data to be written);\n",
+		ReturnValue: "counter\tnumber\t(amount of really written bytes)",
+	}
 }
 
 func (hook *WriteBytesHookImpl) jsName() string {
@@ -269,8 +296,14 @@ func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
 
 type ReadBytesHookImpl struct{}
 
-func (hook *ReadBytesHookImpl) description() string {
-	return "Read bytes to provided buffer by provided addr. Always tries to read len(buffer) bytes"
+func (hook *ReadBytesHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Read bytes to provided buffer by provided addr. Always tries to read count bytes",
+		Args: "addr\tnumber\t(data from address space will be read starting from this addr);\n" +
+			"count\tnumber\t(amount of bytes to read from address space);\n",
+		ReturnValue: "buffer\tArrayBuffer\t(contains read data)",
+	}
 }
 
 func (hook *ReadBytesHookImpl) jsName() string {
@@ -309,8 +342,14 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 
 type WriteStringHookImpl struct{}
 
-func (hook *WriteStringHookImpl) description() string {
-	return "Write provided string by provided addr"
+func (hook *WriteStringHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Write provided string by provided addr",
+		Args: "addr\tnumber\t(string will be written starting from this addr);\n" +
+			"str\tstringt\t(string to be written);\n",
+		ReturnValue: "count number (amount of bytes really written)",
+	}
 }
 
 func (hook *WriteStringHookImpl) jsName() string {
@@ -348,8 +387,14 @@ func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
 
 type ReadStringHookImpl struct{}
 
-func (hook *ReadStringHookImpl) description() string {
-	return "Read string by provided addr"
+func (hook *ReadStringHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Read string str by provided addr",
+		Args: "addr\tnumber\t(string will be read starting from this addr);\n" +
+			"count\tnumber\t(amount of bytes to read from address space);\n",
+		ReturnValue: "str\tstring\t(read string)",
+	}
 }
 
 func (hook *ReadStringHookImpl) jsName() string {
@@ -387,8 +432,13 @@ func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
 
 type EnvvGetterHookImpl struct{}
 
-func (hook *EnvvGetterHookImpl) description() string {
-	return "Provides environment variables of the Task"
+func (hook *EnvvGetterHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides environment variables of the Task",
+		Args:        "no args;\n",
+		ReturnValue: "envs\t[]string\t(array of strings, each string has the format ENV_NAME=env_val)",
+	}
 }
 
 func (hook *EnvvGetterHookImpl) jsName() string {
@@ -414,8 +464,14 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 
 type MmapGetterHookImpl struct{}
 
-func (hook *MmapGetterHookImpl) description() string {
-	return "Provides mapping info like in procfs"
+func (hook *MmapGetterHookImpl) description() HookInfoDto {
+	//return "Provides mapping info like in procfs"
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides mapping info like in procfs",
+		Args:        "no args;\n",
+		ReturnValue: "str\tstring\t(mappings like in procfs)",
+	}
 }
 
 func (hook *MmapGetterHookImpl) jsName() string {
@@ -436,8 +492,13 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 
 type ArgvHookImpl struct{}
 
-func (hook *ArgvHookImpl) description() string {
-	return "Provides argv of the Task"
+func (hook *ArgvHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides argv of the Task",
+		Args:        "no args;\n",
+		ReturnValue: "argv\t[]string\t(array of strings)",
+	}
 }
 
 func (hook *ArgvHookImpl) jsName() string {
@@ -463,8 +524,25 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 
 type SignalMaskHook struct{}
 
-func (hook *SignalMaskHook) description() string {
-	return "Provides signal masks and sigactions of the Task"
+func (hook *SignalMaskHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides signal masks and sigactions of the Task",
+		Args:        "no args;\n",
+		ReturnValue: "SignalMaskDto json \n" +
+			"{\n" +
+			"\tSignalMask number (Task.signalMask signal mask of the task),\n" +
+			"\tSignalWaitMask number (Task.realSignalMask (Task will be blocked until one of signals in Task.realSignalMask is pending)),\n" +
+			"\tSavedSignalMask number (Task.savedSignalMask (savedSignalMask is the signal mask that should be applied after the task has either delivered one signal to a user handler or is about to resume execution in the untrusted application)),\n" +
+			"\tSigActions string (is a stringified array of json)\n" +
+			"\t{\n" +
+			"\t\tHandler string,\n" +
+			"\t\tFlags string,\n" +
+			"\t\tRestorer number,\n" +
+			"\t\tMask []string (array of strings, each string is a signal name)\n" +
+			"\t}\n" +
+			"};\n",
+	}
 }
 
 func (hook *SignalMaskHook) jsName() string {
@@ -498,8 +576,25 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 
 type PidHook struct{}
 
-func (hook *PidHook) description() string {
-	return "Provides PID, GID, UID and session info of Task"
+func (hook *PidHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides PID, GID, UID and session info of Task",
+		Args:        "no args;\n",
+		ReturnValue: "PidDto json \n" +
+			"{\n" +
+			"\tPid number,\n" +
+			"\tGid number,\n" +
+			"\tUid number,\n" +
+			"\tSession json\n" +
+			"\t{\n" +
+			"\t\tsessionId number,\n" +
+			"\t\tPGID number,\n" +
+			"\t\tforeground number,\n" +
+			"\t\totherPGIDs []number (array of other PGIDS in session)\n" +
+			"\r}\n" +
+			"};\n",
+	}
 }
 
 func (hook *PidHook) jsName() string {
@@ -560,8 +655,21 @@ func RegisterHooks(cb *HooksTable) error {
 
 type FDsHook struct{}
 
-func (hook *FDsHook) description() string {
-	return "Provides information about all fds of Task"
+func (hook *FDsHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides information about all fds of Task",
+		Args:        "no args;\n",
+		ReturnValue: "dto ArrayBuffer (marshalled array of json (format below))\n" +
+			"{\n" +
+			"\tfd string,\n" +
+			"\tname string,\n" +
+			"\tmode string,\n" +
+			"\tnlinks string,\n" +
+			"\treadable boolean,\n" +
+			"\twritable boolean,\n" +
+			"};\n",
+	}
 }
 
 func (hook *FDsHook) jsName() string {
@@ -574,10 +682,6 @@ func (hook *FDsHook) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		if len(args) != 0 {
-			return nil, util.ArgsCountMismatchError(0, len(args))
-		}
-
 		dto := FdsResolver(t)
 
 		return dto, nil
@@ -586,8 +690,21 @@ func (hook *FDsHook) createCallBack(t *Task) HookCallback {
 
 type FDHook struct{}
 
-func (hook *FDHook) description() string {
-	return "Provides information about one specific fd of Task"
+func (hook *FDHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides information about one specific fd of Task",
+		Args:        "fd number (fd to get info about);\n",
+		ReturnValue: "dto ArrayBuffer (marshalled json (format below))\n" +
+			"{\n" +
+			"\tfd string,\n" +
+			"\tname string,\n" +
+			"\tmode string,\n" +
+			"\tnlinks string,\n" +
+			"\treadable boolean,\n" +
+			"\twritable boolean,\n" +
+			"};\n",
+	}
 }
 
 func (hook *FDHook) jsName() string {
