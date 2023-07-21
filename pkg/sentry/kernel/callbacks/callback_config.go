@@ -13,6 +13,16 @@ type JsCallbackInfo struct {
 	Type           string `json:"type"`
 }
 
+func JsCallbackInfoFromStr(str string) (*JsCallbackInfo, error) {
+	bytes := []byte(str)
+	info := &JsCallbackInfo{}
+	err := json.Unmarshal(bytes, info)
+	if err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
 type CallbackConfigDto struct {
 	SocketFileName string `json:"runtime-socket"`
 

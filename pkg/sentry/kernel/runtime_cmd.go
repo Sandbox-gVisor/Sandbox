@@ -32,6 +32,10 @@ func registerCommands(table *map[string]Command) error {
 
 	commands := []Command{
 		&ChangeSyscallCallbackCommand{},
+		&GetHooksInfoCommand{},
+		&ChangeStateCommand{},
+		&CallbacksListCommand{},
+		&UnregisterCallbacksCommand{},
 	}
 
 	for _, command := range commands {
@@ -146,17 +150,152 @@ func (g GetHooksInfoCommand) name() string {
 }
 
 func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
-	//var hookInfoDtos []HookInfoDto
-	//
-	//table := kernel.hooksTable
-	//table.mutex.Lock()
-	//defer table.mutex.Unlock()
-	//
-	//for _, hook := range table.hooks {
-	//	hookInfoDtos = append(hookInfoDtos, HookInfoDto{Description: hook.description()})
-	//}
-	//
-	//response := HooksInfoCommandResponse{Type: ResponseTypeOk}
+	var hookInfoDtos []HookInfoDto
 
-	panic("not implement yet")
+	table := kernel.hooksTable
+	table.mutex.Lock()
+	defer table.mutex.Unlock()
+
+	for _, hook := range table.hooks {
+		hookInfoDtos = append(hookInfoDtos, hook.description())
+	}
+
+	response := HooksInfoCommandResponse{Type: ResponseTypeOk, HooksInfo: hookInfoDtos}
+	bytes, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
+}
+
+// change state command
+
+type ChangeStateRequest struct {
+	EntryPoint string `json:"entry-point"`
+	Source     string `json:"source"`
+}
+
+type ChangeStateCommand struct{}
+
+func (c ChangeStateCommand) name() string {
+	return "change-state"
+}
+
+func (c ChangeStateCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+	var request ChangeStateRequest
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	if request.EntryPoint == "" || request.Source == "" {
+		return nil, errors.New("script source or/and entry point is empty")
+	}
+
+	fmt.Println(request)
+
+	// TODO implements (after adding persistence state)
+
+	return messageResponse(ResponseTypeOk, "stub"), nil
+}
+
+// get current callbacks
+
+type CallbackListResponse struct {
+	Type        string                     `json:"type"`
+	JsCallbacks []callbacks.JsCallbackInfo `json:"callbacks"`
+}
+
+type CallbacksListCommand struct{}
+
+func (c CallbacksListCommand) name() string {
+	return "current-callbacks"
+}
+
+func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
+	return &callbacks.JsCallbackInfo{
+		Sysno:          int(sysno),
+		EntryPoint:     "unknown",
+		CallbackSource: "unknown",
+		Type:           cbType,
+	}
+}
+
+func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
+	table := kernel.callbackTable
+	table.Lock()
+	defer table.Unlock()
+	var infos []callbacks.JsCallbackInfo
+
+	for sysno, cbBefore := range table.callbackBefore {
+		info, err := callbacks.JsCallbackInfoFromStr(cbBefore.Info())
+		if err != nil {
+			info = unknownCallback(sysno, JsCallbackTypeBefore)
+		}
+		infos = append(infos, *info)
+	}
+
+	for sysno, cbAfter := range table.callbackAfter {
+		info, err := callbacks.JsCallbackInfoFromStr(cbAfter.Info())
+		if err != nil {
+			info = unknownCallback(sysno, JsCallbackTypeAfter)
+		}
+		infos = append(infos, *info)
+	}
+
+	response := CallbackListResponse{Type: ResponseTypeOk, JsCallbacks: infos}
+	bytes, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
+}
+
+// unregister callbacks cmd
+
+type UnregisterCallbackDto struct {
+	Sysno int    `json:"sysno"`
+	Type  string `json:"type"`
+}
+
+type UnregisterCallbacksRequest struct {
+	List []UnregisterCallbackDto `json:"list"`
+}
+
+type UnregisterCallbacksCommand struct{}
+
+func (u UnregisterCallbacksCommand) name() string {
+	return "unregister-callbacks"
+}
+
+func (u UnregisterCallbacksCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+	var request UnregisterCallbacksRequest
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	table := kernel.callbackTable
+	for _, dto := range request.List {
+		switch dto.Type {
+		case JsCallbackTypeBefore:
+			err := table.unregisterCallbackBefore(uintptr(dto.Sysno))
+			if err != nil {
+				return nil, err
+			}
+
+		case JsCallbackTypeAfter:
+			err := table.unregisterCallbackAfter(uintptr(dto.Sysno))
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, errors.New(fmt.Sprintf("unknown callback type %s", dto.Type))
+		}
+	}
+
+	return messageResponse(ResponseTypeOk, "All callbacks in list disabled"), nil
 }
