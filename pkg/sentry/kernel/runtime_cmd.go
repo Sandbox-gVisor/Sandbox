@@ -157,7 +157,7 @@ func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
 	defer table.mutex.Unlock()
 
 	for _, hook := range table.hooks {
-		hookInfoDtos = append(hookInfoDtos, HookInfoDto{Description: hook.description()})
+		hookInfoDtos = append(hookInfoDtos, hook.description())
 	}
 
 	response := HooksInfoCommandResponse{Type: ResponseTypeOk, HooksInfo: hookInfoDtos}
