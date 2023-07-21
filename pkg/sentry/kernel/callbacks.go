@@ -83,6 +83,7 @@ type CallbackAfter interface {
 	Info() string
 }
 
+// CallbackTable is a storage of functions which can be called before and/ or after syscall execution
 type CallbackTable struct {
 	// callbackBefore is a map of:
 	//
@@ -195,20 +196,6 @@ func (ct *CallbackTable) getCallbackAfter(sysno uintptr) CallbackAfter {
 	}
 }
 
-type SimplePrinter struct {
-	counter int
-	mu      sync.Mutex
-}
-
-func (s *SimplePrinter) CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, error) {
-	s.mu.Lock()
-	val := s.counter
-	s.counter += 1
-	s.mu.Unlock()
-	t.Debugf("sysno %v: Bruh... %v", sysno, val)
-	return args, nil
-}
-
 // js callback staff bellow
 
 type JsCallback interface {
@@ -239,6 +226,8 @@ type JsCallbackAfter struct {
 	info callbacks.JsCallbackInfo
 }
 
+// JsCallbackByInfo returns suitable JsCallback (JsCallbackAfter or JsCallbackBefore)
+// according to callbacks.JsCallbackInfo
 func JsCallbackByInfo(info callbacks.JsCallbackInfo) (JsCallback, error) {
 	if info.Type == JsCallbackTypeAfter {
 		cb := &JsCallbackAfter{info: info}
