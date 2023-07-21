@@ -615,7 +615,7 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 }
 
 type FDInfo struct {
-	Path     string `json:"name"`
+	Path     string `json:"path"`
 	FD       string `json:"fd"`
 	Mode     string `json:"mode"`
 	Nlinks   string `json:"nlinks"`
