@@ -618,6 +618,7 @@ type FDInfo struct {
 	Path     string `json:"name"`
 	FD       string `json:"fd"`
 	Mode     string `json:"mode"`
+	Nlinks   string `json:"nlinks"`
 	Readable bool   `json:"readable"`
 	Writable bool   `json:"writable"`
 }
@@ -638,11 +639,13 @@ func FdsResolver(t *Task) []byte {
 		name := findPath(t, fd)
 		num := strconv.FormatInt(int64(fd), 10)
 		privMask := parseMask(stat.Mode)
+		nlinks := strconv.FormatInt(int64(stat.Nlink), 10)
 
 		jsonPrivs = append(jsonPrivs, FDInfo{
 			FD:       num,
 			Path:     name,
 			Mode:     privMask,
+			Nlinks:   nlinks,
 			Writable: fdesc.IsWritable(),
 			Readable: fdesc.IsReadable(),
 		})
@@ -669,11 +672,13 @@ func FdResolver(t *Task, fd int32) []byte {
 	name := findPath(t, fd)
 	num := strconv.FormatInt(int64(fd), 10)
 	privMask := parseMask(stat.Mode)
+	nlinks := strconv.FormatInt(int64(stat.Nlink), 10)
 
 	jsonPrivs := FDInfo{
 		Path:     name,
 		FD:       num,
 		Mode:     privMask,
+		Nlinks:   nlinks,
 		Writable: fdesc.IsWritable(),
 		Readable: fdesc.IsReadable(),
 	}
