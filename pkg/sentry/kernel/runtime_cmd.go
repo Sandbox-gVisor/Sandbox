@@ -205,4 +205,55 @@ func (c ChangeStateCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) 
 	return messageResponse(ResponseTypeOk, "stub"), nil
 }
 
-//
+// get current callbacks
+
+type CallbackListResponse struct {
+	Type        string                     `json:"type"`
+	JsCallbacks []callbacks.JsCallbackInfo `json:"callbacks"`
+}
+
+type CallbacksListCommand struct{}
+
+func (c CallbacksListCommand) name() string {
+	return "current-callbacks"
+}
+
+func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
+	return &callbacks.JsCallbackInfo{
+		Sysno:          int(sysno),
+		EntryPoint:     "unknown",
+		CallbackSource: "unknown",
+		Type:           cbType,
+	}
+}
+
+func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
+	table := kernel.callbackTable
+	table.Lock()
+	defer table.Unlock()
+	var infos []callbacks.JsCallbackInfo
+
+	for sysno, cbBefore := range table.callbackBefore {
+		info, err := callbacks.JsCallbackInfoFromStr(cbBefore.Info())
+		if err != nil {
+			info = unknownCallback(sysno, JsCallbackTypeBefore)
+		}
+		infos = append(infos, *info)
+	}
+
+	for sysno, cbAfter := range table.callbackAfter {
+		info, err := callbacks.JsCallbackInfoFromStr(cbAfter.Info())
+		if err != nil {
+			info = unknownCallback(sysno, JsCallbackTypeAfter)
+		}
+		infos = append(infos, *info)
+	}
+
+	response := CallbackListResponse{Type: ResponseTypeOk, JsCallbacks: infos}
+	bytes, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
+}

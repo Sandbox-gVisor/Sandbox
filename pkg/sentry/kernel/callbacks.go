@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
@@ -59,6 +60,9 @@ type CallbackBefore interface {
 	//
 	// new args, returnValue/err if needed, error if something bad occurred
 	CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValue, error)
+
+	// Info about this callback
+	Info() string
 }
 
 // CallbackAfter - interface which is used to replace args / return value / errno of syscall
@@ -74,6 +78,9 @@ type CallbackAfter interface {
 	// - error if something went wrong
 	CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments,
 		ret uintptr, err error) (*arch.SyscallArguments, *SyscallReturnValue, error)
+
+	// Info about this callback
+	Info() string
 }
 
 type CallbackTable struct {
@@ -118,6 +125,16 @@ func (ct *CallbackTable) registerCallbackAfter(sysno uintptr, f CallbackAfter) e
 
 	ct.callbackAfter[sysno] = f
 	return nil
+}
+
+func (ct *CallbackTable) Lock() {
+	ct.mutexBefore.Lock()
+	ct.mutexAfter.Lock()
+}
+
+func (ct *CallbackTable) Unlock() {
+	ct.mutexBefore.Unlock()
+	ct.mutexAfter.Unlock()
 }
 
 func (ct *CallbackTable) registerCallbackBeforeNoLock(sysno uintptr, f CallbackBefore) error {
@@ -239,12 +256,28 @@ func (cb *JsCallbackBefore) callbackInfo() *callbacks.JsCallbackInfo {
 	return &cb.info
 }
 
+func (cb *JsCallbackBefore) Info() string {
+	bytes, err := json.Marshal(cb.info)
+	if err != nil {
+		return ""
+	}
+	return string(bytes)
+}
+
 func (cb *JsCallbackBefore) registerAtCallbackTable(ct *CallbackTable) error {
 	return ct.registerCallbackBefore(uintptr(cb.info.Sysno), cb)
 }
 
 func (cb *JsCallbackAfter) callbackInfo() *callbacks.JsCallbackInfo {
 	return &cb.info
+}
+
+func (cb *JsCallbackAfter) Info() string {
+	bytes, err := json.Marshal(cb.info)
+	if err != nil {
+		return ""
+	}
+	return string(bytes)
 }
 
 func (cb *JsCallbackAfter) registerAtCallbackTable(ct *CallbackTable) error {
