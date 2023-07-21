@@ -576,8 +576,25 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 
 type PidHook struct{}
 
-func (hook *PidHook) description() string {
-	return "Provides PID, GID, UID and session info of Task"
+func (hook *PidHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides PID, GID, UID and session info of Task",
+		Args:        "no args;\n",
+		ReturnValue: "PidDto json \n" +
+			"{\n" +
+			"\tPid number,\n" +
+			"\tGid number,\n" +
+			"\tUid number,\n" +
+			"\tSession json\n" +
+			"\t{\n" +
+			"\t\tsessionId number,\n" +
+			"\t\tPGID number,\n" +
+			"\t\tforeground number,\n" +
+			"\t\totherPGIDs []number (array of other PGIDS in session)\n" +
+			"\r}\n" +
+			"};\n",
+	}
 }
 
 func (hook *PidHook) jsName() string {
