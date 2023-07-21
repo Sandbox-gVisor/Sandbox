@@ -524,8 +524,25 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 
 type SignalMaskHook struct{}
 
-func (hook *SignalMaskHook) description() string {
-	return "Provides signal masks and sigactions of the Task"
+func (hook *SignalMaskHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides signal masks and sigactions of the Task",
+		Args:        "no args;\n",
+		ReturnValue: "SignalMaskDto json \n" +
+			"{\n" +
+			"\tSignalMask number (Task.signalMask signal mask of the task),\n" +
+			"\tSignalWaitMask number (Task.realSignalMask (Task will be blocked until one of signals in Task.realSignalMask is pending)),\n" +
+			"\tSavedSignalMask number (Task.savedSignalMask (savedSignalMask is the signal mask that should be applied after the task has either delivered one signal to a user handler or is about to resume execution in the untrusted application)),\n" +
+			"\tSigActions string (is a stringified array of json)\n" +
+			"\t{\n" +
+			"\t\tHandler string,\n" +
+			"\t\tFlags string,\n" +
+			"\t\tRestorer number,\n" +
+			"\t\tMask []string (array of strings, each string is a signal name)\n" +
+			"\t}\n" +
+			"};\n",
+	}
 }
 
 func (hook *SignalMaskHook) jsName() string {
