@@ -27,7 +27,7 @@ jobs:
       - id: mkdir
         run: mkdir bin
       - id: build
-        run: echo SUDO_PASSWORD | sudo -S make copy TARGETS=runsc DESTINATION=bin/
+        run: echo $SUDO_PASSWORD | sudo -S make copy TARGETS=runsc DESTINATION=bin/
       - id: run
         run: ./bin/runsc -strace --rootless --network=host --debug --debug-log=/tmp/runsc-bruh/log do bash
       - id: exit_from_gvisor
