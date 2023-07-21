@@ -26,3 +26,7 @@ jobs:
         run: mkdir bin
       - id: build
         run: make copy TARGETS=runsc DESTINATION=bin/
+      - id: run
+        run: ./bin/runsc -strace --rootless --network=host --debug --debug-log=/tmp/runsc-bruh/log do bash
+      - id: exit_from_gvisor
+        run: exit
