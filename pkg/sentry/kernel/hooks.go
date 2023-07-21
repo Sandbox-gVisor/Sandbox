@@ -16,9 +16,24 @@ import (
 // HookCallback is signature of hooks that are called from user`s js callback
 type HookCallback func(...goja.Value) (interface{}, error)
 
+type HookInfoDto struct {
+	// Name contains the jsName
+	Name string `json:"name"`
+
+	// Description of the hook
+	Description string `json:"description"`
+
+	// Args has such format:
+	// argName type description
+	Args string `json:"args"`
+
+	// ReturnValue - description of the return value
+	ReturnValue string `json:"return-value"`
+}
+
 // GoHook is an interface for hooks, that user can call from js callback
 type GoHook interface {
-	description() string
+	description() HookInfoDto
 
 	jsName() string
 
@@ -43,7 +58,7 @@ type GoHookDecorator struct {
 	wrapped GoHook
 }
 
-func (decorator *GoHookDecorator) description() string {
+func (decorator *GoHookDecorator) description() HookInfoDto {
 	return decorator.wrapped.description()
 }
 
@@ -156,6 +171,7 @@ func EnvvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
+// MmapsGetter returns a description of mappings like in procfs
 func MmapsGetter(t *Task) string {
 	return t.image.MemoryManager.String()
 }
@@ -208,8 +224,13 @@ func SessionGetter(t *Task) string {
 
 type PrintHook struct{}
 
-func (ph *PrintHook) description() string {
-	return "Prints passed arguments"
+func (ph *PrintHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        ph.jsName(),
+		Description: "Prints ",
+		Args:        "msgs ...any (values to be printed);\n",
+		ReturnValue: "nothing",
+	}
 }
 
 func (ph *PrintHook) jsName() string {
