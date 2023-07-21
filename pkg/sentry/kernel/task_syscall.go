@@ -138,6 +138,9 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 			region = trace.StartRegion(t.traceContext, s.LookupName(sysno))
 		}
 
+		// TODO: remove before merge
+		t.Debugf("FDresplver: %v", string(FdResolver(t, 20)))
+
 		args_ := &args
 		var sub_ *SyscallReturnValue = nil
 		ct := t.Kernel().callbackTable

@@ -657,10 +657,12 @@ func FdsResolver(t *Task) []byte {
 // path to fd, fd num and fd mask in JSON format
 func FdResolver(t *Task, fd int32) []byte {
 	fdesc, _ := t.fdTable.Get(fd)
+	// TODO: set the line below to correct place
+	defer fdesc.DecRef(t)
 	if fdesc == nil {
 		return nil
 	}
-	defer fdesc.DecRef(t)
+	// TODO: right place
 	stat, err := fdesc.Stat(t, vfs.StatOptions{})
 	if err != nil {
 		return nil
