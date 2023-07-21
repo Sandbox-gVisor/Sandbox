@@ -227,9 +227,9 @@ type PrintHook struct{}
 func (ph *PrintHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        ph.jsName(),
-		Description: "Prints ",
-		Args:        "msgs ...any (values to be printed);\n",
-		ReturnValue: "nothing",
+		Description: "Prints all passed args",
+		Args:        "msgs\t...any\t(values to be printed);\n",
+		ReturnValue: "null",
 	}
 }
 
@@ -251,8 +251,14 @@ func (ph *PrintHook) createCallBack(_ *Task) HookCallback {
 
 type WriteBytesHookImpl struct{}
 
-func (hook *WriteBytesHookImpl) description() string {
-	return "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer"
+func (hook *WriteBytesHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer",
+		Args: "addr\tnumber\t(data from buffer will be written starting from this addr)\n" +
+			"buffer\tArrayBuffer\t(buffer which contains data to be written)\n",
+		ReturnValue: "counter\tnumber\t(amount of really written bytes)",
+	}
 }
 
 func (hook *WriteBytesHookImpl) jsName() string {
@@ -290,8 +296,14 @@ func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
 
 type ReadBytesHookImpl struct{}
 
-func (hook *ReadBytesHookImpl) description() string {
-	return "Read bytes to provided buffer by provided addr. Always tries to read len(buffer) bytes"
+func (hook *ReadBytesHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Read bytes to provided buffer by provided addr. Always tries to read count bytes",
+		Args: "addr\tnumber\t(data from address space will be read starting from this addr)\n" +
+			"count\tnumber\t(amount of bytes to read from address space)\n",
+		ReturnValue: "buffer\tArrayBuffer\t(contains read data)",
+	}
 }
 
 func (hook *ReadBytesHookImpl) jsName() string {
@@ -330,8 +342,14 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 
 type WriteStringHookImpl struct{}
 
-func (hook *WriteStringHookImpl) description() string {
-	return "Write provided string by provided addr"
+func (hook *WriteStringHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Write provided string by provided addr",
+		Args: "addr\tnumber\t(string will be written starting from this addr)\n" +
+			"str\tstringt\t(string to be written)\n",
+		ReturnValue: "count number (amount of bytes really written)",
+	}
 }
 
 func (hook *WriteStringHookImpl) jsName() string {
@@ -369,8 +387,14 @@ func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
 
 type ReadStringHookImpl struct{}
 
-func (hook *ReadStringHookImpl) description() string {
-	return "Read string by provided addr"
+func (hook *ReadStringHookImpl) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Read string str by provided addr",
+		Args: "addr\tnumber\t(string will be read starting from this addr)\n" +
+			"count\tnumber\t(amount of bytes to read from address space)\n",
+		ReturnValue: "str\tstring\t(read string)",
+	}
 }
 
 func (hook *ReadStringHookImpl) jsName() string {
