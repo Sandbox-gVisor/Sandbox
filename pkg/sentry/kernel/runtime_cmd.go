@@ -22,50 +22,6 @@ type TypeDto struct {
 	Type string `json:"type"`
 }
 
-type ChangeSyscallCallbackCommand struct{}
-
-func (c ChangeSyscallCallbackCommand) name() string {
-	return "change-callbacks"
-}
-
-type ChangeSyscallDto struct {
-	Type string `json:"type"`
-
-	CallbackDto []callbacks.JsCallbackInfo `json:"callbacks"`
-}
-
-func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
-
-	var request ChangeSyscallDto
-	err := json.Unmarshal(raw, &request)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(request.CallbackDto) == 0 {
-		return nil, errors.New("callbacks list is empty")
-	}
-
-	var jsCallbacks []JsCallback
-	for _, dto := range request.CallbackDto {
-		jsCallback, err := JsCallbackByInfo(dto)
-		if err != nil {
-			return nil, err
-		}
-		jsCallbacks = append(jsCallbacks, jsCallback)
-	}
-
-	for _, cb := range jsCallbacks {
-		cbCopy := cb // DON'T touch or golang will do trash
-		err := cbCopy.registerAtCallbackTable(kernel.callbackTable)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return messageResponse("ok", "Everything is OK"), nil
-}
-
 func registerCommands(table *map[string]Command) error {
 	if table == nil {
 		return errors.New("table is null")
@@ -127,3 +83,50 @@ func handleRequest(kernel *Kernel, conn net.Conn) {
 		response = response[n:]
 	}
 }
+
+// change callbacks cmd
+
+type ChangeSyscallCallbackCommand struct{}
+
+func (c ChangeSyscallCallbackCommand) name() string {
+	return "change-callbacks"
+}
+
+type ChangeSyscallDto struct {
+	Type        string                     `json:"type"`
+	CallbackDto []callbacks.JsCallbackInfo `json:"callbacks"`
+}
+
+func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+
+	var request ChangeSyscallDto
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(request.CallbackDto) == 0 {
+		return nil, errors.New("callbacks list is empty")
+	}
+
+	var jsCallbacks []JsCallback
+	for _, dto := range request.CallbackDto {
+		jsCallback, err := JsCallbackByInfo(dto)
+		if err != nil {
+			return nil, err
+		}
+		jsCallbacks = append(jsCallbacks, jsCallback)
+	}
+
+	for _, cb := range jsCallbacks {
+		cbCopy := cb // DON'T touch or golang will do trash
+		err := cbCopy.registerAtCallbackTable(kernel.callbackTable)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return messageResponse("ok", "Everything is OK"), nil
+}
+
+// hooks info command
