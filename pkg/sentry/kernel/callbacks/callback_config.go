@@ -6,14 +6,23 @@ import (
 	"syscall"
 )
 
+// JsCallbackInfo contains all needed for calling user registered js callbacks
 type JsCallbackInfo struct {
-	Sysno          int    `json:"sysno"`
-	EntryPoint     string `json:"entry-point"`
+	// Sysno is the syscall number for which callback is registered
+	Sysno int `json:"sysno"`
+
+	// EntryPoint is the start point of execution js code
+	EntryPoint string `json:"entry-point"`
+
+	// CallbackSource is the source code of callback
 	CallbackSource string `json:"source"`
-	Type           string `json:"type"`
+
+	// Type is the callback executed before or after syscall
+	Type string `json:"type"`
 }
 
 type CallbackConfigDto struct {
+	// SocketFileName is the name for unix domain socket used for communication with outside
 	SocketFileName string `json:"runtime-socket"`
 
 	CallbackDtos []JsCallbackInfo `json:"callbacks"`

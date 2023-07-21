@@ -443,11 +443,15 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		go accepter(k, listener)
 	}
 
+	// init js vm
 	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
+
+	// init callback table
 	k.callbackTable = &CallbackTable{
 		callbackBefore: make(map[uintptr]CallbackBefore),
 		callbackAfter:  make(map[uintptr]CallbackAfter),
 	}
+	// init hooks table
 	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
 
 	if err := RegisterHooks(k.hooksTable); err != nil {

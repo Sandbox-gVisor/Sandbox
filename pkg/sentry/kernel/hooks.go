@@ -33,8 +33,10 @@ type HookInfoDto struct {
 
 // GoHook is an interface for hooks, that user can call from js callback
 type GoHook interface {
+	// description should provide ingo about hook in the HookInfoDto
 	description() HookInfoDto
 
+	// jsName - with this name the hook will be called from js
 	jsName() string
 
 	createCallBack(*Task) HookCallback
@@ -99,7 +101,8 @@ func (ht *HooksTable) getHook(hookName string) GoHook {
 	}
 }
 
-// HooksTable user`s js callback takes hooks from this table before execution
+// HooksTable user`s js callback takes hooks from this table before execution.
+// Hooks from the table can be used by user in his js code to get / modify data
 type HooksTable struct {
 	hooks map[string]GoHook
 	mutex sync.Mutex
@@ -186,6 +189,15 @@ func ArgvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
+// SessionGetter provides info about session:
+//
+// - session id
+//
+// - PGID
+//
+// - foreground
+//
+// - other PGIDs of the session
 func SessionGetter(t *Task) string {
 	if t.tg == nil {
 		return fmt.Sprintf("{\"error\": \"%v\"}", "thread group is nil")
@@ -249,9 +261,9 @@ func (ph *PrintHook) createCallBack(_ *Task) HookCallback {
 	}
 }
 
-type WriteBytesHookImpl struct{}
+type WriteBytesHook struct{}
 
-func (hook *WriteBytesHookImpl) description() HookInfoDto {
+func (hook *WriteBytesHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer",
@@ -261,11 +273,11 @@ func (hook *WriteBytesHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *WriteBytesHookImpl) jsName() string {
+func (hook *WriteBytesHook) jsName() string {
 	return "writeBytes"
 }
 
-func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *WriteBytesHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := t.Kernel().GojaRuntime
@@ -294,9 +306,9 @@ func (hook *WriteBytesHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type ReadBytesHookImpl struct{}
+type ReadBytesHook struct{}
 
-func (hook *ReadBytesHookImpl) description() HookInfoDto {
+func (hook *ReadBytesHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Read bytes to provided buffer by provided addr. Always tries to read count bytes",
@@ -306,11 +318,11 @@ func (hook *ReadBytesHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *ReadBytesHookImpl) jsName() string {
+func (hook *ReadBytesHook) jsName() string {
 	return "readBytes"
 }
 
-func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *ReadBytesHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := t.Kernel().GojaRuntime
@@ -340,9 +352,9 @@ func (hook *ReadBytesHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type WriteStringHookImpl struct{}
+type WriteStringHook struct{}
 
-func (hook *WriteStringHookImpl) description() HookInfoDto {
+func (hook *WriteStringHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Write provided string by provided addr",
@@ -352,11 +364,11 @@ func (hook *WriteStringHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *WriteStringHookImpl) jsName() string {
+func (hook *WriteStringHook) jsName() string {
 	return "writeString"
 }
 
-func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *WriteStringHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := t.Kernel().GojaRuntime
@@ -385,9 +397,9 @@ func (hook *WriteStringHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type ReadStringHookImpl struct{}
+type ReadStringHook struct{}
 
-func (hook *ReadStringHookImpl) description() HookInfoDto {
+func (hook *ReadStringHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Read string str by provided addr",
@@ -397,11 +409,11 @@ func (hook *ReadStringHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *ReadStringHookImpl) jsName() string {
+func (hook *ReadStringHook) jsName() string {
 	return "readString"
 }
 
-func (hook *ReadStringHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *ReadStringHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := t.Kernel().GojaRuntime
@@ -630,10 +642,10 @@ func (hook *PidHook) createCallBack(t *Task) HookCallback {
 func RegisterHooks(cb *HooksTable) error {
 	hooks := []GoHook{
 		&PrintHook{},
-		&ReadBytesHookImpl{},
-		&WriteBytesHookImpl{},
-		&ReadStringHookImpl{},
-		&WriteStringHookImpl{},
+		&ReadBytesHook{},
+		&WriteBytesHook{},
+		&ReadStringHook{},
+		&WriteStringHook{},
 		&EnvvGetterHookImpl{},
 		&MmapGetterHookImpl{},
 		&ArgvHookImpl{},

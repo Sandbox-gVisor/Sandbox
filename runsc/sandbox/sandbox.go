@@ -777,9 +777,11 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 			return err
 		}
 
+		// try to parse our callback config
 		if configDto, err = callbacks.Parse(configFd); err != nil {
 			return err
 		} else if configDto.SocketFileName != "" {
+			// here the unix domain socket is prepared
 			dir := filepath.Dir(configDto.SocketFileName)
 			err := os.MkdirAll(dir, 0777)
 			if err != nil {
@@ -810,6 +812,7 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				return err
 			}
 
+			// passing our fd, so it can be used after the self exec
 			donations.Donate("cb-runtime-socket-fd", file)
 		}
 	}

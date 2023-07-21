@@ -8,6 +8,7 @@ import (
 	"net"
 )
 
+// Command is the interface used to configure hooks
 type Command interface {
 	name() string
 
