@@ -22,6 +22,9 @@ type TypeDto struct {
 	Type string `json:"type"`
 }
 
+const ResponseTypeError = "error"
+const ResponseTypeOk = "ok"
+
 func registerCommands(table *map[string]Command) error {
 	if table == nil {
 		return errors.New("table is null")
@@ -60,16 +63,16 @@ func handleRequest(kernel *Kernel, conn net.Conn) {
 	// очень плохо не понятно, исправить вложенность
 	err = json.Unmarshal(buffer[:n], &request)
 	if err != nil {
-		response = messageResponse("error", err.Error())
+		response = messageResponse(ResponseTypeError, err.Error())
 	} else {
 		command, ok := kernel.runtimeCmdTable[request.Type]
 
 		if !ok {
-			response = messageResponse("error", "no such command: "+request.Type)
+			response = messageResponse(ResponseTypeError, "no such command: "+request.Type)
 		} else {
 			response, err = command.execute(kernel, buffer[:n])
 			if err != nil {
-				response = messageResponse("error", err.Error())
+				response = messageResponse(ResponseTypeError, err.Error())
 			}
 		}
 	}
@@ -126,7 +129,41 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 		}
 	}
 
-	return messageResponse("ok", "Everything is OK"), nil
+	return messageResponse(ResponseTypeOk, "Everything is OK"), nil
 }
 
 // hooks info command
+
+type HookInfoDto struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Args        string `json:"args"`
+	ReturnValue string `json:"return-value"`
+}
+
+type HooksInfoCommandResponse struct {
+	Type      string        `json:"type"`
+	HooksInfo []HookInfoDto `json:"hooks"`
+}
+
+type GetHooksInfoCommand struct{}
+
+func (g GetHooksInfoCommand) name() string {
+	return "change-info" // Bruh specification moment
+}
+
+func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
+	//var hookInfoDtos []HookInfoDto
+	//
+	//table := kernel.hooksTable
+	//table.mutex.Lock()
+	//defer table.mutex.Unlock()
+	//
+	//for _, hook := range table.hooks {
+	//	hookInfoDtos = append(hookInfoDtos, HookInfoDto{Description: hook.description()})
+	//}
+	//
+	//response := HooksInfoCommandResponse{Type: ResponseTypeOk}
+
+	panic("not implement yet")
+}
