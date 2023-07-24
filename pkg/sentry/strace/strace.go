@@ -407,7 +407,7 @@ func (i *SyscallInfo) pre(t *kernel.Task, args arch.SyscallArguments, maximumBlo
 		case SockOptLevel:
 			output = append(output, sockOptLevels.Parse(args[arg].Uint64()))
 		case SockOptName:
-			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */].Parse(args[arg].Uint64()))
+			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */ ].Parse(args[arg].Uint64()))
 		case SockAddr:
 			output = append(output, sockAddr(t, args[arg].Pointer(), uint32(args[arg+1].Uint64())))
 		case SockLen:
@@ -553,28 +553,6 @@ func (i *SyscallInfo) post(t *kernel.Task, args arch.SyscallArguments, rval uint
 // printEntry prints the given system call entry.
 func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []string {
 	output := i.pre(t, args, LogMaximumSize)
-	/*switch len(output) {
-	case 0:
-		t.Infof("%s E %s()", t.Name(), i.name)
-	case 1:
-		t.Infof("%s E %s(%s)", t.Name(), i.name,
-			output[0])
-	case 2:
-		t.Infof("%s E %s(%s, %s)", t.Name(), i.name,
-			output[0], output[1])
-	case 3:
-		t.Infof("%s E %s(%s, %s, %s)", t.Name(), i.name,
-			output[0], output[1], output[2])
-	case 4:
-		t.Infof("%s E %s(%s, %s, %s, %s)", t.Name(), i.name,
-			output[0], output[1], output[2], output[3])
-	case 5:
-		t.Infof("%s E %s(%s, %s, %s, %s, %s)", t.Name(), i.name,
-			output[0], output[1], output[2], output[3], output[4])
-	case 6:
-		t.Infof("%s E %s(%s, %s, %s, %s, %s, %s)", t.Name(), i.name,
-			output[0], output[1], output[2], output[3], output[4], output[5])
-	}*/
 	straceLog := &straceJsonLog{
 		LogType:     "E",
 		Taskname:    t.Name(),
@@ -593,38 +571,10 @@ func (i *SyscallInfo) printExit(t *kernel.Task, elapsed time.Duration, output []
 		Syscallname: i.name,
 		Output:      output,
 	}
-	//var rval string
 	if err == nil {
 		// Fill in the output after successful execution.
 		i.post(t, args, retval, output, LogMaximumSize)
-		//rval = fmt.Sprintf("%d (%#x) (%v)", retval, retval, elapsed)
-	} /*else {
-		rval = fmt.Sprintf("%d (%#x) errno=%d (%s) (%v)", retval, retval, errno, err, elapsed)
 	}
-
-	switch len(output) {
-	case 0:
-		t.Infof("%s X %s() = %s", t.Name(), i.name,
-			rval)
-	case 1:
-		t.Infof("%s X %s(%s) = %s", t.Name(), i.name,
-			output[0], rval)
-	case 2:
-		t.Infof("%s X %s(%s, %s) = %s", t.Name(), i.name,
-			output[0], output[1], rval)
-	case 3:
-		t.Infof("%s X %s(%s, %s, %s) = %s", t.Name(), i.name,
-			output[0], output[1], output[2], rval)
-	case 4:
-		t.Infof("%s X %s(%s, %s, %s, %s) = %s", t.Name(), i.name,
-			output[0], output[1], output[2], output[3], rval)
-	case 5:
-		t.Infof("%s X %s(%s, %s, %s, %s, %s) = %s", t.Name(), i.name,
-			output[0], output[1], output[2], output[3], output[4], rval)
-	case 6:
-		t.Infof("%s X %s(%s, %s, %s, %s, %s, %s) = %s", t.Name(), i.name,
-			output[0], output[1], output[2], output[3], output[4], output[5], rval)
-	}*/
 
 	straceLog.Rval.Retval = append(straceLog.Rval.Retval, fmt.Sprintf("%d", retval)) // fmt.Sprintf("%#x", retval)]
 	straceLog.Rval.Err = fmt.Sprintf("%s", err)
