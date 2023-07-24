@@ -678,6 +678,7 @@ func (hook *FDsHook) description() HookInfoDto {
 			"\tfd string,\n" +
 			"\tname string,\n" +
 			"\tmode string,\n" +
+			"\tflags string, \n" +
 			"\tnlinks string,\n" +
 			"\treadable boolean,\n" +
 			"\twritable boolean,\n" +
@@ -714,6 +715,7 @@ func (hook *FDHook) description() HookInfoDto {
 			"\tname string,\n" +
 			"\tmode string,\n" +
 			"\tnlinks string,\n" +
+			"\tflags string,\n" +
 			"\treadable boolean,\n" +
 			"\twritable boolean,\n" +
 			"};\n",
