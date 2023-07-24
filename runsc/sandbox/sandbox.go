@@ -685,6 +685,8 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				}
 			}
 		}
+
+		syscall.Close(configFd)
 	}
 
 	test := ""
@@ -838,6 +840,7 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				donations.Donate("cb-runtime-socket-fd", file)
 			}
 		}
+		syscall.Close(configFd)
 	}
 
 	gPlatform, err := platform.Lookup(conf.Platform)
