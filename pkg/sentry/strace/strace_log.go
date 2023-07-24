@@ -30,7 +30,12 @@ func (s *straceJsonLog) ToString() string {
 }
 
 func (s *straceJsonLog) GVisorString() string {
-	return fmt.Sprintf("%v %v %v(%v) = %v errno=%v (%v) (%v)", s.Taskname, s.LogType, s.Syscallname, strings.Join(s.Output, " "), strings.Join(s.Rval.Retval, " "), s.Rval.Errno, s.Rval.Err, s.Rval.Elapsed)
+	if len(s.Rval.Retval) != 0 {
+		return fmt.Sprintf("%v %v %v(%v) = %v (%v)", s.Taskname, s.LogType, s.Syscallname, strings.Join(s.Output, " "), strings.Join(s.Rval.Retval, " "), s.Rval.Elapsed)
+	} else if len(s.Rval.Err) != 0 {
+		return fmt.Sprintf("%v %v %v(%v) = %v errno=%v (%v) (%v)", s.Taskname, s.LogType, s.Syscallname, strings.Join(s.Output, " "), strings.Join(s.Rval.Retval, " "), s.Rval.Errno, s.Rval.Err, s.Rval.Elapsed)
+	}
+	return fmt.Sprintf("%v %v %v(%v)", s.Taskname, s.LogType, s.Syscallname, strings.Join(s.Output, " "))
 }
 
 // add "" to all list elements
