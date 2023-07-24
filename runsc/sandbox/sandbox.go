@@ -664,6 +664,29 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 		return err
 	}
 
+	if conf.SyscallCallbacksConfig != "" {
+		var configFd int
+		var err error
+		var configDto *callbacks.CallbackConfigDto
+
+		if configFd, err = syscall.Open(conf.SyscallCallbacksConfig, 0644, syscall.O_RDONLY); err != nil {
+			return err
+		}
+
+		// try to parse our callback config
+		if configDto, err = callbacks.Parse(configFd); err != nil {
+			return err
+		} else {
+
+			if configDto.LogSocket != "" {
+				err := donations.OpenAndDonate("log-socket-fd", configDto.LogSocket, syscall.O_WRONLY|syscall.O_CREAT)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	test := ""
 	if len(conf.TestOnlyTestNameEnv) != 0 {
 		// Fetch test name if one is provided and the test only flag was set.
@@ -815,12 +838,12 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				donations.Donate("cb-runtime-socket-fd", file)
 			}
 
-			if configDto.LogSocket != "" {
+			/*if configDto.LogSocket != "" {
 				err := donations.OpenAndDonate("log-socket-fd", configDto.LogSocket, syscall.O_WRONLY|syscall.O_CREAT)
 				if err != nil {
 					return err
 				}
-			}
+			}*/
 		}
 	}
 

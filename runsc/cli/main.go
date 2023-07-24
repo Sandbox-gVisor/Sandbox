@@ -229,6 +229,10 @@ func Main() {
 		coverage.EnableReport(f)
 	}
 
+	if *logSocket >= 0 {
+		e = &log.MultiEmitter{e, newEmitter(conf.DebugLogFormat, os.NewFile(uintptr(*logSocket), "log socket file name"))}
+	}
+
 	log.SetTarget(e)
 
 	log.Infof("***************************")
@@ -287,6 +291,8 @@ func newEmitter(format string, logFile io.Writer) log.Emitter {
 		return log.JSONEmitter{&log.Writer{Next: logFile}}
 	case "json-k8s":
 		return log.K8sJSONEmitter{&log.Writer{Next: logFile}}
+	case "more-json":
+		return log.MoreJSONEmitter{&log.Writer{Next: logFile}}
 	}
 	util.Fatalf("invalid log format %q, must be 'text', 'json', or 'json-k8s'", format)
 	panic("unreachable")

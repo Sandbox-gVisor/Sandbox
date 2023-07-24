@@ -156,7 +156,7 @@ type Boot struct {
 
 	RuntimeSocketFD int
 
-	LogSocketFD int
+	//LogSocketFD int
 }
 
 // Name implements subcommands.Command.Name.
@@ -205,7 +205,7 @@ func (b *Boot) SetFlags(f *flag.FlagSet) {
 
 	f.IntVar(&b.SyscallCallbacksInitConfigFD, "syscall-init-config-fd", -1, "FD to the syscall callbacks init conf file")
 	f.IntVar(&b.RuntimeSocketFD, "cb-runtime-socket-fd", -1, "FD to the syscall callbacks init conf file")
-	f.IntVar(&b.LogSocketFD, "log-socket-fd", -1, "log-socket-fd")
+	//f.IntVar(&b.LogSocketFD, "log-socket-fd", -1, "log-socket-fd")
 
 	// Profiling flags.
 	b.profileFDs.SetFromFlags(f)
