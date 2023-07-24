@@ -74,3 +74,36 @@ func (e JSONEmitter) Emit(_ int, level Level, timestamp time.Time, format string
 	}
 	e.Writer.Write(b)
 }
+
+type moreJSONLog struct {
+	Msg   interface{} `json:"msg"`
+	Level Level       `json:"level"`
+	Time  time.Time   `json:"time"`
+}
+
+// MoreJSONEmitter logs in json format. Message should also be int json format
+type MoreJSONEmitter struct {
+	*Writer
+}
+
+// Emit implements Emitter.Emit.
+//
+// note that in this Emitter argument v is not supported
+func (e MoreJSONEmitter) Emit(_ int, level Level, timestamp time.Time, format string, v ...any) {
+	var jsObj interface{}
+	err := json.Unmarshal([]byte(format), &jsObj)
+	if err != nil {
+		fmt.Printf("err json.Unmarshal %v", err.Error())
+		return
+	}
+	j := moreJSONLog{
+		Msg:   jsObj,
+		Level: level,
+		Time:  timestamp,
+	}
+	b, err := json.Marshal(j)
+	if err != nil {
+		panic(err)
+	}
+	e.Writer.Write(b)
+}
