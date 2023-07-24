@@ -426,7 +426,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		RuntimeSocketFD:              b.RuntimeSocketFD,
 	}
 
-	fmt.Println(" ----- ", b.LogSocketFD)
+	//fmt.Println(" ----- ", b.LogSocketFD)
 
 	l, err := boot.New(bootArgs)
 	if err != nil {
