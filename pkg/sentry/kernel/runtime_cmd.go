@@ -183,7 +183,7 @@ func (c ChangeStateCommand) name() string {
 	return "change-state"
 }
 
-func (c ChangeStateCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+func (c ChangeStateCommand) execute(_ *Kernel, raw []byte) ([]byte, error) {
 	var request ChangeStateRequest
 	err := json.Unmarshal(raw, &request)
 	if err != nil {
@@ -256,13 +256,17 @@ func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) 
 
 // unregister callbacks cmd
 
+const UnregisterAllOption = "all"
+const UnregisterListOption = "list"
+
 type UnregisterCallbackDto struct {
 	Sysno int    `json:"sysno"`
 	Type  string `json:"type"`
 }
 
 type UnregisterCallbacksRequest struct {
-	List []UnregisterCallbackDto `json:"list"`
+	Options string                  `json:"options"`
+	List    []UnregisterCallbackDto `json:"list"`
 }
 
 type UnregisterCallbacksCommand struct{}
@@ -271,31 +275,57 @@ func (u UnregisterCallbacksCommand) name() string {
 	return "unregister-callbacks"
 }
 
+func executeListOption(table *CallbackTable, request *UnregisterCallbacksRequest) error {
+	for _, dto := range request.List {
+		switch dto.Type {
+		case JsCallbackTypeBefore:
+			err := table.unregisterCallbackBefore(uintptr(dto.Sysno))
+			if err != nil {
+				return err
+			}
+
+		case JsCallbackTypeAfter:
+			err := table.unregisterCallbackAfter(uintptr(dto.Sysno))
+			if err != nil {
+				return err
+			}
+
+		default:
+			return errors.New(fmt.Sprintf("unknown callback type [%s]", dto.Type))
+		}
+	}
+
+	return nil
+}
+
+func executeAllOption(table *CallbackTable, _ *UnregisterCallbacksRequest) error {
+	table.UnregisterAll()
+	return nil
+}
+
 func (u UnregisterCallbacksCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
 	var request UnregisterCallbacksRequest
 	err := json.Unmarshal(raw, &request)
 	if err != nil {
 		return nil, err
 	}
-
 	table := kernel.callbackTable
-	for _, dto := range request.List {
-		switch dto.Type {
-		case JsCallbackTypeBefore:
-			err := table.unregisterCallbackBefore(uintptr(dto.Sysno))
-			if err != nil {
-				return nil, err
-			}
 
-		case JsCallbackTypeAfter:
-			err := table.unregisterCallbackAfter(uintptr(dto.Sysno))
-			if err != nil {
-				return nil, err
-			}
-
-		default:
-			return nil, errors.New(fmt.Sprintf("unknown callback type %s", dto.Type))
+	switch request.Options {
+	case UnregisterAllOption:
+		err := executeAllOption(table, &request)
+		if err != nil {
+			return nil, err
 		}
+
+	case UnregisterListOption:
+		err := executeListOption(table, &request)
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, errors.New(fmt.Sprintf("unknown options [%s]", request.Options))
 	}
 
 	return messageResponse(ResponseTypeOk, "All callbacks in list disabled"), nil

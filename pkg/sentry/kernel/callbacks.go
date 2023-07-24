@@ -84,6 +84,7 @@ type CallbackAfter interface {
 }
 
 // CallbackTable is a storage of functions which can be called before and/ or after syscall execution
+// TODO incapsulate the mutex (exposing mutex - straight way to deadlock or other memes)
 type CallbackTable struct {
 	// callbackBefore is a map of:
 	//
@@ -136,6 +137,14 @@ func (ct *CallbackTable) Lock() {
 func (ct *CallbackTable) Unlock() {
 	ct.mutexBefore.Unlock()
 	ct.mutexAfter.Unlock()
+}
+
+func (ct *CallbackTable) UnregisterAll() {
+	ct.Lock()
+	defer ct.Unlock()
+
+	ct.callbackAfter = map[uintptr]CallbackAfter{}
+	ct.callbackBefore = map[uintptr]CallbackBefore{}
 }
 
 func (ct *CallbackTable) registerCallbackBeforeNoLock(sysno uintptr, f CallbackBefore) error {
