@@ -55,6 +55,8 @@ var (
 	debugLogFD = flag.Int("debug-log-fd", -1, "file descriptor to write debug logs to.  If set, the 'debug-log-dir' flag is ignored.")
 	panicLogFD = flag.Int("panic-log-fd", -1, "file descriptor to write Go's runtime messages.")
 	coverageFD = flag.Int("coverage-fd", -1, "file descriptor to write Go coverage output.")
+
+	logSocket = flag.Int("log-socket-fd", -1, "...")
 )
 
 // Main is the main entrypoint.
@@ -122,6 +124,8 @@ func Main() {
 
 	// All subcommands must be registered before flag parsing.
 	flag.Parse()
+
+	fmt.Println(*logSocket)
 
 	// Are we showing the version?
 	if flag.Get(flag.Lookup(versionFlagName).Value).(bool) {

@@ -35,6 +35,8 @@ type CallbackConfigDto struct {
 	// SocketFileName is the name for unix domain socket used for communication with outside
 	SocketFileName string `json:"runtime-socket"`
 
+	LogSocket string `json:"log-socket"`
+
 	CallbackDtos []JsCallbackInfo `json:"callbacks"`
 }
 

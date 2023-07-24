@@ -155,6 +155,8 @@ type Boot struct {
 	SyscallCallbacksInitConfigFD int
 
 	RuntimeSocketFD int
+
+	LogSocketFD int
 }
 
 // Name implements subcommands.Command.Name.
@@ -203,6 +205,7 @@ func (b *Boot) SetFlags(f *flag.FlagSet) {
 
 	f.IntVar(&b.SyscallCallbacksInitConfigFD, "syscall-init-config-fd", -1, "FD to the syscall callbacks init conf file")
 	f.IntVar(&b.RuntimeSocketFD, "cb-runtime-socket-fd", -1, "FD to the syscall callbacks init conf file")
+	f.IntVar(&b.LogSocketFD, "log-socket-fd", -1, "log-socket-fd")
 
 	// Profiling flags.
 	b.profileFDs.SetFromFlags(f)
@@ -400,27 +403,31 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 
 	// Create the loader.
 	bootArgs := boot.Args{
-		ID:                           f.Arg(0),
-		Spec:                         spec,
-		Conf:                         conf,
-		ControllerFD:                 b.controllerFD,
-		Device:                       os.NewFile(uintptr(b.deviceFD), "platform device"),
-		GoferFDs:                     b.ioFDs.GetArray(),
-		StdioFDs:                     b.stdioFDs.GetArray(),
-		PassFDs:                      b.passFDs.GetArray(),
-		ExecFD:                       b.execFD,
-		OverlayFilestoreFDs:          b.overlayFilestoreFDs.GetArray(),
-		OverlayMediums:               b.overlayMediums.GetArray(),
-		NumCPU:                       b.cpuNum,
-		TotalMem:                     b.totalMem,
-		UserLogFD:                    b.userLogFD,
-		ProductName:                  b.productName,
-		PodInitConfigFD:              b.podInitConfigFD,
-		SinkFDs:                      b.sinkFDs.GetArray(),
-		ProfileOpts:                  b.profileFDs.ToOpts(),
+		ID:                  f.Arg(0),
+		Spec:                spec,
+		Conf:                conf,
+		ControllerFD:        b.controllerFD,
+		Device:              os.NewFile(uintptr(b.deviceFD), "platform device"),
+		GoferFDs:            b.ioFDs.GetArray(),
+		StdioFDs:            b.stdioFDs.GetArray(),
+		PassFDs:             b.passFDs.GetArray(),
+		ExecFD:              b.execFD,
+		OverlayFilestoreFDs: b.overlayFilestoreFDs.GetArray(),
+		OverlayMediums:      b.overlayMediums.GetArray(),
+		NumCPU:              b.cpuNum,
+		TotalMem:            b.totalMem,
+		UserLogFD:           b.userLogFD,
+		ProductName:         b.productName,
+		PodInitConfigFD:     b.podInitConfigFD,
+		SinkFDs:             b.sinkFDs.GetArray(),
+		ProfileOpts:         b.profileFDs.ToOpts(),
+		// our fds
 		SyscallCallbacksInitConfigFD: b.SyscallCallbacksInitConfigFD,
 		RuntimeSocketFD:              b.RuntimeSocketFD,
 	}
+
+	fmt.Println(" ----- ", b.LogSocketFD)
+
 	l, err := boot.New(bootArgs)
 	if err != nil {
 		util.Fatalf("creating loader: %v", err)
