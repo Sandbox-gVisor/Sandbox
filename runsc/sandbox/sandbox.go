@@ -837,13 +837,6 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				// passing our fd, so it can be used after the self exec
 				donations.Donate("cb-runtime-socket-fd", file)
 			}
-
-			/*if configDto.LogSocket != "" {
-				err := donations.OpenAndDonate("log-socket-fd", configDto.LogSocket, syscall.O_WRONLY|syscall.O_CREAT)
-				if err != nil {
-					return err
-				}
-			}*/
 		}
 	}
 
