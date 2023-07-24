@@ -553,7 +553,7 @@ func (i *SyscallInfo) post(t *kernel.Task, args arch.SyscallArguments, rval uint
 // printEntry prints the given system call entry.
 func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []string {
 	output := i.pre(t, args, LogMaximumSize)
-	switch len(output) {
+	/*switch len(output) {
 	case 0:
 		t.Infof("%s E %s()", t.Name(), i.name)
 	case 1:
@@ -574,31 +574,31 @@ func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []s
 	case 6:
 		t.Infof("%s E %s(%s, %s, %s, %s, %s, %s)", t.Name(), i.name,
 			output[0], output[1], output[2], output[3], output[4], output[5])
-	}
-	/*straceLog := &straceJsonLog{
+	}*/
+	straceLog := &straceJsonLog{
 		LogType:     "E",
 		Taskname:    t.Name(),
 		Syscallname: i.name,
 		Output:      toJsonEnum(output),
 	}
-	t.Infof("%s", straceLog.ToString())*/
+	t.Infof("%s", straceLog.GVisorString())
 	return output
 }
 
 // printExit prints the given system call exit.
 func (i *SyscallInfo) printExit(t *kernel.Task, elapsed time.Duration, output []string, args arch.SyscallArguments, retval uintptr, err error, errno int) {
-	/*straceLog := &straceJsonLog{
+	straceLog := &straceJsonLog{
 		LogType:     "X",
 		Taskname:    t.Name(),
 		Syscallname: i.name,
 		Output:      output,
-	}*/
-	var rval string
+	}
+	//var rval string
 	if err == nil {
 		// Fill in the output after successful execution.
 		i.post(t, args, retval, output, LogMaximumSize)
-		rval = fmt.Sprintf("%d (%#x) (%v)", retval, retval, elapsed)
-	} else {
+		//rval = fmt.Sprintf("%d (%#x) (%v)", retval, retval, elapsed)
+	} /*else {
 		rval = fmt.Sprintf("%d (%#x) errno=%d (%s) (%v)", retval, retval, errno, err, elapsed)
 	}
 
@@ -624,13 +624,13 @@ func (i *SyscallInfo) printExit(t *kernel.Task, elapsed time.Duration, output []
 	case 6:
 		t.Infof("%s X %s(%s, %s, %s, %s, %s, %s) = %s", t.Name(), i.name,
 			output[0], output[1], output[2], output[3], output[4], output[5], rval)
-	}
+	}*/
 
-	/*straceLog.Rval.Retval = append(straceLog.Rval.Retval, fmt.Sprintf("%d", retval)) // fmt.Sprintf("%#x", retval)]
+	straceLog.Rval.Retval = append(straceLog.Rval.Retval, fmt.Sprintf("%d", retval)) // fmt.Sprintf("%#x", retval)]
 	straceLog.Rval.Err = fmt.Sprintf("%s", err)
 	straceLog.Rval.Errno = fmt.Sprintf("%d", errno)
 	straceLog.Rval.Elapsed = fmt.Sprintf("%v", elapsed)
-	t.Infof("%s", straceLog.ToString())*/
+	t.Infof("%s", straceLog.GVisorString())
 }
 
 // sendEnter sends the syscall enter to event log.
