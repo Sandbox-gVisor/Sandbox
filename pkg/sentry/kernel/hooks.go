@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
+	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	util "gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
@@ -677,6 +678,7 @@ func (hook *FDsHook) description() HookInfoDto {
 			"\tfd string,\n" +
 			"\tname string,\n" +
 			"\tmode string,\n" +
+			"\tflags string, \n" +
 			"\tnlinks string,\n" +
 			"\treadable boolean,\n" +
 			"\twritable boolean,\n" +
@@ -713,6 +715,7 @@ func (hook *FDHook) description() HookInfoDto {
 			"\tname string,\n" +
 			"\tmode string,\n" +
 			"\tnlinks string,\n" +
+			"\tflags string,\n" +
 			"\treadable boolean,\n" +
 			"\twritable boolean,\n" +
 			"};\n",
@@ -748,6 +751,7 @@ type FDInfo struct {
 	FD       string `json:"fd"`
 	Mode     string `json:"mode"`
 	Nlinks   string `json:"nlinks"`
+	Flags    string `json:"flags"`
 	Readable bool   `json:"readable"`
 	Writable bool   `json:"writable"`
 }
@@ -767,14 +771,15 @@ func FdsResolver(t *Task) []byte {
 
 		name := findPath(t, fd)
 		num := strconv.FormatInt(int64(fd), 10)
-		privMask := parseMask(stat.Mode)
 		nlinks := strconv.FormatInt(int64(stat.Nlink), 10)
+		flags := parseAttributesMask(stat.AttributesMask)
 
 		jsonPrivs = append(jsonPrivs, FDInfo{
 			FD:       num,
 			Path:     name,
-			Mode:     privMask,
+			Mode:     parseMask(uint16(linux.FileMode(stat.Mode).Permissions())),
 			Nlinks:   nlinks,
+			Flags:    flags,
 			Writable: fdesc.IsWritable(),
 			Readable: fdesc.IsReadable(),
 		})
@@ -800,13 +805,12 @@ func FdResolver(t *Task, fd int32) []byte {
 
 	name := findPath(t, fd)
 	num := strconv.FormatInt(int64(fd), 10)
-	privMask := parseMask(stat.Mode)
 	nlinks := strconv.FormatInt(int64(stat.Nlink), 10)
 
 	jsonPrivs := FDInfo{
 		Path:     name,
 		FD:       num,
-		Mode:     privMask,
+		Mode:     parseMask(uint16(linux.FileMode(stat.Mode).Permissions())),
 		Nlinks:   nlinks,
 		Writable: fdesc.IsWritable(),
 		Readable: fdesc.IsReadable(),
@@ -853,6 +857,17 @@ func parseMask(mask uint16) string {
 	perm = reverseString(perm)
 
 	return perm
+}
+
+// parseAttributesMask is a helper function for
+// FDs and FD resolvers that parses attribute mask of fd
+func parseAttributesMask(mask uint64) string {
+	s := linux.OpenMode.Parse(mask & linux.O_ACCMODE)
+	if flags := linux.OpenFlagSet.Parse(mask &^ linux.O_ACCMODE); flags != "" {
+		s += "|" + flags
+	}
+
+	return s
 }
 
 // reverseString is helping function for parseMask that
