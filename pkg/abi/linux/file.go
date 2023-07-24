@@ -21,6 +21,77 @@ import (
 	"gvisor.dev/gvisor/pkg/abi"
 )
 
+// OpenMode represents the mode to open(2) a file.
+var OpenMode = abi.ValueSet{
+	O_RDWR:   "O_RDWR",
+	O_WRONLY: "O_WRONLY",
+	O_RDONLY: "O_RDONLY",
+}
+
+// OpenFlagSet is the set of open(2) flags.
+var OpenFlagSet = abi.FlagSet{
+	{
+		Flag: O_APPEND,
+		Name: "O_APPEND",
+	},
+	{
+		Flag: O_ASYNC,
+		Name: "O_ASYNC",
+	},
+	{
+		Flag: O_CLOEXEC,
+		Name: "O_CLOEXEC",
+	},
+	{
+		Flag: O_CREAT,
+		Name: "O_CREAT",
+	},
+	{
+		Flag: O_DIRECT,
+		Name: "O_DIRECT",
+	},
+	{
+		Flag: O_DIRECTORY,
+		Name: "O_DIRECTORY",
+	},
+	{
+		Flag: O_EXCL,
+		Name: "O_EXCL",
+	},
+	{
+		Flag: O_NOATIME,
+		Name: "O_NOATIME",
+	},
+	{
+		Flag: O_NOCTTY,
+		Name: "O_NOCTTY",
+	},
+	{
+		Flag: O_NOFOLLOW,
+		Name: "O_NOFOLLOW",
+	},
+	{
+		Flag: O_NONBLOCK,
+		Name: "O_NONBLOCK",
+	},
+	{
+		Flag: 0x200000, // O_PATH
+		Name: "O_PATH",
+	},
+	{
+		Flag: O_SYNC,
+		Name: "O_SYNC",
+	},
+	{
+		Flag: O_TMPFILE,
+		Name: "O_TMPFILE",
+	},
+	{
+		Flag: O_TRUNC,
+		Name: "O_TRUNC",
+	},
+}
+
 // Constants for open(2).
 const (
 	O_ACCMODE  = 000000003
