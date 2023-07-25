@@ -15,6 +15,7 @@
 package kernel
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime/trace"
 	"sort"
@@ -41,11 +42,22 @@ func (t *Task) Infof(fmt string, v ...any) {
 	}
 }
 
+func addLogPrefixToJson(t *Task, strJSON string, prefix string) string {
+	var info map[string]interface{}
+	err := json.Unmarshal([]byte(strJSON), &info)
+	if err != nil {
+		return prefix + strJSON
+	}
+	info["LogPrefix"] = prefix
+	bytes, _ := json.Marshal(info)
+	return string(bytes)
+}
+
 // JSONInfof logs a formatted info message by calling log.Infof.
 func (t *Task) JSONInfof(fmt string, v ...any) {
 	if log.IsLogging(log.Info) {
-		// TODO add logPrefix to JSON
-		log.JSONLog().InfofAtDepth(1, t.logPrefix.Load().(string)+fmt, v...)
+		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
+		log.JSONLog().InfofAtDepth(1, strJSON, v...)
 	}
 }
 
@@ -59,16 +71,16 @@ func (t *Task) Warningf(fmt string, v ...any) {
 // JSONWarningf logs a warning string by calling log.Warningf.
 func (t *Task) JSONWarningf(fmt string, v ...any) {
 	if log.IsLogging(log.Warning) {
-		// TODO add logPrefix to JSON
-		log.JSONLog().WarningfAtDepth(1, t.logPrefix.Load().(string)+fmt, v...)
+		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
+		log.JSONLog().WarningfAtDepth(1, strJSON, v...)
 	}
 }
 
 // JSONDebugf creates a debug string that includes the task ID.
 func (t *Task) JSONDebugf(fmt string, v ...any) {
 	if log.IsLogging(log.Debug) {
-		// TODO add logPrefix to JSON
-		log.JSONLog().DebugfAtDepth(1, t.logPrefix.Load().(string)+fmt, v...)
+		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
+		log.JSONLog().DebugfAtDepth(1, strJSON, v...)
 	}
 }
 
