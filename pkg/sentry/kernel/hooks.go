@@ -144,13 +144,13 @@ func SavedSignalMaskGetter(t *Task) uint64 {
 }
 
 // SigactionGetter provides functions to return sigactions in JSON format
-func SigactionGetter(t *Task) string {
+func SigactionGetter(t *Task) []linux.SigActionDto {
 	actions := t.tg.signalHandlers.actions
-	var actionsDesc []string
+	var actionsDesc []linux.SigActionDto
 	for _, sigaction := range actions {
-		actionsDesc = append(actionsDesc, sigaction.String())
+		actionsDesc = append(actionsDesc, sigaction.ToDto())
 	}
-	return fmt.Sprintf("[%v]", strings.Join(actionsDesc, ",\n"))
+	return actionsDesc
 }
 
 func GIDGetter(t *Task) uint32 {
@@ -559,7 +559,7 @@ func (hook *SignalMaskHook) description() HookInfoDto {
 			"\tSignalMask number (Task.signalMask signal mask of the task),\n" +
 			"\tSignalWaitMask number (Task.realSignalMask (Task will be blocked until one of signals in Task.realSignalMask is pending)),\n" +
 			"\tSavedSignalMask number (Task.savedSignalMask (savedSignalMask is the signal mask that should be applied after the task has either delivered one signal to a user handler or is about to resume execution in the untrusted application)),\n" +
-			"\tSigActions string (is a stringified array of json)\n" +
+			"\tSigActions array of json\n" +
 			"\t{\n" +
 			"\t\tHandler string,\n" +
 			"\t\tFlags string,\n" +
@@ -578,7 +578,7 @@ type SignalMaskDto struct {
 	SignalMask      int64
 	SignalWaitMask  int64
 	SavedSignalMask int64
-	SigActions      string
+	SigActions      []linux.SigActionDto
 }
 
 func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
