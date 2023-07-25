@@ -57,7 +57,7 @@ var (
 	coverageFD = flag.Int("coverage-fd", -1, "file descriptor to write Go coverage output.")
 
 	// logSocket is used for json logging
-	logSocket = flag.Int("log-socket-fd", -1, "...")
+	logSocket = flag.Int("web-log-socket-fd", -1, "...")
 )
 
 // Main is the main entrypoint.
