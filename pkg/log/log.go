@@ -262,7 +262,7 @@ func Log() *BasicLogger {
 
 // JSONLog retrieves the global custom json logger.
 func JSONLog() *JSONLogger {
-	return log.Load().(*JSONLogger)
+	return jsonLogVal.Load().(*JSONLogger)
 }
 
 // SetTarget sets the log target.
