@@ -289,7 +289,6 @@ func SetJSONTarget(target Emitter) {
 	defer logMu.Unlock()
 	oldLog := Log()
 	jsonLogVal.Store(&JSONLogger{Level: oldLog.Level, Emitter: target})
-	fmt.Printf("JSON logger initialized\n")
 }
 
 // SetLevel sets the log level.

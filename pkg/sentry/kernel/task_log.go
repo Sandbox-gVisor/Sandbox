@@ -57,7 +57,11 @@ func addLogPrefixToJson(t *Task, strJSON string, prefix string) string {
 func (t *Task) JSONInfof(fmt string, v ...any) {
 	if log.IsLogging(log.Info) {
 		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
-		log.JSONLog().InfofAtDepth(1, strJSON, v...)
+		logger := log.JSONLog()
+		if logger == nil {
+			return
+		}
+		logger.InfofAtDepth(1, strJSON, v...)
 	}
 }
 
@@ -72,7 +76,11 @@ func (t *Task) Warningf(fmt string, v ...any) {
 func (t *Task) JSONWarningf(fmt string, v ...any) {
 	if log.IsLogging(log.Warning) {
 		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
-		log.JSONLog().WarningfAtDepth(1, strJSON, v...)
+		logger := log.JSONLog()
+		if logger == nil {
+			return
+		}
+		logger.WarningfAtDepth(1, strJSON, v...)
 	}
 }
 
@@ -80,7 +88,11 @@ func (t *Task) JSONWarningf(fmt string, v ...any) {
 func (t *Task) JSONDebugf(fmt string, v ...any) {
 	if log.IsLogging(log.Debug) {
 		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
-		log.JSONLog().DebugfAtDepth(1, strJSON, v...)
+		logger := log.JSONLog()
+		if logger == nil {
+			return
+		}
+		logger.DebugfAtDepth(1, strJSON, v...)
 	}
 }
 
