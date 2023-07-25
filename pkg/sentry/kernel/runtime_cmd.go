@@ -5,32 +5,64 @@ import (
 	"errors"
 	"fmt"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"log"
 	"net"
+	"sync"
 )
 
 // Command is the interface used to configure hooks
 type Command interface {
 	name() string
 
+	// execute method get bytes of request and return bytes of response / error
 	execute(kernel *Kernel, raw []byte) ([]byte, error)
+}
+
+type CommandTable struct {
+	commands map[string]Command
+	mutex    sync.Mutex
+}
+
+func (table *CommandTable) Register(command Command) error {
+	if table == nil {
+		return errors.New("table is null")
+	}
+	if table.commands == nil {
+		return errors.New("commands map is uninitialized")
+	}
+	if command == nil {
+		return errors.New("command in nil")
+	}
+
+	table.mutex.Lock()
+	defer table.mutex.Unlock()
+
+	table.commands[command.name()] = command
+	return nil
+}
+
+func (table *CommandTable) GetCommand(name string) (Command, error) {
+	if table == nil {
+		return nil, errors.New("table is null")
+	}
+	table.mutex.Lock()
+	defer table.mutex.Unlock()
+
+	command, ok := table.commands[name]
+	if !ok {
+		return nil, errors.New(fmt.Sprintf("command %s not exists", name))
+	}
+	return command, nil
 }
 
 func messageResponse(type_ string, message string) []byte {
 	return []byte(fmt.Sprintf("{\"type\": \"%s\", \"message\": \"%s\"}", type_, message))
 }
 
-type TypeDto struct {
-	Type string `json:"type"`
-}
-
 const ResponseTypeError = "error"
 const ResponseTypeOk = "ok"
 
-func registerCommands(table *map[string]Command) error {
-	if table == nil {
-		return errors.New("table is null")
-	}
-
+func registerCommands(table *CommandTable) error {
 	commands := []Command{
 		&ChangeSyscallCallbackCommand{},
 		&GetHooksInfoCommand{},
@@ -40,55 +72,96 @@ func registerCommands(table *map[string]Command) error {
 	}
 
 	for _, command := range commands {
-		(*table)[command.name()] = command
+		err := table.Register(command)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func handleRequest(kernel *Kernel, conn net.Conn) {
+type jsonRequest map[string]interface{}
+
+const typeKey = "type"
+const payloadKey = "payload"
+
+func extractTypeAndPayload(request *jsonRequest) (string, []byte, error) {
+	typeAny, ok := (*request)[typeKey]
+	if !ok {
+		return "", nil, errors.New(fmt.Sprintf("request not contains %s field", typeKey))
+	}
+	typeString, ok := typeAny.(string)
+	if !ok {
+		return "", nil, errors.New("type field in request should be string")
+	}
+
+	payloadAny, ok := (*request)[payloadKey]
+	if !ok {
+		return "", nil, errors.New(fmt.Sprintf("request not contains %s", payloadKey))
+	}
+	payloadBytes, err := json.Marshal(payloadAny)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return typeString, payloadBytes, nil
+}
+
+func handleRequest(kernel *Kernel, jsonDecoder *json.Decoder) ([]byte, error) {
+	var request jsonRequest
+	err := jsonDecoder.Decode(&request)
+	if err != nil {
+		return nil, err
+	}
+	requestType, payloadBytes, err := extractTypeAndPayload(&request)
+	if err != nil {
+		return nil, err
+	}
+
+	table := kernel.runtimeCmdTable
+	command, err := table.GetCommand(requestType)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := command.execute(kernel, payloadBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func writeToConn(conn net.Conn, content []byte) error {
+	for len(content) > 0 {
+		n, err := conn.Write(content)
+		if err != nil {
+			return err
+		}
+		content = content[n:]
+	}
+
+	return nil
+}
+
+func handleConnection(kernel *Kernel, conn net.Conn) {
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 		}
 	}(conn)
 
-	//TODO так делать не круто
-	buffer := make([]byte, 1<<15)
-	n, err := conn.Read(buffer)
+	jsonDecoder := json.NewDecoder(conn)
+	response, err := handleRequest(kernel, jsonDecoder)
 	if err != nil {
-		fmt.Println(err)
-		return
+		response = messageResponse(ResponseTypeError, fmt.Sprintf("error: %s", err.Error()))
 	}
 
-	var request TypeDto
-	var response []byte
-
-	// очень плохо не понятно, исправить вложенность
-	err = json.Unmarshal(buffer[:n], &request)
+	err = writeToConn(conn, response)
 	if err != nil {
-		response = messageResponse(ResponseTypeError, err.Error())
-	} else {
-		command, ok := kernel.runtimeCmdTable[request.Type]
-
-		if !ok {
-			response = messageResponse(ResponseTypeError, "no such command: "+request.Type)
-		} else {
-			response, err = command.execute(kernel, buffer[:n])
-			if err != nil {
-				response = messageResponse(ResponseTypeError, err.Error())
-			}
-		}
-	}
-
-	for len(response) > 0 {
-		n, err = conn.Write(response)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		response = response[n:]
+		log.Println(err)
 	}
 }
 

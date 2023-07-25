@@ -336,7 +336,7 @@ type Kernel struct {
 	hooksTable    *HooksTable
 	callbackTable *CallbackTable
 
-	runtimeCmdTable map[string]Command
+	runtimeCmdTable *CommandTable
 }
 
 // InitKernelArgs holds arguments to Init.
@@ -398,7 +398,7 @@ func accepter(kernel *Kernel, listener net.Listener) {
 			continue
 		}
 
-		go handleRequest(kernel, conn)
+		go handleConnection(kernel, conn)
 	}
 }
 
@@ -420,8 +420,8 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return fmt.Errorf("args.ApplicationCores is 0")
 	}
 
-	k.runtimeCmdTable = make(map[string]Command)
-	if err := registerCommands(&k.runtimeCmdTable); err != nil {
+	k.runtimeCmdTable = &CommandTable{commands: make(map[string]Command)}
+	if err := registerCommands(k.runtimeCmdTable); err != nil {
 		return err
 	}
 
