@@ -252,9 +252,17 @@ var logMu sync.Mutex
 // log is the default logger.
 var log atomic.Value
 
+// jsonLog is the custom json logger
+var jsonLogVal atomic.Value
+
 // Log retrieves the global logger.
 func Log() *BasicLogger {
 	return log.Load().(*BasicLogger)
+}
+
+// JSONLog retrieves the global custom json logger.
+func JSONLog() *JSONLogger {
+	return log.Load().(*JSONLogger)
 }
 
 // SetTarget sets the log target.
@@ -268,6 +276,20 @@ func SetTarget(target Emitter) {
 	defer logMu.Unlock()
 	oldLog := Log()
 	log.Store(&BasicLogger{Level: oldLog.Level, Emitter: target})
+}
+
+// SetJSONTarget sets the log target.
+//
+// This is not thread safe and shouldn't be called concurrently with any
+// logging calls.
+//
+// SetTarget should be called before any instances of log.Log() to avoid race conditions
+func SetJSONTarget(target Emitter) {
+	logMu.Lock()
+	defer logMu.Unlock()
+	oldLog := JSONLog()
+	jsonLogVal.Store(&JSONLogger{Level: oldLog.Level, Emitter: target})
+	fmt.Printf("JSON logger initialized\n")
 }
 
 // SetLevel sets the log level.
@@ -396,4 +418,55 @@ func CopyStandardLogTo(l Level) error {
 func init() {
 	// Store the initial value for the log.
 	log.Store(&BasicLogger{Level: Info, Emitter: GoogleEmitter{&Writer{Next: os.Stderr}}})
+}
+
+type JSONLogger struct {
+	Level
+	Emitter
+}
+
+// Debugf implements logger.Debugf.
+func (l *JSONLogger) Debugf(format string, v ...any) {
+	l.DebugfAtDepth(1, format, v...)
+}
+
+// Infof implements logger.Infof.
+func (l *JSONLogger) Infof(format string, v ...any) {
+	l.InfofAtDepth(1, format, v...)
+}
+
+// Warningf implements logger.Warningf.
+func (l *JSONLogger) Warningf(format string, v ...any) {
+	l.WarningfAtDepth(1, format, v...)
+}
+
+// DebugfAtDepth logs at a specific depth.
+func (l *JSONLogger) DebugfAtDepth(depth int, format string, v ...any) {
+	if l.IsLogging(Debug) {
+		l.Emit(1+depth, Debug, time.Now(), format, v...)
+	}
+}
+
+// InfofAtDepth logs at a specific depth.
+func (l *JSONLogger) InfofAtDepth(depth int, format string, v ...any) {
+	if l.IsLogging(Info) {
+		l.Emit(1+depth, Info, time.Now(), format, v...)
+	}
+}
+
+// WarningfAtDepth logs at a specific depth.
+func (l *JSONLogger) WarningfAtDepth(depth int, format string, v ...any) {
+	if l.IsLogging(Warning) {
+		l.Emit(1+depth, Warning, time.Now(), format, v...)
+	}
+}
+
+// IsLogging implements logger.IsLogging.
+func (l *JSONLogger) IsLogging(level Level) bool {
+	return atomic.LoadUint32((*uint32)(&l.Level)) >= uint32(level)
+}
+
+// SetLevel sets the logging level.
+func (l *JSONLogger) SetLevel(level Level) {
+	atomic.StoreUint32((*uint32)(&l.Level), uint32(level))
 }

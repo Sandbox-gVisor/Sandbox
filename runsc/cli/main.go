@@ -229,7 +229,8 @@ func Main() {
 	}
 
 	if *logSocket >= 0 {
-		e = &log.MultiEmitter{e, newEmitter("more-json", os.NewFile(uintptr(*logSocket), "log socket file name"))}
+		// TODO convert to Unix domain socket
+		log.SetJSONTarget(log.MoreJSONEmitter{&log.Writer{Next: os.NewFile(uintptr(*logSocket), "log socket file name")}})
 	}
 
 	log.SetTarget(e)
@@ -290,9 +291,6 @@ func newEmitter(format string, logFile io.Writer) log.Emitter {
 		return log.JSONEmitter{&log.Writer{Next: logFile}}
 	case "json-k8s":
 		return log.K8sJSONEmitter{&log.Writer{Next: logFile}}
-	case "more-json":
-		fmt.Printf("More JSON emitter created")
-		return log.MoreJSONEmitter{&log.Writer{Next: logFile}}
 	}
 	util.Fatalf("invalid log format %q, must be 'text', 'json', or 'json-k8s'", format)
 	panic("unreachable")
