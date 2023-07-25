@@ -219,7 +219,7 @@ func SessionGetter(t *Task) *SessionDto {
 		sessionPGs := pg.session.processGroups
 		if &sessionPGs != nil {
 			for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-				pgids = append(pgids, int32(*spg))
+				pgids = append(pgids, int32(spg.id))
 			}
 		}
 	}
