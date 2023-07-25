@@ -93,7 +93,7 @@ func (e MoreJSONEmitter) Emit(_ int, level Level, timestamp time.Time, format st
 	var jsObj interface{}
 	err := json.Unmarshal([]byte(format), &jsObj)
 	if err != nil {
-		fmt.Printf("err json.Unmarshal %v", err.Error())
+		//fmt.Printf("err json.Unmarshal %v", err.Error())
 		return
 	}
 	j := moreJSONLog{
