@@ -144,13 +144,13 @@ func SavedSignalMaskGetter(t *Task) uint64 {
 }
 
 // SigactionGetter provides functions to return sigactions in JSON format
-func SigactionGetter(t *Task) string {
+func SigactionGetter(t *Task) []linux.SigActionDto {
 	actions := t.tg.signalHandlers.actions
-	var actionsDesc []string
+	var actionsDesc []linux.SigActionDto
 	for _, sigaction := range actions {
-		actionsDesc = append(actionsDesc, sigaction.String())
+		actionsDesc = append(actionsDesc, sigaction.ToDto())
 	}
-	return fmt.Sprintf("[%v]", strings.Join(actionsDesc, ",\n"))
+	return actionsDesc
 }
 
 func GIDGetter(t *Task) uint32 {
@@ -190,6 +190,13 @@ func ArgvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
+type SessionDto struct {
+	SessionId    int32
+	PGID         int32
+	ForegroundId int32
+	OtherPGIDs   []int32
+}
+
 // SessionGetter provides info about session:
 //
 // - session id
@@ -199,25 +206,25 @@ func ArgvGetter(t *Task) ([]byte, error) {
 // - foreground
 //
 // - other PGIDs of the session
-func SessionGetter(t *Task) string {
+func SessionGetter(t *Task) *SessionDto {
 	if t.tg == nil {
-		return fmt.Sprintf("{\"error\": \"%v\"}", "thread group is nil")
+		return nil
 	}
 	pg := t.tg.processGroup
 	if pg == nil {
-		return fmt.Sprintf("{\"error\": \"%v\"}", "process group is nil")
+		return nil
 	}
-	var pgids []string
+	var pgids []int32
 	if pg.session != nil {
 		sessionPGs := pg.session.processGroups
 		if &sessionPGs != nil {
 			for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-				pgids = append(pgids, strconv.Itoa(int(spg.id)))
+				pgids = append(pgids, int32(spg.id))
 			}
 		}
 	}
 	if pg.session == nil {
-		return fmt.Sprintf("{\"error\": \"%v\"}", "session is nil")
+		return nil
 	}
 	var foregroundGroupId ProcessGroupID
 	if t.tg.TTY() == nil {
@@ -230,7 +237,12 @@ func SessionGetter(t *Task) string {
 			t.Debugf("{\"error\": \"%v\"}", err.Error())
 		}
 	}
-	return fmt.Sprintf("{\"sessionId\": %v, \"PGID\": %v, \"foreground\": %v, \"otherPGIDs\": [%v]}", pg.session.id, pg.id, foregroundGroupId, strings.Join(pgids, ", "))
+	return &SessionDto{
+		SessionId:    int32(pg.session.id),
+		PGID:         int32(pg.id),
+		ForegroundId: int32(foregroundGroupId),
+		OtherPGIDs:   pgids,
+	}
 }
 
 // hooks impls
@@ -443,9 +455,9 @@ func (hook *ReadStringHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type EnvvGetterHookImpl struct{}
+type EnvvGetterHook struct{}
 
-func (hook *EnvvGetterHookImpl) description() HookInfoDto {
+func (hook *EnvvGetterHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides environment variables of the Task",
@@ -454,11 +466,11 @@ func (hook *EnvvGetterHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *EnvvGetterHookImpl) jsName() string {
+func (hook *EnvvGetterHook) jsName() string {
 	return "getEnvs"
 }
 
-func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *EnvvGetterHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -475,9 +487,9 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type MmapGetterHookImpl struct{}
+type MmapGetterHook struct{}
 
-func (hook *MmapGetterHookImpl) description() HookInfoDto {
+func (hook *MmapGetterHook) description() HookInfoDto {
 	//return "Provides mapping info like in procfs"
 	return HookInfoDto{
 		Name:        hook.jsName(),
@@ -487,11 +499,11 @@ func (hook *MmapGetterHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *MmapGetterHookImpl) jsName() string {
+func (hook *MmapGetterHook) jsName() string {
 	return "getMmaps"
 }
 
-func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *MmapGetterHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -503,9 +515,9 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type ArgvHookImpl struct{}
+type ArgvHook struct{}
 
-func (hook *ArgvHookImpl) description() HookInfoDto {
+func (hook *ArgvHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides argv of the Task",
@@ -514,11 +526,11 @@ func (hook *ArgvHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *ArgvHookImpl) jsName() string {
+func (hook *ArgvHook) jsName() string {
 	return "getArgv"
 }
 
-func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *ArgvHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -535,9 +547,9 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type SignalMaskHook struct{}
+type SignalInfoHook struct{}
 
-func (hook *SignalMaskHook) description() HookInfoDto {
+func (hook *SignalInfoHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides signal masks and sigactions of the Task",
@@ -547,7 +559,7 @@ func (hook *SignalMaskHook) description() HookInfoDto {
 			"\tSignalMask number (Task.signalMask signal mask of the task),\n" +
 			"\tSignalWaitMask number (Task.realSignalMask (Task will be blocked until one of signals in Task.realSignalMask is pending)),\n" +
 			"\tSavedSignalMask number (Task.savedSignalMask (savedSignalMask is the signal mask that should be applied after the task has either delivered one signal to a user handler or is about to resume execution in the untrusted application)),\n" +
-			"\tSigActions string (is a stringified array of json)\n" +
+			"\tSigActions array of json\n" +
 			"\t{\n" +
 			"\t\tHandler string,\n" +
 			"\t\tFlags string,\n" +
@@ -558,7 +570,7 @@ func (hook *SignalMaskHook) description() HookInfoDto {
 	}
 }
 
-func (hook *SignalMaskHook) jsName() string {
+func (hook *SignalInfoHook) jsName() string {
 	return "getSignalInfo"
 }
 
@@ -566,10 +578,10 @@ type SignalMaskDto struct {
 	SignalMask      int64
 	SignalWaitMask  int64
 	SavedSignalMask int64
-	SigActions      string
+	SigActions      []linux.SigActionDto
 }
 
-func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
+func (hook *SignalInfoHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -587,9 +599,9 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type PidHook struct{}
+type PidInfoHook struct{}
 
-func (hook *PidHook) description() HookInfoDto {
+func (hook *PidInfoHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides PID, GID, UID and session info of Task",
@@ -605,12 +617,12 @@ func (hook *PidHook) description() HookInfoDto {
 			"\t\tPGID number,\n" +
 			"\t\tforeground number,\n" +
 			"\t\totherPGIDs []number (array of other PGIDS in session)\n" +
-			"\r}\n" +
+			"\t}\n" +
 			"};\n",
 	}
 }
 
-func (hook *PidHook) jsName() string {
+func (hook *PidInfoHook) jsName() string {
 	return "getPidInfo"
 }
 
@@ -618,10 +630,10 @@ type PidDto struct {
 	Pid     int32
 	Gid     int32
 	Uid     int32
-	Session string
+	Session SessionDto
 }
 
-func (hook *PidHook) createCallBack(t *Task) HookCallback {
+func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -632,7 +644,7 @@ func (hook *PidHook) createCallBack(t *Task) HookCallback {
 			Pid:     PIDGetter(t),
 			Gid:     int32(GIDGetter(t)),
 			Uid:     int32(UIDGetter(t)),
-			Session: SessionGetter(t),
+			Session: *SessionGetter(t),
 		}
 
 		return dto, nil
@@ -647,11 +659,11 @@ func RegisterHooks(cb *HooksTable) error {
 		&WriteBytesHook{},
 		&ReadStringHook{},
 		&WriteStringHook{},
-		&EnvvGetterHookImpl{},
-		&MmapGetterHookImpl{},
-		&ArgvHookImpl{},
-		&SignalMaskHook{},
-		&PidHook{},
+		&EnvvGetterHook{},
+		&MmapGetterHook{},
+		&ArgvHook{},
+		&SignalInfoHook{},
+		&PidInfoHook{},
 		&FDHook{},
 		&FDsHook{},
 	}
