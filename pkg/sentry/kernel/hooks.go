@@ -455,9 +455,9 @@ func (hook *ReadStringHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type EnvvGetterHookImpl struct{}
+type EnvvGetterHook struct{}
 
-func (hook *EnvvGetterHookImpl) description() HookInfoDto {
+func (hook *EnvvGetterHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides environment variables of the Task",
@@ -466,11 +466,11 @@ func (hook *EnvvGetterHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *EnvvGetterHookImpl) jsName() string {
+func (hook *EnvvGetterHook) jsName() string {
 	return "getEnvs"
 }
 
-func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *EnvvGetterHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -487,9 +487,9 @@ func (hook *EnvvGetterHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type MmapGetterHookImpl struct{}
+type MmapGetterHook struct{}
 
-func (hook *MmapGetterHookImpl) description() HookInfoDto {
+func (hook *MmapGetterHook) description() HookInfoDto {
 	//return "Provides mapping info like in procfs"
 	return HookInfoDto{
 		Name:        hook.jsName(),
@@ -499,11 +499,11 @@ func (hook *MmapGetterHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *MmapGetterHookImpl) jsName() string {
+func (hook *MmapGetterHook) jsName() string {
 	return "getMmaps"
 }
 
-func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *MmapGetterHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -515,9 +515,9 @@ func (hook *MmapGetterHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type ArgvHookImpl struct{}
+type ArgvHook struct{}
 
-func (hook *ArgvHookImpl) description() HookInfoDto {
+func (hook *ArgvHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides argv of the Task",
@@ -526,11 +526,11 @@ func (hook *ArgvHookImpl) description() HookInfoDto {
 	}
 }
 
-func (hook *ArgvHookImpl) jsName() string {
+func (hook *ArgvHook) jsName() string {
 	return "getArgv"
 }
 
-func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
+func (hook *ArgvHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -547,9 +547,9 @@ func (hook *ArgvHookImpl) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type SignalMaskHook struct{}
+type SignalInfoHook struct{}
 
-func (hook *SignalMaskHook) description() HookInfoDto {
+func (hook *SignalInfoHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides signal masks and sigactions of the Task",
@@ -570,7 +570,7 @@ func (hook *SignalMaskHook) description() HookInfoDto {
 	}
 }
 
-func (hook *SignalMaskHook) jsName() string {
+func (hook *SignalInfoHook) jsName() string {
 	return "getSignalInfo"
 }
 
@@ -581,7 +581,7 @@ type SignalMaskDto struct {
 	SigActions      []linux.SigActionDto
 }
 
-func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
+func (hook *SignalInfoHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -599,9 +599,9 @@ func (hook *SignalMaskHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
-type PidHook struct{}
+type PidInfoHook struct{}
 
-func (hook *PidHook) description() HookInfoDto {
+func (hook *PidInfoHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides PID, GID, UID and session info of Task",
@@ -622,7 +622,7 @@ func (hook *PidHook) description() HookInfoDto {
 	}
 }
 
-func (hook *PidHook) jsName() string {
+func (hook *PidInfoHook) jsName() string {
 	return "getPidInfo"
 }
 
@@ -633,7 +633,7 @@ type PidDto struct {
 	Session SessionDto
 }
 
-func (hook *PidHook) createCallBack(t *Task) HookCallback {
+func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -659,11 +659,11 @@ func RegisterHooks(cb *HooksTable) error {
 		&WriteBytesHook{},
 		&ReadStringHook{},
 		&WriteStringHook{},
-		&EnvvGetterHookImpl{},
-		&MmapGetterHookImpl{},
-		&ArgvHookImpl{},
-		&SignalMaskHook{},
-		&PidHook{},
+		&EnvvGetterHook{},
+		&MmapGetterHook{},
+		&ArgvHook{},
+		&SignalInfoHook{},
+		&PidInfoHook{},
 		&FDHook{},
 		&FDsHook{},
 	}
