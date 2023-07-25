@@ -260,11 +260,6 @@ func Log() *BasicLogger {
 	return log.Load().(*BasicLogger)
 }
 
-// JSONLog retrieves the global custom json logger.
-func JSONLog() *JSONLogger {
-	return jsonLogVal.Load().(*JSONLogger)
-}
-
 // SetTarget sets the log target.
 //
 // This is not thread safe and shouldn't be called concurrently with any

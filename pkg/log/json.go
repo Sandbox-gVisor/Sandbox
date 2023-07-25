@@ -108,6 +108,15 @@ func (e MoreJSONEmitter) Emit(_ int, level Level, timestamp time.Time, format st
 	e.Writer.Write(b)
 }
 
+// JSONLog retrieves the global custom json logger.
+func JSONLog() *JSONLogger {
+	val := jsonLogVal.Load()
+	if val == nil {
+		return nil
+	}
+	return val.(*JSONLogger)
+}
+
 // SetJSONTarget sets the log target.
 //
 // This is not thread safe and shouldn't be called concurrently with any
