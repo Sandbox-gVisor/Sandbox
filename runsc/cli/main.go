@@ -291,6 +291,7 @@ func newEmitter(format string, logFile io.Writer) log.Emitter {
 	case "json-k8s":
 		return log.K8sJSONEmitter{&log.Writer{Next: logFile}}
 	case "more-json":
+		fmt.Printf("More JSON emitter created")
 		return log.MoreJSONEmitter{&log.Writer{Next: logFile}}
 	}
 	util.Fatalf("invalid log format %q, must be 'text', 'json', or 'json-k8s'", format)
