@@ -56,6 +56,7 @@ var (
 	panicLogFD = flag.Int("panic-log-fd", -1, "file descriptor to write Go's runtime messages.")
 	coverageFD = flag.Int("coverage-fd", -1, "file descriptor to write Go coverage output.")
 
+	// logSocket is used for json logging
 	logSocket = flag.Int("log-socket-fd", -1, "...")
 )
 
@@ -124,8 +125,6 @@ func Main() {
 
 	// All subcommands must be registered before flag parsing.
 	flag.Parse()
-
-	fmt.Println(*logSocket)
 
 	// Are we showing the version?
 	if flag.Get(flag.Lookup(versionFlagName).Value).(bool) {
@@ -230,7 +229,7 @@ func Main() {
 	}
 
 	if *logSocket >= 0 {
-		e = &log.MultiEmitter{e, newEmitter(conf.DebugLogFormat, os.NewFile(uintptr(*logSocket), "log socket file name"))}
+		e = &log.MultiEmitter{e, newEmitter("more-json", os.NewFile(uintptr(*logSocket), "log socket file name"))}
 	}
 
 	log.SetTarget(e)
