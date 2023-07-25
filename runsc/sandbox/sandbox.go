@@ -664,6 +664,30 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 		return err
 	}
 
+	var configFd int
+	var configDto *callbacks.CallbackConfigDto
+
+	if conf.SyscallCallbacksConfig != "" {
+		var err error
+
+		if configFd, err = syscall.Open(conf.SyscallCallbacksConfig, 0644, syscall.O_RDONLY); err != nil {
+			return err
+		}
+
+		// try to parse our callback config
+		if configDto, err = callbacks.Parse(configFd); err != nil {
+			return err
+		} else {
+
+			if configDto.LogSocket != "" {
+				err := donations.OpenAndDonate("log-socket-fd", configDto.LogSocket, syscall.O_WRONLY|syscall.O_CREAT)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	test := ""
 	if len(conf.TestOnlyTestNameEnv) != 0 {
 		// Fetch test name if one is provided and the test only flag was set.
@@ -769,18 +793,8 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 	}
 
 	if conf.SyscallCallbacksConfig != "" {
-		var configFd int
-		var err error
-		var configDto *callbacks.CallbackConfigDto
+		if configDto.SocketFileName != "" {
 
-		if configFd, err = syscall.Open(conf.SyscallCallbacksConfig, 0644, syscall.O_RDONLY); err != nil {
-			return err
-		}
-
-		// try to parse our callback config
-		if configDto, err = callbacks.Parse(configFd); err != nil {
-			return err
-		} else if configDto.SocketFileName != "" {
 			// here the unix domain socket is prepared
 			dir := filepath.Dir(configDto.SocketFileName)
 			err := os.MkdirAll(dir, 0777)
@@ -805,9 +819,6 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				return err
 			}
 
-			//time.Sleep(30 * time.Second)
-
-			//err = listener.Close()
 			if err != nil {
 				return err
 			}
@@ -815,6 +826,7 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 			// passing our fd, so it can be used after the self exec
 			donations.Donate("cb-runtime-socket-fd", file)
 		}
+		syscall.Close(configFd)
 	}
 
 	gPlatform, err := platform.Lookup(conf.Platform)

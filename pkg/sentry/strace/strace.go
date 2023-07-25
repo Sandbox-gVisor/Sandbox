@@ -407,7 +407,7 @@ func (i *SyscallInfo) pre(t *kernel.Task, args arch.SyscallArguments, maximumBlo
 		case SockOptLevel:
 			output = append(output, sockOptLevels.Parse(args[arg].Uint64()))
 		case SockOptName:
-			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */ ].Parse(args[arg].Uint64()))
+			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */].Parse(args[arg].Uint64()))
 		case SockAddr:
 			output = append(output, sockAddr(t, args[arg].Pointer(), uint32(args[arg+1].Uint64())))
 		case SockLen:
@@ -559,7 +559,8 @@ func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []s
 		Syscallname: i.name,
 		Output:      toJsonEnum(output),
 	}
-	t.Infof("%s", straceLog.GVisorString())
+	t.JSONInfof(straceLog.ToString())
+	t.Infof(straceLog.GVisorString())
 	return output
 }
 
@@ -580,7 +581,8 @@ func (i *SyscallInfo) printExit(t *kernel.Task, elapsed time.Duration, output []
 	straceLog.Rval.Err = fmt.Sprintf("%s", err)
 	straceLog.Rval.Errno = fmt.Sprintf("%d", errno)
 	straceLog.Rval.Elapsed = fmt.Sprintf("%v", elapsed)
-	t.Infof("%s", straceLog.GVisorString())
+	t.JSONInfof(straceLog.ToString())
+	t.Infof(straceLog.GVisorString())
 }
 
 // sendEnter sends the syscall enter to event log.
