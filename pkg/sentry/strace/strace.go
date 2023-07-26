@@ -407,7 +407,7 @@ func (i *SyscallInfo) pre(t *kernel.Task, args arch.SyscallArguments, maximumBlo
 		case SockOptLevel:
 			output = append(output, sockOptLevels.Parse(args[arg].Uint64()))
 		case SockOptName:
-			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */].Parse(args[arg].Uint64()))
+			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */ ].Parse(args[arg].Uint64()))
 		case SockAddr:
 			output = append(output, sockAddr(t, args[arg].Pointer(), uint32(args[arg+1].Uint64())))
 		case SockLen:
@@ -557,7 +557,7 @@ func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []s
 		LogType:     "E",
 		Taskname:    t.Name(),
 		Syscallname: i.name,
-		Output:      toJsonEnum(output),
+		Output:      output, //toJsonEnum(output),
 	}
 	t.JSONInfof(straceLog.ToString())
 	t.Infof(straceLog.GVisorString())
@@ -676,7 +676,7 @@ func (s SyscallMap) SyscallExit(context any, t *kernel.Task, sysno, rval uintptr
 
 	elapsed := time.Since(c.start)
 	if bits.IsOn32(c.flags, kernel.StraceEnableLog) {
-		c.info.printExit(t, elapsed, toJsonEnum(c.logOutput), c.args, rval, err, errno)
+		c.info.printExit(t, elapsed, c.logOutput /*toJsonEnum(c.logOutput)*/, c.args, rval, err, errno)
 	}
 	if bits.IsOn32(c.flags, kernel.StraceEnableEvent) {
 		c.info.sendExit(t, elapsed, c.eventOutput, c.args, rval, err, errno)
