@@ -686,15 +686,13 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 					return err
 				}
 
-				//_ = os.Remove(configDto.LogSocket)
-
-				//  Here is created a socket to connect to the web interface
-				brokerSockAddr, err := net.ResolveUnixAddr("unix", configDto.LogSocket)
+				// Here is created a socket to connect to the web interface
+				tcpAddr, err := net.ResolveTCPAddr("tcp", configDto.LogSocket)
 				if err != nil {
 					return err
 				}
 
-				brokerSockConnector, err := net.DialUnix("unix", nil, brokerSockAddr)
+				brokerSockConnector, err := net.DialTCP("tcp", nil, tcpAddr)
 				if err != nil {
 					return err
 				}
@@ -705,10 +703,6 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 				}
 
 				donations.Donate("web-log-socket-fd", webFile)
-				/*err := donations.OpenAndDonate("log-socket-fd", configDto.LogSocket, syscall.O_WRONLY|syscall.O_CREAT)
-				if err != nil {
-					return err
-				}*/
 			}
 		}
 	}
