@@ -169,7 +169,7 @@ func handleConnection(kernel *Kernel, conn net.Conn) {
 	jsonDecoder := json.NewDecoder(conn)
 	response, err := handleRequest(kernel, jsonDecoder)
 	if err != nil {
-		response = messageResponse(ResponseTypeError, fmt.Sprintf("error: %s", err.Error()))
+		response = messageResponse(ResponseTypeError, err.Error())
 	}
 
 	err = writeToConn(conn, response)
@@ -263,7 +263,7 @@ func (c ChangeStateCommand) name() string {
 	return "change-state"
 }
 
-func (c ChangeStateCommand) execute(_ *Kernel, raw []byte) (any, error) {
+func (c ChangeStateCommand) execute(_ *Kernel, _ []byte) (any, error) {
 
 	return nil, errors.New("change state command not implemented yet")
 	//var request ChangeStateRequest
