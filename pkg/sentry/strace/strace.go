@@ -557,7 +557,7 @@ func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []s
 		LogType:     "E",
 		Taskname:    t.Name(),
 		Syscallname: i.name,
-		Output:      toJsonEnum(output),
+		Output:      output, //toJsonEnum(output),
 	}
 	t.JSONInfof(straceLog.ToString())
 	t.Infof(straceLog.GVisorString())
