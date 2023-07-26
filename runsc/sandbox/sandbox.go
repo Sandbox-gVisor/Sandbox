@@ -686,7 +686,7 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 					return err
 				}
 
-				_ = os.Remove(configDto.LogSocket)
+				//_ = os.Remove(configDto.LogSocket)
 
 				//  Here is created a socket to connect to the web interface
 				brokerSockAddr, err := net.ResolveUnixAddr("unix", configDto.LogSocket)
