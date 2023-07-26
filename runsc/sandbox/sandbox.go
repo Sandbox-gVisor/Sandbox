@@ -678,12 +678,37 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 		if configDto, err = callbacks.Parse(configFd); err != nil {
 			return err
 		} else {
-
 			if configDto.LogSocket != "" {
-				err := donations.OpenAndDonate("log-socket-fd", configDto.LogSocket, syscall.O_WRONLY|syscall.O_CREAT)
+				// if dir does not exist, then create it, otherwise - do nothing
+				dir := filepath.Dir(configDto.LogSocket)
+				err := os.MkdirAll(dir, 0777)
 				if err != nil {
 					return err
 				}
+
+				//_ = os.Remove(configDto.LogSocket)
+
+				//  Here is created a socket to connect to the web interface
+				brokerSockAddr, err := net.ResolveUnixAddr("unix", configDto.LogSocket)
+				if err != nil {
+					return err
+				}
+
+				brokerSockConnector, err := net.DialUnix("unix", nil, brokerSockAddr)
+				if err != nil {
+					return err
+				}
+
+				webFile, err := brokerSockConnector.File()
+				if err != nil {
+					return err
+				}
+
+				donations.Donate("web-log-socket-fd", webFile)
+				/*err := donations.OpenAndDonate("log-socket-fd", configDto.LogSocket, syscall.O_WRONLY|syscall.O_CREAT)
+				if err != nil {
+					return err
+				}*/
 			}
 		}
 	}
@@ -815,10 +840,6 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 			}
 
 			file, err := listener.File()
-			if err != nil {
-				return err
-			}
-
 			if err != nil {
 				return err
 			}
