@@ -15,7 +15,7 @@ type Command interface {
 	name() string
 
 	// execute method get bytes of request and return bytes of response / error
-	execute(kernel *Kernel, raw []byte) ([]byte, error)
+	execute(kernel *Kernel, raw []byte) (any, error)
 }
 
 type CommandTable struct {
@@ -53,6 +53,12 @@ func (table *CommandTable) GetCommand(name string) (Command, error) {
 		return nil, errors.New(fmt.Sprintf("command %s not exists", name))
 	}
 	return command, nil
+}
+
+type Response struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+	Payload any    `json:"payload"`
 }
 
 func messageResponse(type_ string, message string) []byte {
@@ -111,6 +117,7 @@ func extractTypeAndPayload(request *jsonRequest) (string, []byte, error) {
 func handleRequest(kernel *Kernel, jsonDecoder *json.Decoder) ([]byte, error) {
 	var request jsonRequest
 	err := jsonDecoder.Decode(&request)
+	fmt.Println("request err", err, request)
 	if err != nil {
 		return nil, err
 	}
@@ -125,12 +132,18 @@ func handleRequest(kernel *Kernel, jsonDecoder *json.Decoder) ([]byte, error) {
 		return nil, err
 	}
 
-	response, err := command.execute(kernel, payloadBytes)
+	responsePayload, err := command.execute(kernel, payloadBytes)
 	if err != nil {
 		return nil, err
 	}
+	response := Response{
+		Type:    ResponseTypeOk,
+		Message: "Everything ok",
+		Payload: responsePayload,
+	}
+	responseBytes, err := json.Marshal(&response)
 
-	return response, nil
+	return responseBytes, err
 }
 
 func writeToConn(conn net.Conn, content []byte) error {
@@ -178,7 +191,7 @@ type ChangeSyscallDto struct {
 	CallbackDto []callbacks.JsCallbackInfo `json:"callbacks"`
 }
 
-func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) (any, error) {
 
 	var request ChangeSyscallDto
 	err := json.Unmarshal(raw, &request)
@@ -207,13 +220,12 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) ([]byt
 		}
 	}
 
-	return messageResponse(ResponseTypeOk, "Everything is OK"), nil
+	return nil, nil
 }
 
 // hooks info command
 
 type HooksInfoCommandResponse struct {
-	Type      string        `json:"type"`
 	HooksInfo []HookInfoDto `json:"hooks"`
 }
 
@@ -223,7 +235,7 @@ func (g GetHooksInfoCommand) name() string {
 	return "change-info" // Bruh specification moment
 }
 
-func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
+func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) (any, error) {
 	var hookInfoDtos []HookInfoDto
 
 	table := kernel.hooksTable
@@ -234,13 +246,8 @@ func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
 		hookInfoDtos = append(hookInfoDtos, hook.description())
 	}
 
-	response := HooksInfoCommandResponse{Type: ResponseTypeOk, HooksInfo: hookInfoDtos}
-	bytes, err := json.Marshal(response)
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes, nil
+	response := HooksInfoCommandResponse{HooksInfo: hookInfoDtos}
+	return response, nil
 }
 
 // change state command
@@ -256,28 +263,29 @@ func (c ChangeStateCommand) name() string {
 	return "change-state"
 }
 
-func (c ChangeStateCommand) execute(_ *Kernel, raw []byte) ([]byte, error) {
-	var request ChangeStateRequest
-	err := json.Unmarshal(raw, &request)
-	if err != nil {
-		return nil, err
-	}
+func (c ChangeStateCommand) execute(_ *Kernel, raw []byte) (any, error) {
 
-	if request.EntryPoint == "" || request.Source == "" {
-		return nil, errors.New("script source or/and entry point is empty")
-	}
-
-	fmt.Println(request)
-
-	// TODO implements (after adding persistence state)
-
-	return messageResponse(ResponseTypeOk, "stub"), nil
+	return nil, errors.New("change state command not implemented yet")
+	//var request ChangeStateRequest
+	//err := json.Unmarshal(raw, &request)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//if request.EntryPoint == "" || request.Source == "" {
+	//	return nil, errors.New("script source or/and entry point is empty")
+	//}
+	//
+	//fmt.Println(request)
+	//
+	//// TODO implements (after adding persistence state)
+	//
+	//return nil, nil
 }
 
 // get current callbacks
 
 type CallbackListResponse struct {
-	Type        string                     `json:"type"`
 	JsCallbacks []callbacks.JsCallbackInfo `json:"callbacks"`
 }
 
@@ -296,7 +304,7 @@ func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
 	}
 }
 
-func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) {
+func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) (any, error) {
 	table := kernel.callbackTable
 	table.Lock()
 	defer table.Unlock()
@@ -318,13 +326,8 @@ func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) ([]byte, error) 
 		infos = append(infos, *info)
 	}
 
-	response := CallbackListResponse{Type: ResponseTypeOk, JsCallbacks: infos}
-	bytes, err := json.Marshal(response)
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes, nil
+	response := CallbackListResponse{JsCallbacks: infos}
+	return response, nil
 }
 
 // unregister callbacks cmd
@@ -376,7 +379,7 @@ func executeAllOption(table *CallbackTable, _ *UnregisterCallbacksRequest) error
 	return nil
 }
 
-func (u UnregisterCallbacksCommand) execute(kernel *Kernel, raw []byte) ([]byte, error) {
+func (u UnregisterCallbacksCommand) execute(kernel *Kernel, raw []byte) (any, error) {
 	var request UnregisterCallbacksRequest
 	err := json.Unmarshal(raw, &request)
 	if err != nil {
@@ -401,5 +404,5 @@ func (u UnregisterCallbacksCommand) execute(kernel *Kernel, raw []byte) ([]byte,
 		return nil, errors.New(fmt.Sprintf("unknown options [%s]", request.Options))
 	}
 
-	return messageResponse(ResponseTypeOk, "All callbacks in list disabled"), nil
+	return nil, nil
 }
