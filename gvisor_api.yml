@@ -1,0 +1,275 @@
+swagger: "2.0"
+info:
+  version: "версия не последняя"
+  title: "gVisor API"
+  
+
+paths:
+  /0:
+    post:
+      summary: "Change callbacks in gvisor"
+      consumes:
+        - "application/json"
+      produces:
+        - "application/json"
+      parameters:
+        - name: "request"
+          in: "body"
+          required: true
+          schema:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "change-callbacks-from-source"
+              payload:
+                type: object
+                properties:
+                  source:
+                    type: string
+                    example: "js source"
+                
+      responses:
+        '200':
+          description: "Success"
+          schema:
+            $ref: '#/definitions/DefaultSuccessResponse'
+        '400':
+          description: "Неуспешный ответ"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+                
+  /1:
+    post:
+      summary: "Unregister callbacks from gvisor"
+      consumes:
+        - "application/json"
+      produces:
+        - "application/json"
+      parameters:
+        - name: "request"
+          in: "body"
+          required: true
+          schema:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "unregister-callbacks"
+              payload:
+                type: object
+                properties:
+                  options:
+                    type: string
+                    example: "list"
+                    enum: ["list", "all"]
+                  list:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sysno:
+                          type: integer
+                          example: 42
+                        type:
+                          type: string
+                          example: "before"
+                          enum: ["before", "after"]
+                
+      responses:
+        '200':
+          description: "Успешный ответ"
+          schema:
+            $ref: '#/definitions/DefaultSuccessResponse'
+        '400':
+          description: "Неуспешный ответ"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+                
+  /2:
+    get:
+      summary: "Get current callbacks from gvisor"
+      consumes:
+        - "application/json"
+      produces:
+        - "application/json"
+      parameters:
+        - name: "request"
+          in: "body"
+          required: true
+          schema:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "current-callbacks"
+              payload:
+                type: object
+                
+      responses:
+        '200':
+          description: "Успешный ответ"
+          schema:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "ok"
+              message:
+                type: string
+                example: "Everything ok"
+              payload:
+                type: object
+                properties:
+                  hooks:
+                    type: array
+                    items:
+                      $ref: '#/definitions/CallbackJson'
+        '400':
+          description: "Неуспешный ответ"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+            
+                
+  /3:
+    get:
+      summary: "Manual for current hooks"
+      consumes:
+        - "application/json"
+      produces:
+        - "application/json"
+      parameters:
+        - name: "request"
+          in: "body"
+          required: true
+          schema:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "change-info"
+              payload:
+                type: object
+                
+      responses:
+        '200':
+          description: "Успешный ответ"
+          schema:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "ok"
+              message:
+                type: string
+                example: "Everything ok"
+              payload:
+                type: object
+                properties:
+                  hooks:
+                    type: array
+                    items:
+                      $ref: '#/definitions/HookInfoDto'
+        '400':
+          description: "Неуспешный ответ"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+            
+  /4:
+    post:
+      summary: "Change state in gvisor"
+      consumes:
+        - "application/json"
+      produces:
+        - "application/json"
+      parameters:
+        - name: "request"
+          in: "body"
+          required: true
+          schema:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "change-state"
+              payload:
+                type: object
+                properties:
+                  schema:
+                    $ref: '#/definitions/StateRequest'
+                  
+                
+      responses:
+        '200':
+          description: "Success"
+          schema:
+            $ref: '#/definitions/DefaultSuccessResponse'
+        '400':
+          description: "Неуспешный ответ"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+
+
+definitions:
+  CallbackJson:
+    type: object
+    properties:
+      sysno:
+        type: integer
+        format: int32
+      entry-point:
+        type: string
+      source:
+        type: string
+      body:
+        type: string
+      args:
+        type: array
+        items:
+          type: string
+      type:
+        type: string
+        
+  ErrorResponse:
+    type: object
+    properties:
+      type:
+        type: string
+        example: "error"
+      message:
+        type: string
+        example: "Description of error"
+        
+  DefaultSuccessResponse:
+    type: object
+    properties:
+      type:
+        type: string
+        example: "error"
+      message:
+        type: string
+        example: "Everything is ok"
+        
+  HookInfoDto:
+    type: object
+    properties:
+      name:
+        type: string
+        example: "example_hook"
+      description:
+        type: string
+        example: "description"
+      args:
+        type: string
+        example: "arg1, arg2"
+      return_value:
+        type: string
+        example: "int"
+        
+  StateRequest:
+    type: "object"
+    properties:
+      entry-point:
+        type: "string"
+      source:
+        type: "string"
