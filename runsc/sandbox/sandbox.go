@@ -679,12 +679,6 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 			return err
 		} else {
 			if configDto.LogSocket != "" {
-				// if dir does not exist, then create it, otherwise - do nothing
-				dir := filepath.Dir(configDto.LogSocket)
-				err := os.MkdirAll(dir, 0777)
-				if err != nil {
-					return err
-				}
 
 				// Here is created a socket to connect to the web interface
 				tcpAddr, err := net.ResolveTCPAddr("tcp", configDto.LogSocket)
@@ -812,23 +806,15 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 	}
 
 	if conf.SyscallCallbacksConfig != "" {
-		if configDto.SocketFileName != "" {
+		if configDto.UISocket != "" {
 
-			// here the unix domain socket is prepared
-			dir := filepath.Dir(configDto.SocketFileName)
-			err := os.MkdirAll(dir, 0777)
+			// Here is created a socket to interact with UI
+			tcpAddr, err := net.ResolveTCPAddr("tcp", configDto.UISocket)
 			if err != nil {
 				return err
 			}
 
-			_ = os.Remove(configDto.SocketFileName)
-
-			addr, err := net.ResolveUnixAddr("unix", configDto.SocketFileName)
-			if err != nil {
-				return err
-			}
-
-			listener, err := net.ListenUnix("unix", addr)
+			listener, err := net.ListenTCP("tcp", tcpAddr)
 			if err != nil {
 				return err
 			}
