@@ -75,6 +75,7 @@ func registerCommands(table *CommandTable) error {
 		&ChangeStateCommand{},
 		&CallbacksListCommand{},
 		&UnregisterCallbacksCommand{},
+		&ExtractSyscallCallbackFromSourceCommand{},
 	}
 
 	for _, command := range commands {
@@ -204,6 +205,54 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) (any, 
 
 	var jsCallbacks []JsCallback
 	for _, dto := range request.CallbackDto {
+		jsCallback, err := JsCallbackByInfo(dto)
+		if err != nil {
+			return nil, err
+		}
+		jsCallbacks = append(jsCallbacks, jsCallback)
+	}
+
+	for _, cb := range jsCallbacks {
+		cbCopy := cb // DON'T touch or golang will do trash
+		err := cbCopy.registerAtCallbackTable(kernel.callbackTable)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, nil
+}
+
+// change cb cmd from source
+
+type ChangeSyscallFromSourceDto struct {
+	Source string `json:"source"`
+}
+
+type ExtractSyscallCallbackFromSourceCommand struct{}
+
+func (e ExtractSyscallCallbackFromSourceCommand) name() string {
+	return "change-callbacks-from-source"
+}
+
+func (e ExtractSyscallCallbackFromSourceCommand) execute(kernel *Kernel, raw []byte) (any, error) {
+	var request ChangeSyscallFromSourceDto
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	if request.Source == "" {
+		return nil, errors.New("callbacks source script is empty")
+	}
+
+	infos, err := callbacks.ExtractCallbacksFromScript(request.Source)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsCallbacks []JsCallback
+	for _, dto := range infos {
 		jsCallback, err := JsCallbackByInfo(dto)
 		if err != nil {
 			return nil, err

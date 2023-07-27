@@ -107,7 +107,7 @@ func (info *JsCallbackInfo) ToString() string {
 
 const CallbackRegex = `function\s+(sys_(\w+)_(\d+))\s*\(([^)]*)\)\s*{([^}]*)}`
 
-func ExtractFunctionsFromScript(script string) ([]JsCallbackInfo, error) {
+func ExtractCallbacksFromScript(script string) ([]JsCallbackInfo, error) {
 	statements, err := ExtractStatementsFromScript(script)
 	if err != nil {
 		return nil, err
