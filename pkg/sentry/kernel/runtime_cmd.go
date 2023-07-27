@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// Command is the interface used to configure hooks
+// Command is the interface used to configure DependentHooks
 type Command interface {
 	name() string
 
@@ -271,10 +271,10 @@ func (e ExtractSyscallCallbackFromSourceCommand) execute(kernel *Kernel, raw []b
 	return nil, nil
 }
 
-// hooks info command
+// DependentHooks info command
 
 type HooksInfoCommandResponse struct {
-	HooksInfo []HookInfoDto `json:"hooks"`
+	HooksInfo []HookInfoDto `json:"DependentHooks"`
 }
 
 type GetHooksInfoCommand struct{}
@@ -290,7 +290,8 @@ func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) (any, error) {
 	table.mutex.Lock()
 	defer table.mutex.Unlock()
 
-	for _, hook := range table.hooks {
+	hooks := table.getCurrentHooks()
+	for _, hook := range hooks {
 		hookInfoDtos = append(hookInfoDtos, hook.description())
 	}
 
@@ -348,6 +349,8 @@ func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
 		Sysno:          int(sysno),
 		EntryPoint:     "unknown",
 		CallbackSource: "unknown",
+		CallbackBody:   "unknown",
+		CallbackArgs:   nil,
 		Type:           cbType,
 	}
 }

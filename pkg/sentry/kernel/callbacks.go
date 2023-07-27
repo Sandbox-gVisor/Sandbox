@@ -227,7 +227,7 @@ const JsCallbackTypeAfter = "after"
 
 const JsCallbackTypeBefore = "before"
 
-const HooksJsName = "hooks"
+const HooksJsName = "DependentHooks"
 
 const ArgsJsName = "args"
 
@@ -444,7 +444,7 @@ func JsCallbackFunc(cb JsCallback, t *Task, _ uintptr,
 	return retArgs, retSub, nil
 }
 
-// CallbackBeforeFunc execution of user callback for syscall on js VM with our hooks
+// CallbackBeforeFunc execution of user callback for syscall on js VM with our DependentHooks
 func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, sysno uintptr,
 	args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValue, error) {
 

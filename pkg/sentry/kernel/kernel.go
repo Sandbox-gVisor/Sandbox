@@ -451,8 +451,8 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		callbackBefore: make(map[uintptr]CallbackBefore),
 		callbackAfter:  make(map[uintptr]CallbackAfter),
 	}
-	// init hooks table
-	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
+	// init DependentHooks table
+	k.hooksTable = &HooksTable{DependentHooks: map[string]TaskDependentGoHook{}}
 
 	if err := RegisterHooks(k.hooksTable); err != nil {
 		return err
