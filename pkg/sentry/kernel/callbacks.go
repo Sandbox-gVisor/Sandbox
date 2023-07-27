@@ -169,6 +169,11 @@ func (ct *CallbackTable) unregisterCallbackBefore(sysno uintptr) error {
 	ct.mutexBefore.Lock()
 	defer ct.mutexBefore.Unlock()
 
+	_, ok := ct.callbackBefore[sysno]
+	if !ok {
+		return errors.New(fmt.Sprintf("before-callback with sysno %v not exist", sysno))
+	}
+
 	delete(ct.callbackBefore, sysno)
 	return nil
 }
@@ -176,6 +181,11 @@ func (ct *CallbackTable) unregisterCallbackBefore(sysno uintptr) error {
 func (ct *CallbackTable) unregisterCallbackAfter(sysno uintptr) error {
 	ct.mutexAfter.Lock()
 	defer ct.mutexAfter.Unlock()
+
+	_, ok := ct.callbackAfter[sysno]
+	if !ok {
+		return errors.New(fmt.Sprintf("after-callback with sysno %v not exist", sysno))
+	}
 
 	delete(ct.callbackAfter, sysno)
 	return nil

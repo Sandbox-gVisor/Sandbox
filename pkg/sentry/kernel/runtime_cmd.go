@@ -117,7 +117,6 @@ func extractTypeAndPayload(request *jsonRequest) (string, []byte, error) {
 func handleRequest(kernel *Kernel, jsonDecoder *json.Decoder) ([]byte, error) {
 	var request jsonRequest
 	err := jsonDecoder.Decode(&request)
-	fmt.Println("request err", err, request)
 	if err != nil {
 		return nil, err
 	}
