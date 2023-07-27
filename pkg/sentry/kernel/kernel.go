@@ -452,7 +452,10 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		callbackAfter:  make(map[uintptr]CallbackAfter),
 	}
 	// init DependentHooks table
-	k.hooksTable = &HooksTable{DependentHooks: map[string]TaskDependentGoHook{}}
+	k.hooksTable = &HooksTable{
+		DependentHooks:   map[string]TaskDependentGoHook{},
+		IndependentHooks: map[string]TaskIndependentGoHook{},
+	}
 
 	if err := RegisterHooks(k.hooksTable); err != nil {
 		return err

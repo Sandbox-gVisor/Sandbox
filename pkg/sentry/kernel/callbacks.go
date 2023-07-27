@@ -227,7 +227,7 @@ const JsCallbackTypeAfter = "after"
 
 const JsCallbackTypeBefore = "before"
 
-const HooksJsName = "DependentHooks"
+const HooksJsName = "hooks"
 
 const ArgsJsName = "args"
 

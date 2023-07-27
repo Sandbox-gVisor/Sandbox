@@ -953,7 +953,14 @@ func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) e
 	for name, hook := range ht.DependentHooks {
 		callback := hook.createCallBack(task)
 		err := object.Set(name, callback)
+		if err != nil {
+			return err
+		}
+	}
 
+	for name, hook := range ht.IndependentHooks {
+		callback := hook.createCallBack()
+		err := object.Set(name, callback)
 		if err != nil {
 			return err
 		}
