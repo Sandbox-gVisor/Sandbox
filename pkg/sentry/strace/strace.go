@@ -407,7 +407,7 @@ func (i *SyscallInfo) pre(t *kernel.Task, args arch.SyscallArguments, maximumBlo
 		case SockOptLevel:
 			output = append(output, sockOptLevels.Parse(args[arg].Uint64()))
 		case SockOptName:
-			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */].Parse(args[arg].Uint64()))
+			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */ ].Parse(args[arg].Uint64()))
 		case SockAddr:
 			output = append(output, sockAddr(t, args[arg].Pointer(), uint32(args[arg+1].Uint64())))
 		case SockLen:
@@ -550,37 +550,39 @@ func (i *SyscallInfo) post(t *kernel.Task, args arch.SyscallArguments, rval uint
 	}
 }
 
-
 // printEntry prints the given system call entry.
 func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []string {
 	output := i.pre(t, args, LogMaximumSize)
 	straceLog := &straceJsonLog{
-		LogType: "E",
-		Taskname: t.Name(),
+		LogType:     "E",
+		Taskname:    t.Name(),
 		Syscallname: i.name,
-		Output: toJsonEnum(output),
+		Output:      output, //toJsonEnum(output),
 	}
-	t.Infof("%s", straceLog.ToString())
+	t.JSONInfof(straceLog.ToString())
+	t.Infof(straceLog.GVisorString())
 	return output
 }
 
 // printExit prints the given system call exit.
 func (i *SyscallInfo) printExit(t *kernel.Task, elapsed time.Duration, output []string, args arch.SyscallArguments, retval uintptr, err error, errno int) {
 	straceLog := &straceJsonLog{
-		LogType: "X",
-		Taskname: t.Name(),
+		LogType:     "X",
+		Taskname:    t.Name(),
 		Syscallname: i.name,
-		Output: output,
+		Output:      output,
 	}
 	if err == nil {
 		// Fill in the output after successful execution.
 		i.post(t, args, retval, output, LogMaximumSize)
 	}
+
 	straceLog.Rval.Retval = append(straceLog.Rval.Retval, fmt.Sprintf("%d", retval)) // fmt.Sprintf("%#x", retval)]
 	straceLog.Rval.Err = fmt.Sprintf("%s", err)
 	straceLog.Rval.Errno = fmt.Sprintf("%d", errno)
 	straceLog.Rval.Elapsed = fmt.Sprintf("%v", elapsed)
-	t.Infof("%s", straceLog.ToString())
+	t.JSONInfof(straceLog.ToString())
+	t.Infof(straceLog.GVisorString())
 }
 
 // sendEnter sends the syscall enter to event log.
@@ -674,7 +676,7 @@ func (s SyscallMap) SyscallExit(context any, t *kernel.Task, sysno, rval uintptr
 
 	elapsed := time.Since(c.start)
 	if bits.IsOn32(c.flags, kernel.StraceEnableLog) {
-		c.info.printExit(t, elapsed, toJsonEnum(c.logOutput), c.args, rval, err, errno)
+		c.info.printExit(t, elapsed, c.logOutput /*toJsonEnum(c.logOutput)*/, c.args, rval, err, errno)
 	}
 	if bits.IsOn32(c.flags, kernel.StraceEnableEvent) {
 		c.info.sendExit(t, elapsed, c.eventOutput, c.args, rval, err, errno)
@@ -822,4 +824,3 @@ func init() {
 		seccomp.SyscallName = t.Name
 	}
 }
-

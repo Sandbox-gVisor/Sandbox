@@ -55,6 +55,9 @@ var (
 	debugLogFD = flag.Int("debug-log-fd", -1, "file descriptor to write debug logs to.  If set, the 'debug-log-dir' flag is ignored.")
 	panicLogFD = flag.Int("panic-log-fd", -1, "file descriptor to write Go's runtime messages.")
 	coverageFD = flag.Int("coverage-fd", -1, "file descriptor to write Go coverage output.")
+
+	// logSocket is used for json logging
+	logSocket = flag.Int("web-log-socket-fd", -1, "...")
 )
 
 // Main is the main entrypoint.
@@ -223,6 +226,11 @@ func Main() {
 	if *coverageFD >= 0 {
 		f := os.NewFile(uintptr(*coverageFD), "coverage file")
 		coverage.EnableReport(f)
+	}
+
+	if *logSocket >= 0 {
+		// TODO convert to Unix domain socket
+		log.SetJSONTarget(log.MoreJSONEmitter{&log.Writer{Next: os.NewFile(uintptr(*logSocket), "log socket file name")}})
 	}
 
 	log.SetTarget(e)

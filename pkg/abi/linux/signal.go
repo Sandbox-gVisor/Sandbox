@@ -154,7 +154,7 @@ var SignalNames = abi.ValueSet{
 }
 
 func (sig Signal) String() string {
-	return SignalNames.ParseDecimal(uint64(sig))
+	return fmt.Sprintf("%v", SignalNames.ParseDecimal(uint64(sig)))
 }
 
 // SignalSet is a signal mask with a bit corresponding to each signal.
@@ -168,7 +168,15 @@ func (set SignalSet) String() string {
 		signals = append(signals, sig.String())
 	})
 
-	return fmt.Sprintf("[%v]", strings.Join(signals, " "))
+	return fmt.Sprintf("[%v]", strings.Join(signals, ", "))
+}
+
+func (set SignalSet) Signals() []string {
+	var signals []string
+	ForEachSignal(set, func(sig Signal) {
+		signals = append(signals, sig.String())
+	})
+	return signals
 }
 
 // SignalSetSize is the size in bytes of a SignalSet.
@@ -397,7 +405,6 @@ var SigActionFlags = abi.FlagSet{
 }
 
 func (sa SigAction) String() string {
-
 	var handler string
 	switch sa.Handler {
 	case SIG_IGN:
@@ -408,7 +415,32 @@ func (sa SigAction) String() string {
 		handler = fmt.Sprintf("%#x", sa.Handler)
 	}
 
-	return fmt.Sprintf("{Handler: %s, Flags: %s, Restorer: %#x, Mask: %s}", handler, SigActionFlags.Parse(sa.Flags), sa.Restorer, sa.Mask.String())
+	return fmt.Sprintf("{\"Handler\": %s, \"Flags\": %s, \"Restorer\": %#x, \"Mask\": %s}", handler, SigActionFlags.Parse(sa.Flags), sa.Restorer, sa.Mask.String())
+}
+
+type SigActionDto struct {
+	Handler      string
+	Flags        string
+	Restorer     uint64
+	SignalsInSet []string
+}
+
+func (sa SigAction) ToDto() SigActionDto {
+	var handler string
+	switch sa.Handler {
+	case SIG_IGN:
+		handler = "SIG_IGN"
+	case SIG_DFL:
+		handler = "SIG_DFL"
+	default:
+		handler = fmt.Sprintf("%#x", sa.Handler)
+	}
+	return SigActionDto{
+		Handler:      handler,
+		Flags:        SigActionFlags.Parse(sa.Flags),
+		Restorer:     sa.Restorer,
+		SignalsInSet: sa.Mask.Signals(),
+	}
 }
 
 // SignalStack represents information about a user stack, and is equivalent to

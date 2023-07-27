@@ -15,6 +15,7 @@
 package kernel
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime/trace"
 	"sort"
@@ -34,10 +35,33 @@ const (
 	maxCodeDebugBytes = 128
 )
 
-// Infof logs an formatted info message by calling log.Infof.
+// Infof logs a formatted info message by calling log.Infof.
 func (t *Task) Infof(fmt string, v ...any) {
 	if log.IsLogging(log.Info) {
 		log.InfofAtDepth(1, t.logPrefix.Load().(string)+fmt, v...)
+	}
+}
+
+func addLogPrefixToJson(t *Task, strJSON string, prefix string) string {
+	var info map[string]interface{}
+	err := json.Unmarshal([]byte(strJSON), &info)
+	if err != nil {
+		return prefix + strJSON
+	}
+	info["LogPrefix"] = prefix
+	bytes, _ := json.Marshal(info)
+	return string(bytes)
+}
+
+// JSONInfof logs a formatted info message by calling log.Infof.
+func (t *Task) JSONInfof(fmt string, v ...any) {
+	if log.IsLogging(log.Info) {
+		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
+		logger := log.JSONLog()
+		if logger == nil {
+			return
+		}
+		logger.InfofAtDepth(1, strJSON, v...)
 	}
 }
 
@@ -45,6 +69,30 @@ func (t *Task) Infof(fmt string, v ...any) {
 func (t *Task) Warningf(fmt string, v ...any) {
 	if log.IsLogging(log.Warning) {
 		log.WarningfAtDepth(1, t.logPrefix.Load().(string)+fmt, v...)
+	}
+}
+
+// JSONWarningf logs a warning string by calling log.Warningf.
+func (t *Task) JSONWarningf(fmt string, v ...any) {
+	if log.IsLogging(log.Warning) {
+		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
+		logger := log.JSONLog()
+		if logger == nil {
+			return
+		}
+		logger.WarningfAtDepth(1, strJSON, v...)
+	}
+}
+
+// JSONDebugf creates a debug string that includes the task ID.
+func (t *Task) JSONDebugf(fmt string, v ...any) {
+	if log.IsLogging(log.Debug) {
+		strJSON := addLogPrefixToJson(t, fmt, t.logPrefix.Load().(string))
+		logger := log.JSONLog()
+		if logger == nil {
+			return
+		}
+		logger.DebugfAtDepth(1, strJSON, v...)
 	}
 }
 

@@ -20,8 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"io"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -662,6 +664,43 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 		return err
 	}
 
+	var configFd int
+	var configDto *callbacks.CallbackConfigDto
+
+	if conf.SyscallCallbacksConfig != "" {
+		var err error
+
+		if configFd, err = syscall.Open(conf.SyscallCallbacksConfig, 0644, syscall.O_RDONLY); err != nil {
+			return err
+		}
+
+		// try to parse our callback config
+		if configDto, err = callbacks.Parse(configFd); err != nil {
+			return err
+		} else {
+			if configDto.LogSocket != "" {
+
+				// Here is created a socket to connect to the web interface
+				tcpAddr, err := net.ResolveTCPAddr("tcp", configDto.LogSocket)
+				if err != nil {
+					return err
+				}
+
+				brokerSockConnector, err := net.DialTCP("tcp", nil, tcpAddr)
+				if err != nil {
+					return err
+				}
+
+				webFile, err := brokerSockConnector.File()
+				if err != nil {
+					return err
+				}
+
+				donations.Donate("web-log-socket-fd", webFile)
+			}
+		}
+	}
+
 	test := ""
 	if len(conf.TestOnlyTestNameEnv) != 0 {
 		// Fetch test name if one is provided and the test only flag was set.
@@ -764,6 +803,31 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 
 	if err := donations.OpenAndDonate("syscall-init-config-fd", conf.SyscallCallbacksConfig, os.O_RDONLY); err != nil {
 		return err
+	}
+
+	if conf.SyscallCallbacksConfig != "" {
+		if configDto.UISocket != "" {
+
+			// Here is created a socket to interact with UI
+			tcpAddr, err := net.ResolveTCPAddr("tcp", configDto.UISocket)
+			if err != nil {
+				return err
+			}
+
+			listener, err := net.ListenTCP("tcp", tcpAddr)
+			if err != nil {
+				return err
+			}
+
+			file, err := listener.File()
+			if err != nil {
+				return err
+			}
+
+			// passing our fd, so it can be used after the self exec
+			donations.Donate("cb-runtime-socket-fd", file)
+		}
+		syscall.Close(configFd)
 	}
 
 	gPlatform, err := platform.Lookup(conf.Platform)

@@ -317,8 +317,9 @@ go_library(
         "uts_namespace.go",
         "vdso.go",
         "version.go",
-        "callback_table.go",
-        "hooks.go"
+        "callbacks.go",
+        "hooks.go",
+        "runtime_cmd.go"
     ],
     imports = [
         "gvisor.dev/gvisor/pkg/bpf",
