@@ -945,8 +945,8 @@ func reverseString(str string) string {
 	return string(reversed)
 }
 
-// addHooksToContextObject from this context object user`s callback will take DependentHooks
-func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
+// addDependentHooksToContextObject from this context object user`s callback will take DependentHooks
+func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task *Task) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
@@ -958,6 +958,24 @@ func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) e
 		}
 	}
 
+	return nil
+}
+
+// DependentHookAddableAdapter implement ContextAddable
+type DependentHookAddableAdapter struct {
+	ht   *HooksTable
+	task *Task
+}
+
+func (d *DependentHookAddableAdapter) addSelfToContextObject(object *goja.Object) error {
+	return d.ht.addDependentHooksToContextObject(object, d.task)
+}
+
+// addIndependentHooksToContextObject from this context object user`s callback will take DependentHooks
+func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) error {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
 	for name, hook := range ht.IndependentHooks {
 		callback := hook.createCallBack()
 		err := object.Set(name, callback)
@@ -967,4 +985,13 @@ func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) e
 	}
 
 	return nil
+}
+
+// IndependentHookAddableAdapter implement ContextAddable
+type IndependentHookAddableAdapter struct {
+	ht *HooksTable
+}
+
+func (d *IndependentHookAddableAdapter) addSelfToContextObject(object *goja.Object) error {
+	return d.ht.addIndependentHooksToContextObject(object)
 }
