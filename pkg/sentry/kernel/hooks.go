@@ -335,7 +335,7 @@ func (hook *WriteBytesHook) jsName() string {
 func (hook *WriteBytesHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -380,7 +380,7 @@ func (hook *ReadBytesHook) jsName() string {
 func (hook *ReadBytesHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -426,7 +426,7 @@ func (hook *WriteStringHook) jsName() string {
 func (hook *WriteStringHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -471,7 +471,7 @@ func (hook *ReadStringHook) jsName() string {
 func (hook *ReadStringHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -796,7 +796,7 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(1, len(args))
 		}
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
 		if err != nil {
 			return nil, err

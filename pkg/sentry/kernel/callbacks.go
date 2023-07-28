@@ -397,11 +397,12 @@ func extractSubstitutionFromRetJsValue(vm *goja.Runtime, value *goja.Value) (*Sy
 func JsCallbackFunc(cb JsCallback, t *Task, _ uintptr,
 	args *arch.SyscallArguments, addables []ContextAddable) (*arch.SyscallArguments, *SyscallReturnValue, error) {
 
-	kernel := t.Kernel()
-	kernel.GojaRuntime.Mutex.Lock()
-	defer kernel.GojaRuntime.Mutex.Unlock()
+	runtime := GetJsRuntime()
+	runtime.Mutex.Lock()
+	defer runtime.Mutex.Unlock()
 
-	vm := kernel.GojaRuntime.JsVM
+	kernel := t.Kernel()
+	vm := runtime.JsVM
 	hooksHolder := vm.NewObject()
 	if err := kernel.hooksTable.addHooksToContextObject(hooksHolder, t); err != nil {
 		return nil, nil, err

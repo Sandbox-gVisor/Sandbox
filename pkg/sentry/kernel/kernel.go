@@ -332,11 +332,16 @@ type Kernel struct {
 	userCountersMap   map[auth.KUID]*userCounters
 	userCountersMapMu userCountersMutex `state:"nosave"`
 
-	GojaRuntime   *GojaRuntime
 	hooksTable    *HooksTable
 	callbackTable *CallbackTable
 
 	runtimeCmdTable *CommandTable
+}
+
+var jsRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
+
+func GetJsRuntime() *GojaRuntime {
+	return jsRuntime
 }
 
 // InitKernelArgs holds arguments to Init.
@@ -442,9 +447,6 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 
 		go accepter(k, listener)
 	}
-
-	// init js vm
-	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
 
 	// init callback table
 	k.callbackTable = &CallbackTable{
