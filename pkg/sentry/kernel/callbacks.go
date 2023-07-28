@@ -16,6 +16,19 @@ type ContextAddable interface {
 	addSelfToContextObject(object *goja.Object) error
 }
 
+type ObjectAddableAdapter struct {
+	object *goja.Object
+	name   string
+}
+
+func (adapter *ObjectAddableAdapter) addSelfToContextObject(object *goja.Object) error {
+	err := object.Set(adapter.name, adapter.object)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 type SyscallReturnValue struct {
 	returnValue uintptr
 	errno       uintptr
@@ -242,6 +255,10 @@ const ArgsJsName = "args"
 const JsSyscallReturnValue = "ret"
 
 const JsSyscallErrno = "errno"
+
+const JsPersistenceContextName = "persistence"
+
+const JsGlobalPersistenceObject = "glb"
 
 // JsCallbackBefore implements CallbackBefore and JsCallback
 type JsCallbackBefore struct {
@@ -493,9 +510,14 @@ func RunAbstractCallback(t *Task, jsSource string,
 	builder = builder.AddContext3(ArgsJsName, &SyscallArgsAddableAdapter{args})
 	builder = builder.AddContext3(HooksJsName, &IndependentHookAddableAdapter{ht: runtime.hooksTable})
 	builder = builder.AddContext3(HooksJsName, &DependentHookAddableAdapter{ht: runtime.hooksTable, task: t})
+	builder = builder.AddContext3(JsPersistenceContextName,
+		&ObjectAddableAdapter{name: JsGlobalPersistenceObject, object: runtime.Global})
 
 	contexts := builder.Build()
 	val, err := RunJsScript(runtime.JsVM, jsSource, contexts)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	retArgs, err := extractArgsFromRetJsValue(args, runtime.JsVM, &val)
 	if err != nil {
@@ -510,71 +532,18 @@ func RunAbstractCallback(t *Task, jsSource string,
 	return retArgs, retSub, nil
 }
 
-// Todo args to addables
-func JsCallbackFunc(t *Task, jsSource string,
-	args *arch.SyscallArguments, addables []ContextAddable) (*arch.SyscallArguments, *SyscallReturnValue, error) {
-
-	runtime := GetJsRuntime()
-	runtime.Mutex.Lock()
-	defer runtime.Mutex.Unlock()
-
-	kernel := t.Kernel()
-	vm := runtime.JsVM
-	hooksHolder := vm.NewObject()
-	if err := kernel.hooksTable.addHooksToContextObject(hooksHolder, t); err != nil {
-		return nil, nil, err
-	}
-
-	if err := vm.Set(HooksJsName, hooksHolder); err != nil {
-		return nil, nil, err
-	}
-
-	argsHolder := vm.NewObject()
-	if err := addSyscallArgsToContextObject(argsHolder, args); err != nil {
-		return nil, nil, err
-	}
-
-	for _, addable := range addables {
-		if err := addable.addSelfToContextObject(argsHolder); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	if err := vm.Set(ArgsJsName, argsHolder); err != nil {
-		return nil, nil, err
-	}
-
-	val, err := vm.RunString(jsSource)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	retArgs, err := extractArgsFromRetJsValue(args, vm, &val)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	retSub, err := extractSubstitutionFromRetJsValue(vm, &val)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return retArgs, retSub, nil
-}
-
 // CallbackBeforeFunc execution of user callback for syscall on js VM with our DependentHooks
 func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, _ uintptr,
 	args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValue, error) {
 
-	return JsCallbackFunc(t, jsCallbackInvocationTemplate(cb), args, []ContextAddable{})
+	return RunAbstractCallback(t, jsCallbackInvocationTemplate(cb), args, ScriptContextsBuilderOf().Build())
 }
 
 func (cb *JsCallbackAfter) CallbackAfterFunc(t *Task, _ uintptr, args *arch.SyscallArguments,
 	ret uintptr, inputErr error) (*arch.SyscallArguments, *SyscallReturnValue, error) {
 
-	addables := []ContextAddable{
-		SyscallReturnValueWithError{returnValue: ret, errno: inputErr},
-	}
+	context := ScriptContextsBuilderOf().AddContext3(ArgsJsName,
+		SyscallReturnValueWithError{returnValue: ret, errno: inputErr}).Build()
 
-	return JsCallbackFunc(t, jsCallbackInvocationTemplate(cb), args, addables)
+	return RunAbstractCallback(t, jsCallbackInvocationTemplate(cb), args, context)
 }

@@ -283,10 +283,11 @@ func (g GetHooksInfoCommand) name() string {
 	return "change-info" // Bruh specification moment
 }
 
-func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) (any, error) {
+func (g GetHooksInfoCommand) execute(_ *Kernel, _ []byte) (any, error) {
 	var hookInfoDtos []HookInfoDto
 
-	table := kernel.hooksTable
+	runtime := GetJsRuntime()
+	table := runtime.hooksTable
 	table.mutex.Lock()
 	defer table.mutex.Unlock()
 
