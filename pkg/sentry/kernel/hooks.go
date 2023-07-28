@@ -9,6 +9,7 @@ import (
 	"gvisor.dev/gvisor/pkg/hostarch"
 	util "gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,12 +307,27 @@ func (ph *PrintHook) jsName() string {
 
 func (ph *PrintHook) createCallBack() HookCallback {
 	return func(args ...goja.Value) (_ interface{}, err error) {
-		//map в go не завезли?
 		strs := make([]string, len(args))
-		for i, arg := range args {
-			strs[i] = arg.String()
+
+		runtime := GetJsRuntime()
+		const functionNameInGlobalContext = "stringify"
+		stringify, ok := goja.AssertFunction(runtime.JsVM.Get(functionNameInGlobalContext))
+		if !ok {
+			return nil, errors.New(fmt.Sprintf("failed to load %s", functionNameInGlobalContext))
 		}
-		_, err = fmt.Println(strings.Join(strs, " "))
+
+		for i, arg := range args {
+			if arg.ExportType() == reflect.TypeOf("") {
+				strs[i] = arg.String()
+			} else {
+				valueStr, err := stringify(goja.Undefined(), arg)
+				if err != nil {
+					return nil, err
+				}
+				strs[i] = valueStr.String()
+			}
+		}
+		_, err = fmt.Print(strings.Join(strs, " "))
 		return nil, err
 	}
 }
@@ -693,7 +709,7 @@ func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
-// RegisterHooks register all DependentHooks from this file in provided table
+// RegisterHooks register all hooks from this file in provided table
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
 		&ReadBytesHook{},

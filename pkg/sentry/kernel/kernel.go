@@ -342,6 +342,11 @@ func initJsRuntime() *GojaRuntime {
 	vm := goja.New()
 	global := vm.NewObject()
 
+	_, err := vm.RunString("stringify = JSON.stringify")
+	if err != nil {
+		panic(err)
+	}
+
 	// init DependentHooks table
 	table := &HooksTable{
 		DependentHooks:   map[string]TaskDependentGoHook{},
