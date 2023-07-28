@@ -407,6 +407,54 @@ type ScriptContext struct {
 	Items []ContextAddable
 }
 
+type ScriptContexts []ScriptContext
+
+type ScriptContextsBuilder struct {
+	contexts map[string][]ContextAddable
+}
+
+func ScriptContextsBuilderOf() *ScriptContextsBuilder {
+	return &ScriptContextsBuilder{contexts: map[string][]ContextAddable{}}
+}
+
+func (builder *ScriptContextsBuilder) AddContext(context ScriptContext) *ScriptContextsBuilder {
+	items, ok := builder.contexts[context.Name]
+	if !ok {
+		items = make([]ContextAddable, 0)
+	}
+
+	items = append(items, context.Items...)
+	builder.contexts[context.Name] = items
+
+	return builder
+}
+
+func (builder *ScriptContextsBuilder) AddAll(contexts ScriptContexts) *ScriptContextsBuilder {
+	for _, it := range contexts {
+		builder.AddContext(it)
+	}
+
+	return builder
+}
+
+func (builder *ScriptContextsBuilder) AddContext2(contextName string, items []ContextAddable) *ScriptContextsBuilder {
+	return builder.AddContext(ScriptContext{Name: contextName, Items: items})
+}
+
+func (builder *ScriptContextsBuilder) AddContext3(contextName string, item ContextAddable) *ScriptContextsBuilder {
+	return builder.AddContext2(contextName, []ContextAddable{item})
+}
+
+func (builder *ScriptContextsBuilder) Build() ScriptContexts {
+	var result ScriptContexts
+
+	for name, items := range builder.contexts {
+		result = append(result, ScriptContext{Name: name, Items: items})
+	}
+
+	return result
+}
+
 // RunJsScript NB!!!! invoke this method only when you own vm
 func RunJsScript(vm *goja.Runtime, jsSource string, contexts []ScriptContext) (goja.Value, error) {
 
@@ -434,19 +482,32 @@ func RunJsScript(vm *goja.Runtime, jsSource string, contexts []ScriptContext) (g
 	return val, nil
 }
 
-func RunJsCallback(t *Task, jsSource string,
-	args *arch.SyscallArguments, additionalToArgs []ContextAddable) (*arch.SyscallArguments, *SyscallReturnValue, error) {
+func RunAbstractCallback(t *Task, jsSource string,
+	args *arch.SyscallArguments, additionalContexts ScriptContexts) (*arch.SyscallArguments, *SyscallReturnValue, error) {
 
-	contexts := []ScriptContext{
-		{
-			Name: ArgsJsName,
-			Items: append(additionalToArgs, &SyscallArgsAddableAdapter{args}),
-		},
-		{
-			Name: HooksJsName,
-			Items: []ContextAddable{&IndependentHookAddableAdapter{ht: }},
-		},
+	runtime := GetJsRuntime()
+	runtime.Mutex.Lock()
+	defer runtime.Mutex.Unlock()
+
+	builder := ScriptContextsBuilderOf().AddAll(additionalContexts)
+	builder = builder.AddContext3(ArgsJsName, &SyscallArgsAddableAdapter{args})
+	builder = builder.AddContext3(HooksJsName, &IndependentHookAddableAdapter{ht: runtime.hooksTable})
+	builder = builder.AddContext3(HooksJsName, &DependentHookAddableAdapter{ht: runtime.hooksTable, task: t})
+
+	contexts := builder.Build()
+	val, err := RunJsScript(runtime.JsVM, jsSource, contexts)
+
+	retArgs, err := extractArgsFromRetJsValue(args, runtime.JsVM, &val)
+	if err != nil {
+		return nil, nil, err
 	}
+
+	retSub, err := extractSubstitutionFromRetJsValue(runtime.JsVM, &val)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return retArgs, retSub, nil
 }
 
 // Todo args to addables
