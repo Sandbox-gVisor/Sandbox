@@ -17,6 +17,7 @@ go_library(
     ],
     deps = [
         "//pkg/sentry/arch",
-        "@github_com_dop251_goja//:goja",
+        "@github_com_dop251_goja//:go_default_library",
+        "@github_com_dop251_goja//parser:go_default_library",
     ],
 )

@@ -4,6 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
+	"github.com/dop251/goja/parser"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -79,4 +83,66 @@ func ExtractStringFromValue(vm *goja.Runtime, value goja.Value) (string, error) 
 	}
 
 	return ret, nil
+}
+
+func ExtractStatementsFromScript(scriptSrs string) ([]string, error) {
+	program, err := parser.ParseFile(nil, "", scriptSrs, 0)
+	if err != nil {
+		return nil, err
+	}
+	var statements []string
+
+	for _, it := range program.Body {
+		statement := scriptSrs[it.Idx0()-1 : it.Idx1()-1]
+		statements = append(statements, statement)
+	}
+
+	return statements, nil
+}
+
+func (info *JsCallbackInfo) ToString() string {
+	return fmt.Sprintf("[sysno: %d, entry-point: %s, body: %s, args: %v, type: %s]",
+		info.Sysno, info.EntryPoint, info.CallbackBody, info.CallbackArgs, info.Type)
+}
+
+const CallbackRegex = `function\s+(sys_(\w+)_(\d+))\s*\(([^)]*)\)\s*{([^}]*)}`
+
+func ExtractCallbacksFromScript(script string) ([]JsCallbackInfo, error) {
+	statements, err := ExtractStatementsFromScript(script)
+	if err != nil {
+		return nil, err
+	}
+	var infos []JsCallbackInfo
+	reCallback := regexp.MustCompile(CallbackRegex)
+
+	convertToIntOrPanic := func(s string) int {
+		num, err := strconv.Atoi(s)
+		if err != nil {
+			panic(err)
+		}
+		return num
+	}
+
+	extractArgs := func(s string) []string {
+		reg := regexp.MustCompile(`\s+`)
+		args := strings.Split(reg.ReplaceAllString(s, ""), ",")
+		return args
+	}
+
+	for _, s := range statements {
+		match := reCallback.FindStringSubmatch(s)
+		if match != nil {
+			info := JsCallbackInfo{
+				EntryPoint:     match[1],
+				Type:           match[2],
+				Sysno:          convertToIntOrPanic(match[3]),
+				CallbackArgs:   extractArgs(match[4]),
+				CallbackBody:   s,
+				CallbackSource: script,
+			}
+			infos = append(infos, info)
+		}
+	}
+
+	return infos, nil
 }

@@ -14,7 +14,7 @@ import (
 	"sync"
 )
 
-// HookCallback is signature of hooks that are called from user`s js callback
+// HookCallback is signature of DependentHooks that are called from user`s js callback
 type HookCallback func(...goja.Value) (interface{}, error)
 
 type HookInfoDto struct {
@@ -32,14 +32,24 @@ type HookInfoDto struct {
 	ReturnValue string `json:"return-value"`
 }
 
-// GoHook is an interface for hooks, that user can call from js callback
+// GoHook is an interface for DependentHooks, that user can call from js callback
 type GoHook interface {
 	// description should provide ingo about hook in the HookInfoDto
 	description() HookInfoDto
 
 	// jsName - with this name the hook will be called from js
 	jsName() string
+}
 
+// TaskIndependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with/without task
+type TaskIndependentGoHook interface {
+	GoHook
+	createCallBack() HookCallback
+}
+
+// TaskDependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with task
+type TaskDependentGoHook interface {
+	GoHook
 	createCallBack(*Task) HookCallback
 }
 
@@ -56,9 +66,9 @@ func disposableDecorator(callback HookCallback) HookCallback {
 	}
 }
 
-// GoHookDecorator added for future restrictions of hooks
+// GoHookDecorator added for future restrictions of DependentHooks
 type GoHookDecorator struct {
-	wrapped GoHook
+	wrapped TaskDependentGoHook
 }
 
 func (decorator *GoHookDecorator) description() HookInfoDto {
@@ -74,27 +84,39 @@ func (decorator *GoHookDecorator) createCallBack(t *Task) HookCallback {
 	return disposableDecorator(cb)
 }
 
-func (ht *HooksTable) registerHook(hook GoHook) error {
+func (ht *HooksTable) registerDependentHook(hook TaskDependentGoHook) error {
 	if ht == nil {
-		return errors.New("hooks table is nil")
+		return errors.New("DependentHooks table is nil")
 	}
 
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	ht.hooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
+	ht.DependentHooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
 	return nil
 }
 
-func (ht *HooksTable) getHook(hookName string) GoHook {
+func (ht *HooksTable) registerIndependentHook(hook TaskIndependentGoHook) error {
 	if ht == nil {
-		panic("hooks table is nil")
+		return errors.New("DependentHooks table is nil")
 	}
 
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	f, ok := ht.hooks[hookName]
+	ht.IndependentHooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
+	return nil
+}
+
+func (ht *HooksTable) getDependentHook(hookName string) TaskDependentGoHook {
+	if ht == nil {
+		panic("Hooks table is nil")
+	}
+
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	f, ok := ht.DependentHooks[hookName]
 	if ok {
 		return f
 	} else {
@@ -102,11 +124,31 @@ func (ht *HooksTable) getHook(hookName string) GoHook {
 	}
 }
 
-// HooksTable user`s js callback takes hooks from this table before execution.
+func (ht *HooksTable) getCurrentHooks() []GoHook {
+	if ht == nil {
+		panic("table is nil")
+	}
+
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	var hooks []GoHook
+	for _, hook := range ht.DependentHooks {
+		hooks = append(hooks, hook)
+	}
+	for _, hook := range ht.IndependentHooks {
+		hooks = append(hooks, hook)
+	}
+
+	return hooks
+}
+
+// HooksTable user`s js callback takes DependentHooks from this table before execution.
 // Hooks from the table can be used by user in his js code to get / modify data
 type HooksTable struct {
-	hooks map[string]GoHook
-	mutex sync.Mutex
+	DependentHooks   map[string]TaskDependentGoHook
+	IndependentHooks map[string]TaskIndependentGoHook
+	mutex            sync.Mutex
 }
 
 func ReadBytes(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -245,7 +287,7 @@ func SessionGetter(t *Task) *SessionDto {
 	}
 }
 
-// hooks impls
+// DependentHooks impls
 
 type PrintHook struct{}
 
@@ -262,7 +304,7 @@ func (ph *PrintHook) jsName() string {
 	return "print"
 }
 
-func (ph *PrintHook) createCallBack(_ *Task) HookCallback {
+func (ph *PrintHook) createCallBack() HookCallback {
 	return func(args ...goja.Value) (_ interface{}, err error) {
 		//map в go не завезли?
 		strs := make([]string, len(args))
@@ -293,7 +335,7 @@ func (hook *WriteBytesHook) jsName() string {
 func (hook *WriteBytesHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -338,7 +380,7 @@ func (hook *ReadBytesHook) jsName() string {
 func (hook *ReadBytesHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -384,7 +426,7 @@ func (hook *WriteStringHook) jsName() string {
 func (hook *WriteStringHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -429,7 +471,7 @@ func (hook *ReadStringHook) jsName() string {
 func (hook *ReadStringHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
@@ -651,10 +693,9 @@ func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
-// RegisterHooks register all hooks from this file in provided table
+// RegisterHooks register all DependentHooks from this file in provided table
 func RegisterHooks(cb *HooksTable) error {
-	hooks := []GoHook{
-		&PrintHook{},
+	dependentGoHooks := []TaskDependentGoHook{
 		&ReadBytesHook{},
 		&WriteBytesHook{},
 		&ReadStringHook{},
@@ -668,8 +709,19 @@ func RegisterHooks(cb *HooksTable) error {
 		&FDsHook{},
 	}
 
-	for _, hook := range hooks {
-		err := cb.registerHook(hook)
+	independentGoHooks := []TaskIndependentGoHook{
+		&PrintHook{},
+	}
+
+	for _, hook := range dependentGoHooks {
+		err := cb.registerDependentHook(hook)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, hook := range independentGoHooks {
+		err := cb.registerIndependentHook(hook)
 		if err != nil {
 			return err
 		}
@@ -744,7 +796,7 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(1, len(args))
 		}
 
-		runtime := t.Kernel().GojaRuntime
+		runtime := GetJsRuntime()
 		val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
 		if err != nil {
 			return nil, err
@@ -893,19 +945,53 @@ func reverseString(str string) string {
 	return string(reversed)
 }
 
-// addHooksToContextObject from this context object user`s callback will take hooks
-func (ht *HooksTable) addHooksToContextObject(object *goja.Object, task *Task) error {
+// addDependentHooksToContextObject from this context object user`s callback will take DependentHooks
+func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task *Task) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	for name, hook := range ht.hooks {
+	for name, hook := range ht.DependentHooks {
 		callback := hook.createCallBack(task)
 		err := object.Set(name, callback)
-
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// DependentHookAddableAdapter implement ContextAddable
+type DependentHookAddableAdapter struct {
+	ht   *HooksTable
+	task *Task
+}
+
+func (d *DependentHookAddableAdapter) addSelfToContextObject(object *goja.Object) error {
+	return d.ht.addDependentHooksToContextObject(object, d.task)
+}
+
+// addIndependentHooksToContextObject from this context object user`s callback will take DependentHooks
+func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) error {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	for name, hook := range ht.IndependentHooks {
+		callback := hook.createCallBack()
+		err := object.Set(name, callback)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// IndependentHookAddableAdapter implement ContextAddable
+type IndependentHookAddableAdapter struct {
+	ht *HooksTable
+}
+
+func (d *IndependentHookAddableAdapter) addSelfToContextObject(object *goja.Object) error {
+	return d.ht.addIndependentHooksToContextObject(object)
 }

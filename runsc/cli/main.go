@@ -229,7 +229,6 @@ func Main() {
 	}
 
 	if *logSocket >= 0 {
-		// TODO convert to Unix domain socket
 		log.SetJSONTarget(log.MoreJSONEmitter{&log.Writer{Next: os.NewFile(uintptr(*logSocket), "log socket file name")}})
 	}
 

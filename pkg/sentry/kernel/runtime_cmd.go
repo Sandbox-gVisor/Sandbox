@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// Command is the interface used to configure hooks
+// Command is the interface used to configure DependentHooks
 type Command interface {
 	name() string
 
@@ -75,6 +75,7 @@ func registerCommands(table *CommandTable) error {
 		&ChangeStateCommand{},
 		&CallbacksListCommand{},
 		&UnregisterCallbacksCommand{},
+		&ExtractSyscallCallbackFromSourceCommand{},
 	}
 
 	for _, command := range commands {
@@ -117,7 +118,6 @@ func extractTypeAndPayload(request *jsonRequest) (string, []byte, error) {
 func handleRequest(kernel *Kernel, jsonDecoder *json.Decoder) ([]byte, error) {
 	var request jsonRequest
 	err := jsonDecoder.Decode(&request)
-	fmt.Println("request err", err, request)
 	if err != nil {
 		return nil, err
 	}
@@ -223,10 +223,58 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) (any, 
 	return nil, nil
 }
 
-// hooks info command
+// change cb cmd from source
+
+type ChangeSyscallFromSourceDto struct {
+	Source string `json:"source"`
+}
+
+type ExtractSyscallCallbackFromSourceCommand struct{}
+
+func (e ExtractSyscallCallbackFromSourceCommand) name() string {
+	return "change-callbacks-from-source"
+}
+
+func (e ExtractSyscallCallbackFromSourceCommand) execute(kernel *Kernel, raw []byte) (any, error) {
+	var request ChangeSyscallFromSourceDto
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	if request.Source == "" {
+		return nil, errors.New("callbacks source script is empty")
+	}
+
+	infos, err := callbacks.ExtractCallbacksFromScript(request.Source)
+	if err != nil {
+		return nil, err
+	}
+
+	var jsCallbacks []JsCallback
+	for _, dto := range infos {
+		jsCallback, err := JsCallbackByInfo(dto)
+		if err != nil {
+			return nil, err
+		}
+		jsCallbacks = append(jsCallbacks, jsCallback)
+	}
+
+	for _, cb := range jsCallbacks {
+		cbCopy := cb // DON'T touch or golang will do trash
+		err := cbCopy.registerAtCallbackTable(kernel.callbackTable)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, nil
+}
+
+// DependentHooks info command
 
 type HooksInfoCommandResponse struct {
-	HooksInfo []HookInfoDto `json:"hooks"`
+	HooksInfo []HookInfoDto `json:"DependentHooks"`
 }
 
 type GetHooksInfoCommand struct{}
@@ -235,14 +283,16 @@ func (g GetHooksInfoCommand) name() string {
 	return "change-info" // Bruh specification moment
 }
 
-func (g GetHooksInfoCommand) execute(kernel *Kernel, _ []byte) (any, error) {
+func (g GetHooksInfoCommand) execute(_ *Kernel, _ []byte) (any, error) {
 	var hookInfoDtos []HookInfoDto
 
-	table := kernel.hooksTable
+	runtime := GetJsRuntime()
+	table := runtime.hooksTable
 	table.mutex.Lock()
 	defer table.mutex.Unlock()
 
-	for _, hook := range table.hooks {
+	hooks := table.getCurrentHooks()
+	for _, hook := range hooks {
 		hookInfoDtos = append(hookInfoDtos, hook.description())
 	}
 
@@ -300,6 +350,8 @@ func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
 		Sysno:          int(sysno),
 		EntryPoint:     "unknown",
 		CallbackSource: "unknown",
+		CallbackBody:   "unknown",
+		CallbackArgs:   nil,
 		Type:           cbType,
 	}
 }

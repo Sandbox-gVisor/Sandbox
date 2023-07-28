@@ -113,12 +113,6 @@ func (uc *userCounters) decRLimitNProc() {
 	uc.rlimitNProc.Add(^uint64(0))
 }
 
-// GojaRuntime is a js engine, where running user callbacks
-type GojaRuntime struct {
-	JsVM  *goja.Runtime
-	Mutex *sync.Mutex
-}
-
 // Kernel represents an emulated Linux kernel. It must be initialized by calling
 // Init() or LoadFrom().
 //
@@ -332,11 +326,43 @@ type Kernel struct {
 	userCountersMap   map[auth.KUID]*userCounters
 	userCountersMapMu userCountersMutex `state:"nosave"`
 
-	GojaRuntime   *GojaRuntime
-	hooksTable    *HooksTable
-	callbackTable *CallbackTable
-
+	callbackTable   *CallbackTable
 	runtimeCmdTable *CommandTable
+}
+
+// GojaRuntime is a js engine, where running user callbacks
+type GojaRuntime struct {
+	JsVM       *goja.Runtime
+	Mutex      *sync.Mutex
+	Global     *goja.Object
+	hooksTable *HooksTable
+}
+
+func initJsRuntime() *GojaRuntime {
+	vm := goja.New()
+	global := vm.NewObject()
+
+	// init DependentHooks table
+	table := &HooksTable{
+		DependentHooks:   map[string]TaskDependentGoHook{},
+		IndependentHooks: map[string]TaskIndependentGoHook{},
+	}
+	if err := RegisterHooks(table); err != nil {
+		panic(err)
+	}
+
+	return &GojaRuntime{
+		JsVM:       vm,
+		Mutex:      &sync.Mutex{},
+		Global:     global,
+		hooksTable: table,
+	}
+}
+
+var jsRuntime = initJsRuntime()
+
+func GetJsRuntime() *GojaRuntime {
+	return jsRuntime
 }
 
 // InitKernelArgs holds arguments to Init.
@@ -443,19 +469,10 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		go accepter(k, listener)
 	}
 
-	// init js vm
-	k.GojaRuntime = &GojaRuntime{JsVM: goja.New(), Mutex: &sync.Mutex{}}
-
 	// init callback table
 	k.callbackTable = &CallbackTable{
 		callbackBefore: make(map[uintptr]CallbackBefore),
 		callbackAfter:  make(map[uintptr]CallbackAfter),
-	}
-	// init hooks table
-	k.hooksTable = &HooksTable{hooks: map[string]GoHook{}}
-
-	if err := RegisterHooks(k.hooksTable); err != nil {
-		return err
 	}
 
 	if configDto, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {

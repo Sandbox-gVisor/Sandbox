@@ -17,6 +17,10 @@ type JsCallbackInfo struct {
 	// CallbackSource is the source code of callback
 	CallbackSource string `json:"source"`
 
+	CallbackBody string `json:"body"`
+
+	CallbackArgs []string `json:"args"`
+
 	// Type is the callback executed before or after syscall
 	Type string `json:"type"`
 }
