@@ -126,7 +126,7 @@ func handleRequest(kernel *Kernel, jsonDecoder *json.Decoder) ([]byte, error) {
 		return nil, err
 	}
 
-	table := kernel.runtimeCmdTable
+	table := GetJsRuntime().runtimeCmdTable
 	command, err := table.GetCommand(requestType)
 	if err != nil {
 		return nil, err
@@ -191,7 +191,7 @@ type ChangeSyscallDto struct {
 	CallbackDto []callbacks.JsCallbackInfo `json:"callbacks"`
 }
 
-func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) (any, error) {
+func (c ChangeSyscallCallbackCommand) execute(_ *Kernel, raw []byte) (any, error) {
 
 	var request ChangeSyscallDto
 	err := json.Unmarshal(raw, &request)
@@ -214,7 +214,7 @@ func (c ChangeSyscallCallbackCommand) execute(kernel *Kernel, raw []byte) (any, 
 
 	for _, cb := range jsCallbacks {
 		cbCopy := cb // DON'T touch or golang will do trash
-		err := cbCopy.registerAtCallbackTable(kernel.callbackTable)
+		err := cbCopy.registerAtCallbackTable(GetJsRuntime().callbackTable)
 		if err != nil {
 			return nil, err
 		}
@@ -235,7 +235,7 @@ func (e ExtractSyscallCallbackFromSourceCommand) name() string {
 	return "change-callbacks-from-source"
 }
 
-func (e ExtractSyscallCallbackFromSourceCommand) execute(kernel *Kernel, raw []byte) (any, error) {
+func (e ExtractSyscallCallbackFromSourceCommand) execute(_ *Kernel, raw []byte) (any, error) {
 	var request ChangeSyscallFromSourceDto
 	err := json.Unmarshal(raw, &request)
 	if err != nil {
@@ -262,7 +262,7 @@ func (e ExtractSyscallCallbackFromSourceCommand) execute(kernel *Kernel, raw []b
 
 	for _, cb := range jsCallbacks {
 		cbCopy := cb // DON'T touch or golang will do trash
-		err := cbCopy.registerAtCallbackTable(kernel.callbackTable)
+		err := cbCopy.registerAtCallbackTable(GetJsRuntime().callbackTable)
 		if err != nil {
 			return nil, err
 		}
@@ -365,8 +365,8 @@ func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
 	}
 }
 
-func (c CallbacksListCommand) execute(kernel *Kernel, _ []byte) (any, error) {
-	table := kernel.callbackTable
+func (c CallbacksListCommand) execute(_ *Kernel, _ []byte) (any, error) {
+	table := GetJsRuntime().callbackTable
 	table.Lock()
 	defer table.Unlock()
 	var infos []callbacks.JsCallbackInfo
@@ -440,13 +440,13 @@ func executeAllOption(table *CallbackTable, _ *UnregisterCallbacksRequest) error
 	return nil
 }
 
-func (u UnregisterCallbacksCommand) execute(kernel *Kernel, raw []byte) (any, error) {
+func (u UnregisterCallbacksCommand) execute(_ *Kernel, raw []byte) (any, error) {
 	var request UnregisterCallbacksRequest
 	err := json.Unmarshal(raw, &request)
 	if err != nil {
 		return nil, err
 	}
-	table := kernel.callbackTable
+	table := GetJsRuntime().callbackTable
 
 	switch request.Options {
 	case UnregisterAllOption:

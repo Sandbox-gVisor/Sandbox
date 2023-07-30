@@ -140,7 +140,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 		args_ := &args
 		var sub_ *SyscallReturnValue = nil
-		ct := t.Kernel().callbackTable
+		ct := GetJsRuntime().callbackTable
 		callbackBefore := ct.getCallbackBefore(sysno)
 		if callbackBefore != nil {
 			retArgs, retSub, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)

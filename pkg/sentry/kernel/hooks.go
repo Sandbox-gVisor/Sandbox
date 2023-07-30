@@ -727,6 +727,8 @@ func RegisterHooks(cb *HooksTable) error {
 
 	independentGoHooks := []TaskIndependentGoHook{
 		&PrintHook{},
+		&AddCbBeforeHook{},
+		&AddCbAfterHook{},
 	}
 
 	for _, hook := range dependentGoHooks {
@@ -1010,4 +1012,68 @@ type IndependentHookAddableAdapter struct {
 
 func (d *IndependentHookAddableAdapter) addSelfToContextObject(object *goja.Object) error {
 	return d.ht.addIndependentHooksToContextObject(object)
+}
+
+// hooks for dynamic callback registration
+
+type AddCbBeforeHook struct{}
+
+func (a AddCbBeforeHook) description() HookInfoDto {
+	// TODO add description
+	return HookInfoDto{}
+}
+
+func (a AddCbBeforeHook) jsName() string {
+	return "AddCbBefore"
+}
+
+func (a AddCbBeforeHook) createCallBack() HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		runtime := GetJsRuntime()
+		sysno, err := util.ExtractPtrFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		cbObj := args[1].ToObject(runtime.JsVM)
+		table := runtime.callbackTable
+
+		err = table.registerCallbackBefore(sysno, &DynamicJsCallbackBefore{Holder: cbObj})
+		return nil, err
+	}
+}
+
+type AddCbAfterHook struct{}
+
+func (a AddCbAfterHook) description() HookInfoDto {
+	// TODO add description
+	return HookInfoDto{}
+}
+
+func (a AddCbAfterHook) jsName() string {
+	return "AddCbAfter"
+}
+
+func (a AddCbAfterHook) createCallBack() HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		runtime := GetJsRuntime()
+		sysno, err := util.ExtractPtrFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		cbObj := args[1].ToObject(runtime.JsVM)
+		table := runtime.callbackTable
+
+		err = table.registerCallbackAfter(sysno, &DynamicJsCallbackAfter{Holder: cbObj})
+		return nil, err
+	}
 }
