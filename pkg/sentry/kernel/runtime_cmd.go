@@ -302,7 +302,7 @@ func (g GetHooksInfoCommand) execute(_ *Kernel, _ []byte) (any, error) {
 
 // change state command
 
-type ChangeStateRequest struct {
+type ChangeStateRequestDto struct {
 	EntryPoint string `json:"entry-point"`
 	Source     string `json:"source"`
 }
@@ -313,24 +313,33 @@ func (c ChangeStateCommand) name() string {
 	return "change-state"
 }
 
-func (c ChangeStateCommand) execute(_ *Kernel, _ []byte) (any, error) {
+func (c ChangeStateCommand) execute(_ *Kernel, raw []byte) (any, error) {
+	var request ChangeStateRequestDto
+	err := json.Unmarshal(raw, &request)
+	if err != nil {
+		return nil, err
+	}
+	err = callbacks.CheckSyntaxError(request.Source)
+	if err != nil {
+		return nil, err
+	}
 
-	return nil, errors.New("change state command not implemented yet")
-	//var request ChangeStateRequest
-	//err := json.Unmarshal(raw, &request)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//
-	//if request.EntryPoint == "" || request.Source == "" {
-	//	return nil, errors.New("script source or/and entry point is empty")
-	//}
-	//
-	//fmt.Println(request)
-	//
-	//// TODO implements (after adding persistence state)
-	//
-	//return nil, nil
+	runtime := GetJsRuntime()
+	runtime.Mutex.Lock()
+	defer runtime.Mutex.Unlock()
+
+	builder := ScriptContextsBuilderOf()
+	builder = builder.AddContext3(HooksJsName, &IndependentHookAddableAdapter{ht: runtime.hooksTable})
+	builder = builder.AddContext3(JsPersistenceContextName,
+		&ObjectAddableAdapter{name: JsGlobalPersistenceObject, object: runtime.Global})
+
+	contexts := builder.Build()
+	val, err := RunJsScript(runtime.JsVM, request.Source, contexts)
+	if err != nil {
+		return nil, err
+	}
+
+	return val, nil
 }
 
 // get current callbacks

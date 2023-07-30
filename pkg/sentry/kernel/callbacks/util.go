@@ -100,6 +100,11 @@ func ExtractStatementsFromScript(scriptSrs string) ([]string, error) {
 	return statements, nil
 }
 
+func CheckSyntaxError(scriptSrs string) error {
+	_, err := parser.ParseFile(nil, "", scriptSrs, 0)
+	return err
+}
+
 func (info *JsCallbackInfo) ToString() string {
 	return fmt.Sprintf("[sysno: %d, entry-point: %s, body: %s, args: %v, type: %s]",
 		info.Sysno, info.EntryPoint, info.CallbackBody, info.CallbackArgs, info.Type)
