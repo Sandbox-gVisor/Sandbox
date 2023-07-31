@@ -1,131 +1,85 @@
 ![gVisor](g3doc/logo.png)
 
-[![Build status](https://badge.buildkite.com/3b159f20b9830461a71112566c4171c0bdfd2f980a8e4c0ae6.svg?branch=master)](https://buildkite.com/gvisor/pipeline)
-[![Issue reviver](https://github.com/google/gvisor/actions/workflows/issue_reviver.yml/badge.svg)](https://github.com/google/gvisor/actions/workflows/issue_reviver.yml)
-[![gVisor chat](https://badges.gitter.im/gvisor/community.png)](https://gitter.im/gvisor/community)
-[![code search](https://img.shields.io/badge/code-search-blue)](https://cs.opensource.google/gvisor/gvisor)
+# gVisor Sandbox
 
-## What is gVisor?
+### Original repository https://github.com/google/gvisor
 
-**gVisor** is an application kernel, written in Go, that implements a
-substantial portion of the Linux system surface. It includes an
-[Open Container Initiative (OCI)][oci] runtime called `runsc` that provides an
-isolation boundary between the application and the host kernel. The `runsc`
-runtime integrates with Docker and Kubernetes, making it simple to run sandboxed
-containers.
+## JavaScript Engine for System Call Handlers
 
-## Why does gVisor exist?
+## Introduction
 
-Containers are not a [**sandbox**][sandbox]. While containers have
-revolutionized how we develop, package, and deploy applications, using them to
-run untrusted or potentially malicious code without additional isolation is not
-a good idea. While using a single, shared kernel allows for efficiency and
-performance gains, it also means that container escape is possible with a single
-vulnerability.
+In this project, we have undertaken the task of patching gVisor, an open-source container runtime sandbox, to integrate a JavaScript (JS) engine. The JS engine allows us to execute custom system call handlers written in JavaScript. These handlers provide us with valuable information about the running processes, system calls, and their arguments. Additionally, we can use our custom functions called "hooks" to modify specific values within the system call handling process.
 
-gVisor is an application kernel for containers. It limits the host kernel
-surface accessible to the application while still giving the application access
-to all the features it expects. Unlike most kernels, gVisor does not assume or
-require a fixed set of physical resources; instead, it leverages existing host
-kernel functionality and runs as a normal process. In other words, gVisor
-implements Linux by way of Linux.
+## Motivation
 
-gVisor should not be confused with technologies and tools to harden containers
-against external threats, provide additional integrity checks, or limit the
-scope of access for a service. One should always be careful about what data is
-made available to a container.
+The motivation behind this project was to extend the capabilities of gVisor and enable more flexible and dynamic handling of system calls. With the JS engine integration, we sought to gain insights into the inner workings of processes, manipulate system call arguments, and control system call behavior, all using JavaScript code.
 
-## Documentation
+## Features and Hooks
 
-User documentation and technical architecture, including quick start guides, can
-be found at [gvisor.dev][gvisor-dev].
+Our patched gVisor now includes the following key features and hooks:
 
-## Installing from source
+1. **getPidInfo:**
+    - Description: Provides the PID (Process ID), GID (Group ID), UID (User ID), and session information of the task.
+    - Arguments: None.
+    - Return Values: PidDto JSON object.
 
-gVisor builds on x86_64 and ARM64. Other architectures may become available in
-the future.
+2. **getFdsInfo:**
+    - Description: Provides information about all file descriptors (fds) of the task.
+    - Arguments: None.
+    - Return Values: DTO (Data Transfer Object) as an ArrayBuffer containing a marshalled array of JSON objects, each representing an fd.
 
-For the purposes of these instructions, [bazel][bazel] and other build
-dependencies are wrapped in a build container. It is possible to use
-[bazel][bazel] directly, or type `make help` for standard targets.
+3. **readBytes:**
+    - Description: Reads bytes from the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address from which to read the data, `count` (number) - Number of bytes to read.
+    - Return Values: ArrayBuffer containing the read data.
 
-### Requirements
+4. **writeBytes:**
+    - Description: Writes bytes to the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address to which data will be written, `buffer` (ArrayBuffer) - Buffer containing the data to be written.
+    - Return Values: `counter` (number) - Number of bytes actually written.
 
-Make sure the following dependencies are installed:
+5. **writeString:**
+    - Description: Writes the provided string to the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address from which to write the string, `str` (string) - The string to be written.
+    - Return Values: `count` (number) - Number of bytes actually written.
 
-*   Linux 4.14.77+ ([older linux][old-linux])
-*   [Docker version 17.09.0 or greater][docker]
+6. **getArgv:**
+    - Description: Provides the argv (argument vector) of the task.
+    - Arguments: None.
+    - Return Values: Array of strings representing the command-line arguments.
 
-### Building
+7. **getSignalInfo:**
+    - Description: Provides the signal masks and sigactions of the task.
+    - Arguments: None.
+    - Return Values: SignalMaskDto JSON object.
 
-Build and install the `runsc` binary:
+8. **readString:**
+    - Description: Reads a string from the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address from which to read the string, `count` (number) - Number of bytes to read.
+    - Return Values: Read string.
 
-```sh
-mkdir -p bin
-make copy TARGETS=runsc DESTINATION=bin/
-sudo cp ./bin/runsc /usr/local/bin
-```
+9. **getEnvs:**
+    - Description: Provides the environment variables of the task.
+    - Arguments: None.
+    - Return Values: Array of strings, each in the format `ENV_NAME=env_val`.
 
-### Testing
+10. **getMmaps:**
+    - Description: Provides mapping information similar to that found in procfs.
+    - Arguments: None.
+    - Return Values: String containing mappings similar to procfs.
 
-To run standard test suites, you can use:
+11. **getFdInfo:**
+    - Description: Provides information about a specific file descriptor of the task.
+    - Arguments: `fd` (number) - File descriptor to get information about.
+    - Return Values: DTO as an ArrayBuffer containing a marshalled JSON object representing the fd.
 
-```sh
-make unit-tests
-make tests
-```
+12. **print:**
+    - Description: Prints all passed arguments.
+    - Arguments: `msgs` (...any) - Values to be printed.
+    - Return Values: `null`.
 
-To run specific tests, you can specify the target:
+## Conclusion
 
-```sh
-make test TARGETS="//runsc:version_test"
-```
+The successful integration of a JavaScript engine into gVisor has significantly enhanced its capabilities by enabling the use of custom JavaScript-based system call handlers. These handlers empower us to extract vital information about processes, manipulate system call arguments, and control system call behavior. The flexibility offered by the hooks further allows for dynamic customization, making gVisor an even more powerful and versatile container runtime sandbox.
 
-### Using `go get`
-
-This project uses [bazel][bazel] to build and manage dependencies. A synthetic
-`go` branch is maintained that is compatible with standard `go` tooling for
-convenience.
-
-For example, to build and install `runsc` directly from this branch:
-
-```sh
-echo "module runsc" > go.mod
-GO111MODULE=on go get gvisor.dev/gvisor/runsc@go
-CGO_ENABLED=0 GO111MODULE=on sudo -E go build -o /usr/local/bin/runsc gvisor.dev/gvisor/runsc
-```
-
-Subsequently, you can build and install the shim binary for `containerd`:
-
-```sh
-GO111MODULE=on sudo -E go build -o /usr/local/bin/containerd-shim-runsc-v1 gvisor.dev/gvisor/shim
-```
-
-Note that this branch is supported in a best effort capacity, and direct
-development on this branch is not supported. Development should occur on the
-`master` branch, which is then reflected into the `go` branch.
-
-## Community & Governance
-
-See [GOVERNANCE.md](GOVERNANCE.md) for project governance information.
-
-The [gvisor-users mailing list][gvisor-users-list] and
-[gvisor-dev mailing list][gvisor-dev-list] are good starting points for
-questions and discussion.
-
-## Security Policy
-
-See [SECURITY.md](SECURITY.md).
-
-## Contributing
-
-See [Contributing.md](CONTRIBUTING.md).
-
-[bazel]: https://bazel.build
-[docker]: https://www.docker.com
-[gvisor-users-list]: https://groups.google.com/forum/#!forum/gvisor-users
-[gvisor-dev]: https://gvisor.dev
-[gvisor-dev-list]: https://groups.google.com/forum/#!forum/gvisor-dev
-[oci]: https://www.opencontainers.org
-[old-linux]: https://gvisor.dev/docs/user_guide/networking/#gso
-[sandbox]: https://en.wikipedia.org/wiki/Sandbox_(computer_security)
+The potential applications of this patch range from debugging and monitoring to security analysis and testing, making it a valuable addition to gVisor's feature set. Further development and testing will continue to refine the system and explore additional use cases.

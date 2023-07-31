@@ -317,6 +317,9 @@ go_library(
         "uts_namespace.go",
         "vdso.go",
         "version.go",
+        "callbacks.go",
+        "hooks.go",
+        "runtime_cmd.go"
     ],
     imports = [
         "gvisor.dev/gvisor/pkg/bpf",
@@ -363,6 +366,7 @@ go_library(
         "//pkg/sentry/kernel/auth",
         "//pkg/sentry/kernel/futex",
         "//pkg/sentry/kernel/ipc",
+        "//pkg/sentry/kernel/callbacks",
         "//pkg/sentry/kernel/mq",
         "//pkg/sentry/kernel/msgqueue",
         "//pkg/sentry/kernel/sched",
@@ -397,6 +401,10 @@ go_library(
         "//pkg/waiter",
         "@org_golang_google_protobuf//proto:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
+        #our
+        "@com_github_robertkrime_otto//:otto",
+        "@github_com_dop251_goja//:goja",
+#        "@github_com_dop251_goja_nodejs//:go_default_library",
     ],
 )
 

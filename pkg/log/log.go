@@ -252,6 +252,9 @@ var logMu sync.Mutex
 // log is the default logger.
 var log atomic.Value
 
+// jsonLog is the custom json logger
+var jsonLogVal atomic.Value
+
 // Log retrieves the global logger.
 func Log() *BasicLogger {
 	return log.Load().(*BasicLogger)

@@ -34,7 +34,11 @@ package kernel
 import (
 	"errors"
 	"fmt"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"net"
+	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
@@ -73,6 +77,8 @@ import (
 	"gvisor.dev/gvisor/pkg/state/wire"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
+
+	"github.com/dop251/goja"
 )
 
 // IOUringEnabled is set to true when IO_URING is enabled. Added as a global to
@@ -321,6 +327,62 @@ type Kernel struct {
 	userCountersMapMu userCountersMutex `state:"nosave"`
 }
 
+// GojaRuntime is a js engine, where running user callbacks
+type GojaRuntime struct {
+	JsVM   *goja.Runtime
+	Mutex  *sync.Mutex
+	Global *goja.Object
+
+	hooksTable      *HooksTable
+	callbackTable   *CallbackTable
+	runtimeCmdTable *CommandTable
+}
+
+func initJsRuntime() *GojaRuntime {
+	vm := goja.New()
+	global := vm.NewObject()
+
+	_, err := vm.RunString("stringify = JSON.stringify")
+	if err != nil {
+		panic(err)
+	}
+
+	// init DependentHooks table
+	table := &HooksTable{
+		DependentHooks:   map[string]TaskDependentGoHook{},
+		IndependentHooks: map[string]TaskIndependentGoHook{},
+	}
+	if err := RegisterHooks(table); err != nil {
+		panic(err)
+	}
+
+	runtimeCmdTable := &CommandTable{commands: make(map[string]Command)}
+	if err := registerCommands(runtimeCmdTable); err != nil {
+		panic(err)
+	}
+
+	// init callback table
+	callbackTable := &CallbackTable{
+		callbackBefore: make(map[uintptr]CallbackBefore),
+		callbackAfter:  make(map[uintptr]CallbackAfter),
+	}
+
+	return &GojaRuntime{
+		JsVM:            vm,
+		Mutex:           &sync.Mutex{},
+		Global:          global,
+		hooksTable:      table,
+		callbackTable:   callbackTable,
+		runtimeCmdTable: runtimeCmdTable,
+	}
+}
+
+var jsRuntime = initJsRuntime()
+
+func GetJsRuntime() *GojaRuntime {
+	return jsRuntime
+}
+
 // InitKernelArgs holds arguments to Init.
 type InitKernelArgs struct {
 	// FeatureSet is the emulated CPU feature set.
@@ -366,6 +428,22 @@ type InitKernelArgs struct {
 
 	// PIDNamespace is the root PID namespace.
 	PIDNamespace *PIDNamespace
+
+	SyscallCallbacksInitConfigFD int
+
+	RuntimeSocketFD int
+}
+
+func accepter(kernel *Kernel, listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Infof(err.Error())
+			continue
+		}
+
+		go handleConnection(kernel, conn)
+	}
 }
 
 // Init initialize the Kernel with no tasks.
@@ -384,6 +462,43 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	}
 	if args.ApplicationCores == 0 {
 		return fmt.Errorf("args.ApplicationCores is 0")
+	}
+
+	defer func(fd int) {
+		err := syscall.Close(fd)
+		if err != nil {
+			log.Debugf("file closing failed %v", err)
+		}
+	}(args.SyscallCallbacksInitConfigFD)
+
+	if args.RuntimeSocketFD != -1 {
+		file := os.NewFile(uintptr(args.RuntimeSocketFD), "socket")
+		var listener net.Listener
+		var err error
+		if listener, err = net.FileListener(file); err != nil {
+			fmt.Println(err)
+		}
+
+		go accepter(k, listener)
+	}
+
+	if configDto, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
+		fmt.Printf("failed to parse JSON config %v\n", err)
+	} else {
+		//fmt.Println(" --- ", configDto.UISocket)
+		for _, dto := range configDto.CallbackDtos {
+			jsCallback, err := JsCallbackByInfo(dto)
+			if err != nil {
+				fmt.Println("incorrect callback in init config: " + err.Error())
+				continue
+			}
+
+			table := GetJsRuntime().callbackTable
+			err = jsCallback.registerAtCallbackTable(table)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 
 	k.featureSet = args.FeatureSet

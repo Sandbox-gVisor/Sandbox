@@ -44,6 +44,8 @@ func RegisterFlags(flagSet *flag.FlagSet) {
 	// These flags are unique to runsc, and are used to configure parts of the
 	// system that are not covered by the runtime spec.
 
+	flagSet.String("syscall-init-config", "", "location of syscall callbacks init file")
+
 	// Debugging flags.
 	flagSet.String("debug-log", "", "additional location for logs. If it ends with '/', log files are created inside the directory with default names. The following variables are available: %TIMESTAMP%, %COMMAND%.")
 	flagSet.String("debug-command", "", `comma-separated list of commands to be debugged if --debug-log is also set. Empty means debug all. "!" negates the expression. E.g. "create,start" or "!boot,events"`)
