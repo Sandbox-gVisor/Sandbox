@@ -274,7 +274,7 @@ func (e ExtractSyscallCallbackFromSourceCommand) execute(_ *Kernel, raw []byte) 
 // DependentHooks info command
 
 type HooksInfoCommandResponse struct {
-	HooksInfo []HookInfoDto `json:"DependentHooks"`
+	HooksInfo []HookInfoDto `json:"hooks"`
 }
 
 type GetHooksInfoCommand struct{}
@@ -288,8 +288,6 @@ func (g GetHooksInfoCommand) execute(_ *Kernel, _ []byte) (any, error) {
 
 	runtime := GetJsRuntime()
 	table := runtime.hooksTable
-	table.mutex.Lock()
-	defer table.mutex.Unlock()
 
 	hooks := table.getCurrentHooks()
 	for _, hook := range hooks {
