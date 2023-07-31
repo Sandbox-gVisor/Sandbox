@@ -1,72 +1,85 @@
 ![gVisor](g3doc/logo.png)
 
-# Project gVisor sandbox
+# gVisor Sandbox
+
+### Original repository https://github.com/google/gvisor
+
+## JavaScript Engine for System Call Handlers
 
 ## Introduction
-In this report, we outline the progress made in patching gvisor for our project. The main objective of the patching process was to enhance gvisor's functionality and logging capabilities to suit our specific requirements.
 
-## Tasks Completed
-1. **Reading at Address**:
-    - Implemented the ability to read data from a specified memory address within the container.
+In this project, we have undertaken the task of patching gVisor, an open-source container runtime sandbox, to integrate a JavaScript (JS) engine. The JS engine allows us to execute custom system call handlers written in JavaScript. These handlers provide us with valuable information about the running processes, system calls, and their arguments. Additionally, we can use our custom functions called "hooks" to modify specific values within the system call handling process.
 
-2. **Writing at Address**:
-    - Implemented the ability to write data to a specified memory address within the container.
+## Motivation
 
-3. **Retrieving Syscall Arguments**:
-    - Added functionality to retrieve and log syscall arguments for better analysis and debugging.
+The motivation behind this project was to extend the capabilities of gVisor and enable more flexible and dynamic handling of system calls. With the JS engine integration, we sought to gain insights into the inner workings of processes, manipulate system call arguments, and control system call behavior, all using JavaScript code.
 
-4. **Printing Mapping**:
-    - Implemented the ability to print memory mappings of the container for detailed inspection.
+## Features and Hooks
 
-5. **Printing Syscall Arguments**:
-    - Extended the logging capabilities to include printing syscall arguments for each executed syscall.
+Our patched gVisor now includes the following key features and hooks:
 
-6. **Modifying Syscall Arguments**:
-    - Implemented the capability to intercept and modify syscall arguments before execution.
+1. **SgetPidInfo:**
+    - Description: Provides the PID (Process ID), GID (Group ID), UID (User ID), and session information of the task.
+    - Arguments: None.
+    - Return Values: PidDto JSON object.
 
-7. **Obtaining pid, gid, uid**:
-    - Enhanced logging to include process identifiers (pid), group identifiers (gid), and user identifiers (uid) for better process tracking and auditing.
+2. **SgetFdsInfo:**
+    - Description: Provides information about all file descriptors (fds) of the task.
+    - Arguments: None.
+    - Return Values: DTO (Data Transfer Object) as an ArrayBuffer containing a marshalled array of JSON objects, each representing an fd.
 
-8. **Additional File Descriptor (fd) Information**:
-    - Included more detailed information about file descriptors in the logs for better understanding of the container's I/O operations.
+3. **SreadBytes:**
+    - Description: Reads bytes from the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address from which to read the data, `count` (number) - Number of bytes to read.
+    - Return Values: ArrayBuffer containing the read data.
 
-9. **Enhanced Logging**:
-    - Added more extensive and informative logs to aid in debugging and monitoring container behavior.
+4. **SwriteBytes:**
+    - Description: Writes bytes to the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address to which data will be written, `buffer` (ArrayBuffer) - Buffer containing the data to be written.
+    - Return Values: `counter` (number) - Number of bytes actually written.
 
-10. **Obtaining Executable Information**:
-    - Implemented functionality to retrieve and log information about the executable file associated with each process in the container.
+5. **SwriteString:**
+    - Description: Writes the provided string to the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address from which to write the string, `str` (string) - The string to be written.
+    - Return Values: `count` (number) - Number of bytes actually written.
 
-11. **Environment Variables and argv**:
-    - Extended logging to include environment variables and command-line arguments (argv) for each process.
+6. **SgetArgv:**
+    - Description: Provides the argv (argument vector) of the task.
+    - Arguments: None.
+    - Return Values: Array of strings representing the command-line arguments.
 
-12. **Web Interface for Logs**:
-    - Developed a web-based interface to visualize and access the generated logs conveniently.
+7. **SgetSignalInfo:**
+    - Description: Provides the signal masks and sigactions of the task.
+    - Arguments: None.
+    - Return Values: SignalMaskDto JSON object.
 
-13. **Signal Mask and Signal Handlers**:
-    - Included logging of signal masks and signal handlers for each process, enabling better signal-related analysis.
+8. **SreadString:**
+    - Description: Reads a string from the provided address in the task's address space.
+    - Arguments: `addr` (number) - Address from which to read the string, `count` (number) - Number of bytes to read.
+    - Return Values: Read string.
 
-14. **Getting and Setting Niceness**:
-    - ability to retrieve and modify the "niceness" of processes.
+9. **SgetEnvs:**
+    - Description: Provides the environment variables of the task.
+    - Arguments: None.
+    - Return Values: Array of strings, each in the format `ENV_NAME=env_val`.
 
-15. **Process Termination**:
-    - enable terminating individual processes or groups of processes.
+10. **SgetMmaps:**
+    - Description: Provides mapping information similar to that found in procfs.
+    - Arguments: None.
+    - Return Values: String containing mappings similar to procfs.
 
-16. **Umask**:
-    - incorporating umask functionality for setting default permissions for newly created files.
+11. **SgetFdInfo:**
+    - Description: Provides information about a specific file descriptor of the task.
+    - Arguments: `fd` (number) - File descriptor to get information about.
+    - Return Values: DTO as an ArrayBuffer containing a marshalled JSON object representing the fd.
 
-17. **Session Information**:
-    - gather and log session-related information for the container.
-
-18. **Dynamic Configuration During Runtime**:
-    - allowing the container's configuration to be modified during runtime.
-
-19. **Additional Process Information from Handler Scripts**:
-    - information about processes from external handler scripts to enrich container monitoring.
-
-## etc.....
+12. **Sprint:**
+    - Description: Prints all passed arguments.
+    - Arguments: `msgs` (...any) - Values to be printed.
+    - Return Values: `null`.
 
 ## Conclusion
-The gvisor patching process has been productive so far, with significant improvements in logging, syscall handling, and process information retrieval. The ongoing tasks are expected to be completed in the near future, further enhancing the functionality and customization capabilities of gvisor for our project's specific needs.
 
-We will continue to monitor progress and provide updates as we complete the remaining tasks.
+The successful integration of a JavaScript engine into gVisor has significantly enhanced its capabilities by enabling the use of custom JavaScript-based system call handlers. These handlers empower us to extract vital information about processes, manipulate system call arguments, and control system call behavior. The flexibility offered by the hooks further allows for dynamic customization, making gVisor an even more powerful and versatile container runtime sandbox.
 
+The potential applications of this patch range from debugging and monitoring to security analysis and testing, making it a valuable addition to gVisor's feature set. Further development and testing will continue to refine the system and explore additional use cases.
