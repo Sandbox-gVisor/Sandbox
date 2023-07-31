@@ -325,22 +325,27 @@ type Kernel struct {
 	// userCountersMap maps auth.KUID into a set of user counters.
 	userCountersMap   map[auth.KUID]*userCounters
 	userCountersMapMu userCountersMutex `state:"nosave"`
-
-	callbackTable   *CallbackTable
-	runtimeCmdTable *CommandTable
 }
 
 // GojaRuntime is a js engine, where running user callbacks
 type GojaRuntime struct {
-	JsVM       *goja.Runtime
-	Mutex      *sync.Mutex
-	Global     *goja.Object
-	hooksTable *HooksTable
+	JsVM   *goja.Runtime
+	Mutex  *sync.Mutex
+	Global *goja.Object
+
+	hooksTable      *HooksTable
+	callbackTable   *CallbackTable
+	runtimeCmdTable *CommandTable
 }
 
 func initJsRuntime() *GojaRuntime {
 	vm := goja.New()
 	global := vm.NewObject()
+
+	_, err := vm.RunString("stringify = JSON.stringify")
+	if err != nil {
+		panic(err)
+	}
 
 	// init DependentHooks table
 	table := &HooksTable{
@@ -351,11 +356,24 @@ func initJsRuntime() *GojaRuntime {
 		panic(err)
 	}
 
+	runtimeCmdTable := &CommandTable{commands: make(map[string]Command)}
+	if err := registerCommands(runtimeCmdTable); err != nil {
+		panic(err)
+	}
+
+	// init callback table
+	callbackTable := &CallbackTable{
+		callbackBefore: make(map[uintptr]CallbackBefore),
+		callbackAfter:  make(map[uintptr]CallbackAfter),
+	}
+
 	return &GojaRuntime{
-		JsVM:       vm,
-		Mutex:      &sync.Mutex{},
-		Global:     global,
-		hooksTable: table,
+		JsVM:            vm,
+		Mutex:           &sync.Mutex{},
+		Global:          global,
+		hooksTable:      table,
+		callbackTable:   callbackTable,
+		runtimeCmdTable: runtimeCmdTable,
 	}
 }
 
@@ -446,11 +464,6 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		return fmt.Errorf("args.ApplicationCores is 0")
 	}
 
-	k.runtimeCmdTable = &CommandTable{commands: make(map[string]Command)}
-	if err := registerCommands(k.runtimeCmdTable); err != nil {
-		return err
-	}
-
 	defer func(fd int) {
 		err := syscall.Close(fd)
 		if err != nil {
@@ -469,12 +482,6 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		go accepter(k, listener)
 	}
 
-	// init callback table
-	k.callbackTable = &CallbackTable{
-		callbackBefore: make(map[uintptr]CallbackBefore),
-		callbackAfter:  make(map[uintptr]CallbackAfter),
-	}
-
 	if configDto, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
 		fmt.Printf("failed to parse JSON config %v\n", err)
 	} else {
@@ -486,7 +493,8 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 				continue
 			}
 
-			err = jsCallback.registerAtCallbackTable(k.callbackTable)
+			table := GetJsRuntime().callbackTable
+			err = jsCallback.registerAtCallbackTable(table)
 			if err != nil {
 				panic(err)
 			}

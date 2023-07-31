@@ -357,11 +357,15 @@ func jsCallbackInvocationTemplate(jsCallback JsCallback) string {
 }
 
 func extractArgsFromRetJsValue(
-	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value *goja.Value) (retArgs *arch.SyscallArguments, err error) {
+	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value goja.Value) (retArgs *arch.SyscallArguments, err error) {
+
+	if value == nil {
+		return inputArgs, nil
+	}
 
 	retArgs = &arch.SyscallArguments{}
 	*retArgs = *inputArgs
-	retObj := (*value).ToObject(vm)
+	retObj := value.ToObject(vm)
 
 	for _, key := range retObj.Keys() {
 		var ind int
@@ -396,8 +400,11 @@ func contains(slice []string, element string) bool {
 	return false
 }
 
-func extractSubstitutionFromRetJsValue(vm *goja.Runtime, value *goja.Value) (*SyscallReturnValue, error) {
-	obj := (*value).ToObject(vm)
+func extractSubstitutionFromRetJsValue(vm *goja.Runtime, value goja.Value) (*SyscallReturnValue, error) {
+	if value == nil {
+		return nil, nil
+	}
+	obj := value.ToObject(vm)
 
 	if contains(obj.Keys(), JsSyscallReturnValue) && contains(obj.Keys(), JsSyscallErrno) {
 		retVal := obj.Get(JsSyscallReturnValue)
@@ -518,13 +525,17 @@ func RunAbstractCallback(t *Task, jsSource string,
 	if err != nil {
 		return nil, nil, err
 	}
+	// TODO
+	if val.String() == "undefined" {
+		return args, nil, nil
+	}
 
-	retArgs, err := extractArgsFromRetJsValue(args, runtime.JsVM, &val)
+	retArgs, err := extractArgsFromRetJsValue(args, runtime.JsVM, val)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	retSub, err := extractSubstitutionFromRetJsValue(runtime.JsVM, &val)
+	retSub, err := extractSubstitutionFromRetJsValue(runtime.JsVM, val)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -546,4 +557,52 @@ func (cb *JsCallbackAfter) CallbackAfterFunc(t *Task, _ uintptr, args *arch.Sysc
 		SyscallReturnValueWithError{returnValue: ret, errno: inputErr}).Build()
 
 	return RunAbstractCallback(t, jsCallbackInvocationTemplate(cb), args, context)
+}
+
+// dynamic callbacks
+
+func dynamicJsCallbackEntryPoint() string {
+	args := make([]string, len(arch.SyscallArguments{}))
+	for i := range args {
+		args[i] = fmt.Sprintf("%s.arg%d", ArgsJsName, i)
+	}
+
+	return fmt.Sprintf("__callback__.invoke(%s)", strings.Join(args, ", "))
+}
+
+// DynamicJsCallbackBefore implements CallbackBefore
+type DynamicJsCallbackBefore struct {
+	Holder *goja.Object
+}
+
+func (d *DynamicJsCallbackBefore) CallbackBeforeFunc(t *Task, _ uintptr,
+	args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValue, error) {
+
+	context := ScriptContextsBuilderOf().AddContext3("__callback__",
+		&ObjectAddableAdapter{name: "invoke", object: d.Holder}).Build()
+
+	return RunAbstractCallback(t, dynamicJsCallbackEntryPoint(), args, context)
+}
+
+func (d *DynamicJsCallbackBefore) Info() string {
+	return "dynamic js callback before"
+}
+
+// DynamicJsCallbackAfter implements CallbackAfter
+type DynamicJsCallbackAfter struct {
+	Holder *goja.Object
+}
+
+func (d *DynamicJsCallbackAfter) CallbackAfterFunc(t *Task, _ uintptr,
+	args *arch.SyscallArguments, ret uintptr, inputErr error) (*arch.SyscallArguments, *SyscallReturnValue, error) {
+
+	builder := ScriptContextsBuilderOf()
+	builder = builder.AddContext3(ArgsJsName, SyscallReturnValueWithError{returnValue: ret, errno: inputErr})
+	builder = builder.AddContext3("__callback__", &ObjectAddableAdapter{name: "invoke", object: d.Holder})
+
+	return RunAbstractCallback(t, dynamicJsCallbackEntryPoint(), args, builder.Build())
+}
+
+func (d *DynamicJsCallbackAfter) Info() string {
+	return "dynamic js callback after"
 }
