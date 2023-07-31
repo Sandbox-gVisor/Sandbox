@@ -18,62 +18,62 @@ The motivation behind this project was to extend the capabilities of gVisor and 
 
 Our patched gVisor now includes the following key features and hooks:
 
-1. **SgetPidInfo:**
+1. **getPidInfo:**
     - Description: Provides the PID (Process ID), GID (Group ID), UID (User ID), and session information of the task.
     - Arguments: None.
     - Return Values: PidDto JSON object.
 
-2. **SgetFdsInfo:**
+2. **getFdsInfo:**
     - Description: Provides information about all file descriptors (fds) of the task.
     - Arguments: None.
     - Return Values: DTO (Data Transfer Object) as an ArrayBuffer containing a marshalled array of JSON objects, each representing an fd.
 
-3. **SreadBytes:**
+3. **readBytes:**
     - Description: Reads bytes from the provided address in the task's address space.
     - Arguments: `addr` (number) - Address from which to read the data, `count` (number) - Number of bytes to read.
     - Return Values: ArrayBuffer containing the read data.
 
-4. **SwriteBytes:**
+4. **writeBytes:**
     - Description: Writes bytes to the provided address in the task's address space.
     - Arguments: `addr` (number) - Address to which data will be written, `buffer` (ArrayBuffer) - Buffer containing the data to be written.
     - Return Values: `counter` (number) - Number of bytes actually written.
 
-5. **SwriteString:**
+5. **writeString:**
     - Description: Writes the provided string to the provided address in the task's address space.
     - Arguments: `addr` (number) - Address from which to write the string, `str` (string) - The string to be written.
     - Return Values: `count` (number) - Number of bytes actually written.
 
-6. **SgetArgv:**
+6. **getArgv:**
     - Description: Provides the argv (argument vector) of the task.
     - Arguments: None.
     - Return Values: Array of strings representing the command-line arguments.
 
-7. **SgetSignalInfo:**
+7. **getSignalInfo:**
     - Description: Provides the signal masks and sigactions of the task.
     - Arguments: None.
     - Return Values: SignalMaskDto JSON object.
 
-8. **SreadString:**
+8. **readString:**
     - Description: Reads a string from the provided address in the task's address space.
     - Arguments: `addr` (number) - Address from which to read the string, `count` (number) - Number of bytes to read.
     - Return Values: Read string.
 
-9. **SgetEnvs:**
+9. **getEnvs:**
     - Description: Provides the environment variables of the task.
     - Arguments: None.
     - Return Values: Array of strings, each in the format `ENV_NAME=env_val`.
 
-10. **SgetMmaps:**
+10. **getMmaps:**
     - Description: Provides mapping information similar to that found in procfs.
     - Arguments: None.
     - Return Values: String containing mappings similar to procfs.
 
-11. **SgetFdInfo:**
+11. **getFdInfo:**
     - Description: Provides information about a specific file descriptor of the task.
     - Arguments: `fd` (number) - File descriptor to get information about.
     - Return Values: DTO as an ArrayBuffer containing a marshalled JSON object representing the fd.
 
-12. **Sprint:**
+12. **print:**
     - Description: Prints all passed arguments.
     - Arguments: `msgs` (...any) - Values to be printed.
     - Return Values: `null`.
