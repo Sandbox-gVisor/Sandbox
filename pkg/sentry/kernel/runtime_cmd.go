@@ -338,8 +338,8 @@ func (c ChangeStateCommand) execute(_ *Kernel, raw []byte) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return val, nil
+	valBytes, err := json.Marshal(val)
+	return string(valBytes), err
 }
 
 // get current callbacks
