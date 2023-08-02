@@ -16,6 +16,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"runtime/trace"
 	"sync/atomic"
@@ -596,6 +597,8 @@ type Task struct {
 	userCounters *userCounters
 
 	vmFlag callbacks.Flag
+
+	taskLocalStorage *goja.Object
 }
 
 // Task related metrics

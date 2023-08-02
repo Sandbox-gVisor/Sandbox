@@ -260,6 +260,8 @@ const JsPersistenceContextName = "persistence"
 
 const JsGlobalPersistenceObject = "glb"
 
+const JsTaskLocalPersistenceObject = "local"
+
 // JsCallbackBefore implements CallbackBefore and JsCallback
 type JsCallbackBefore struct {
 	info callbacks.JsCallbackInfo
@@ -519,6 +521,12 @@ func RunAbstractCallback(t *Task, jsSource string,
 	builder = builder.AddContext3(HooksJsName, &DependentHookAddableAdapter{ht: runtime.hooksTable, task: t})
 	builder = builder.AddContext3(JsPersistenceContextName,
 		&ObjectAddableAdapter{name: JsGlobalPersistenceObject, object: runtime.Global})
+
+	if t.taskLocalStorage == nil {
+		t.taskLocalStorage = runtime.JsVM.NewObject()
+	}
+	builder = builder.AddContext3(JsPersistenceContextName,
+		&ObjectAddableAdapter{name: JsTaskLocalPersistenceObject, object: t.taskLocalStorage})
 
 	contexts := builder.Build()
 	val, err := RunJsScript(runtime.JsVM, jsSource, contexts)
