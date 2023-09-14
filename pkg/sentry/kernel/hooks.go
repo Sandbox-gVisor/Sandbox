@@ -709,6 +709,43 @@ func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+type ExitHook struct {
+}
+
+func (hook *ExitHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "cause normal process termination",
+		Args:        "code\tnumber\t(exit code)\n",
+		ReturnValue: "null",
+	}
+}
+
+func (hook *ExitHook) jsName() string {
+	return "exit"
+}
+
+func (hook *ExitHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		runtime := GetJsRuntime()
+		if len(args) != 1 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		var code int64
+		code, err := util.ExtractInt64FromValue(runtime.JsVM, args[1])
+		if err != nil {
+			return nil, err
+		}
+		code += 1
+
+		// TODO: call kind of exit
+
+		return nil, nil
+	}
+}
+
 // RegisterHooks register all hooks from this file in provided table
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
@@ -723,6 +760,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&PidInfoHook{},
 		&FDHook{},
 		&FDsHook{},
+		&ExitHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{
