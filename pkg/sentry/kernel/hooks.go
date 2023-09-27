@@ -666,9 +666,9 @@ func (hook *PidInfoHook) description() HookInfoDto {
 		Args:        "no args;\n",
 		ReturnValue: "PidDto json \n" +
 			"{\n" +
-			"\tPid number,\n" +
-			"\tGid number,\n" +
-			"\tUid number,\n" +
+			"\tPID number,\n" +
+			"\tGID number,\n" +
+			"\tUID number,\n" +
 			"\tSession json\n" +
 			"\t{\n" +
 			"\t\tsessionId number,\n" +
@@ -685,9 +685,9 @@ func (hook *PidInfoHook) jsName() string {
 }
 
 type PidDto struct {
-	Pid     int32
-	Gid     int32
-	Uid     int32
+	PID     int32
+	GID     int32
+	UID     int32
 	Session SessionDto
 }
 
@@ -699,9 +699,9 @@ func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 		}
 
 		dto := PidDto{
-			Pid:     PIDGetter(t),
-			Gid:     int32(GIDGetter(t)),
-			Uid:     int32(UIDGetter(t)),
+			PID:     PIDGetter(t),
+			GID:     int32(GIDGetter(t)),
+			UID:     int32(UIDGetter(t)),
 			Session: *SessionGetter(t),
 		}
 
