@@ -233,10 +233,10 @@ func ArgvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
-type SessionDto struct {
-	SessionId    int32
+type SessionDTO struct {
+	SessionID    int32
 	PGID         int32
-	ForegroundId int32
+	ForegroundID int32
 	OtherPGIDs   []int32
 }
 
@@ -249,7 +249,7 @@ type SessionDto struct {
 // - foreground
 //
 // - other PGIDs of the session
-func SessionGetter(t *Task) *SessionDto {
+func SessionGetter(t *Task) *SessionDTO {
 	if t.tg == nil {
 		return nil
 	}
@@ -280,10 +280,10 @@ func SessionGetter(t *Task) *SessionDto {
 			t.Debugf("{\"error\": \"%v\"}", err.Error())
 		}
 	}
-	return &SessionDto{
-		SessionId:    int32(pg.session.id),
+	return &SessionDTO{
+		SessionID:    int32(pg.session.id),
 		PGID:         int32(pg.id),
-		ForegroundId: int32(foregroundGroupId),
+		ForegroundID: int32(foregroundGroupId),
 		OtherPGIDs:   pgids,
 	}
 }
@@ -688,7 +688,7 @@ type PidDto struct {
 	PID     int32
 	GID     int32
 	UID     int32
-	Session SessionDto
+	Session SessionDTO
 }
 
 func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
