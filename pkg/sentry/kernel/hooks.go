@@ -709,6 +709,51 @@ func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+type UserJSONLogHook struct{}
+
+func (hook *UserJSONLogHook) jsName() string {
+	return "log"
+}
+
+func (hook *UserJSONLogHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Logs the given message",
+		Args:        "msg\tany\t(message to be printed)",
+		ReturnValue: "null",
+	}
+}
+
+func (hook *UserJSONLogHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 1 {
+			return nil, util.ArgsCountMismatchError(1, len(args))
+		}
+		arg := args[0]
+
+		runtime := GetJsRuntime()
+		const functionNameInGlobalContext = "stringify"
+		stringify, ok := goja.AssertFunction(runtime.JsVM.Get(functionNameInGlobalContext))
+		if !ok {
+			return nil, errors.New(fmt.Sprintf("failed to load %s", functionNameInGlobalContext))
+		}
+
+		var str string
+		if arg.ExportType() == reflect.TypeOf("") {
+			str = arg.String()
+		} else {
+			valueStr, err := stringify(goja.Undefined(), arg)
+			if err != nil {
+				return nil, err
+			}
+			str = valueStr.String()
+		}
+
+		t.JSONInfof(str)
+		return nil, nil
+	}
+}
+
 // RegisterHooks register all hooks from this file in provided table
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
@@ -723,6 +768,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&PidInfoHook{},
 		&FDHook{},
 		&FDsHook{},
+		&UserJSONLogHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{
@@ -1019,8 +1065,13 @@ func (d *IndependentHookAddableAdapter) addSelfToContextObject(object *goja.Obje
 type AddCbBeforeHook struct{}
 
 func (a AddCbBeforeHook) description() HookInfoDto {
-	// TODO add description
-	return HookInfoDto{}
+	return HookInfoDto{
+		Name:        a.jsName(),
+		Description: "Is used for dynamic callback registration (callback will be executed before syscall)",
+		Args: "sysno\tnumber\t(syscall number, callback will be executed before syscall with this number)\n" +
+			"callback\tfunction\t(js function to call before syscall execution)",
+		ReturnValue: "null",
+	}
 }
 
 func (a AddCbBeforeHook) jsName() string {
@@ -1050,8 +1101,13 @@ func (a AddCbBeforeHook) createCallBack() HookCallback {
 type AddCbAfterHook struct{}
 
 func (a AddCbAfterHook) description() HookInfoDto {
-	// TODO add description
-	return HookInfoDto{}
+	return HookInfoDto{
+		Name:        a.jsName(),
+		Description: "Is used for dynamic callback registration (callback will be executed after syscall)",
+		Args: "sysno\tnumber\t(syscall number, callback will be executed after syscall with this number)\n" +
+			"callback\tfunction\t(js function to call after syscall execution)",
+		ReturnValue: "null",
+	}
 }
 
 func (a AddCbAfterHook) jsName() string {
