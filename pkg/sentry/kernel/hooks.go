@@ -1065,8 +1065,13 @@ func (d *IndependentHookAddableAdapter) addSelfToContextObject(object *goja.Obje
 type AddCbBeforeHook struct{}
 
 func (a AddCbBeforeHook) description() HookInfoDto {
-	// TODO add description
-	return HookInfoDto{}
+	return HookInfoDto{
+		Name:        a.jsName(),
+		Description: "Is used for dynamic callback registration (callback will be executed before syscall)",
+		Args: "sysno\tnumber\t(syscall number, callback will be executed before syscall with this number)\n" +
+			"callback\tfunction\t(js function to call before syscall execution)",
+		ReturnValue: "null",
+	}
 }
 
 func (a AddCbBeforeHook) jsName() string {
