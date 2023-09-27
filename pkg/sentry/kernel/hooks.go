@@ -1101,8 +1101,13 @@ func (a AddCbBeforeHook) createCallBack() HookCallback {
 type AddCbAfterHook struct{}
 
 func (a AddCbAfterHook) description() HookInfoDto {
-	// TODO add description
-	return HookInfoDto{}
+	return HookInfoDto{
+		Name:        a.jsName(),
+		Description: "Is used for dynamic callback registration (callback will be executed after syscall)",
+		Args: "sysno\tnumber\t(syscall number, callback will be executed after syscall with this number)\n" +
+			"callback\tfunction\t(js function to call after syscall execution)",
+		ReturnValue: "null",
+	}
 }
 
 func (a AddCbAfterHook) jsName() string {
