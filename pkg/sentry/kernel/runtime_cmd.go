@@ -365,8 +365,12 @@ func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
 
 func (c CallbacksListCommand) execute(_ *Kernel, _ []byte) (any, error) {
 	table := GetJsRuntime().callbackTable
-	table.Lock()
-	defer table.Unlock()
+	table.mutexBefore.Lock()
+	table.mutexAfter.Lock()
+
+	defer table.mutexAfter.Unlock()
+	defer table.mutexBefore.Unlock()
+
 	var infos []callbacks.JsCallbackInfo
 
 	for sysno, cbBefore := range table.callbackBefore {

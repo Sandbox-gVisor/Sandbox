@@ -150,19 +150,12 @@ func (ct *CallbackTable) registerCallbackAfter(sysno uintptr, f CallbackAfter) e
 	return nil
 }
 
-func (ct *CallbackTable) Lock() {
+func (ct *CallbackTable) UnregisterAll() {
 	ct.mutexBefore.Lock()
 	ct.mutexAfter.Lock()
-}
 
-func (ct *CallbackTable) Unlock() {
-	ct.mutexBefore.Unlock()
-	ct.mutexAfter.Unlock()
-}
-
-func (ct *CallbackTable) UnregisterAll() {
-	ct.Lock()
-	defer ct.Unlock()
+	defer ct.mutexAfter.Unlock()
+	defer ct.mutexBefore.Unlock()
 
 	ct.callbackAfter = map[uintptr]CallbackAfter{}
 	ct.callbackBefore = map[uintptr]CallbackBefore{}
