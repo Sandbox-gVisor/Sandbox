@@ -233,10 +233,10 @@ func ArgvGetter(t *Task) ([]byte, error) {
 	return buf, err
 }
 
-type SessionDto struct {
-	SessionId    int32
+type SessionDTO struct {
+	SessionID    int32
 	PGID         int32
-	ForegroundId int32
+	ForegroundID int32
 	OtherPGIDs   []int32
 }
 
@@ -249,7 +249,7 @@ type SessionDto struct {
 // - foreground
 //
 // - other PGIDs of the session
-func SessionGetter(t *Task) *SessionDto {
+func SessionGetter(t *Task) *SessionDTO {
 	if t.tg == nil {
 		return nil
 	}
@@ -260,30 +260,28 @@ func SessionGetter(t *Task) *SessionDto {
 	var pgids []int32
 	if pg.session != nil {
 		sessionPGs := pg.session.processGroups
-		if &sessionPGs != nil {
-			for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
-				pgids = append(pgids, int32(spg.id))
-			}
+		for spg := sessionPGs.Front(); spg != nil; spg = spg.Next() {
+			pgids = append(pgids, int32(spg.id))
 		}
 	}
 	if pg.session == nil {
 		return nil
 	}
-	var foregroundGroupId ProcessGroupID
+	var foregroundGroupID ProcessGroupID
 	if t.tg.TTY() == nil {
 		t.Debugf("{\"error\": \"%v\"}", "t.tg.TTY() is nil")
-		foregroundGroupId = 0
+		foregroundGroupID = 0
 	} else {
 		var err error
-		foregroundGroupId, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
+		foregroundGroupID, err = t.tg.ForegroundProcessGroupID(t.tg.TTY())
 		if err != nil {
 			t.Debugf("{\"error\": \"%v\"}", err.Error())
 		}
 	}
-	return &SessionDto{
-		SessionId:    int32(pg.session.id),
+	return &SessionDTO{
+		SessionID:    int32(pg.session.id),
 		PGID:         int32(pg.id),
-		ForegroundId: int32(foregroundGroupId),
+		ForegroundID: int32(foregroundGroupID),
 		OtherPGIDs:   pgids,
 	}
 }
@@ -296,7 +294,7 @@ func (ph *PrintHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        ph.jsName(),
 		Description: "Prints all passed args",
-		Args:        "msgs\t...any\t(values to be printed);\n",
+		Args:        "\nmsgs\t...any\t(values to be printed);\n",
 		ReturnValue: "null",
 	}
 }
@@ -338,7 +336,7 @@ func (hook *WriteBytesHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer",
-		Args: "addr\tnumber\t(data from buffer will be written starting from this addr);\n" +
+		Args: "\naddr\tnumber\t(data from buffer will be written starting from this addr);\n" +
 			"buffer\tArrayBuffer\t(buffer which contains data to be written);\n",
 		ReturnValue: "counter\tnumber\t(amount of really written bytes)",
 	}
@@ -383,7 +381,7 @@ func (hook *ReadBytesHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Read bytes to provided buffer by provided addr. Always tries to read count bytes",
-		Args: "addr\tnumber\t(data from address space will be read starting from this addr);\n" +
+		Args: "\naddr\tnumber\t(data from address space will be read starting from this addr);\n" +
 			"count\tnumber\t(amount of bytes to read from address space);\n",
 		ReturnValue: "buffer\tArrayBuffer\t(contains read data)",
 	}
@@ -429,7 +427,7 @@ func (hook *WriteStringHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Write provided string by provided addr",
-		Args: "addr\tnumber\t(string will be written starting from this addr);\n" +
+		Args: "\naddr\tnumber\t(string will be written starting from this addr);\n" +
 			"str\tstringt\t(string to be written);\n",
 		ReturnValue: "count number (amount of bytes really written)",
 	}
@@ -474,7 +472,7 @@ func (hook *ReadStringHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Read string str by provided addr",
-		Args: "addr\tnumber\t(string will be read starting from this addr);\n" +
+		Args: "\naddr\tnumber\t(string will be read starting from this addr);\n" +
 			"count\tnumber\t(amount of bytes to read from address space);\n",
 		ReturnValue: "str\tstring\t(read string)",
 	}
@@ -519,7 +517,7 @@ func (hook *EnvvGetterHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides environment variables of the Task",
-		Args:        "no args;\n",
+		Args:        "\nno args;\n",
 		ReturnValue: "envs\t[]string\t(array of strings, each string has the format ENV_NAME=env_val)",
 	}
 }
@@ -552,7 +550,7 @@ func (hook *MmapGetterHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides mapping info like in procfs",
-		Args:        "no args;\n",
+		Args:        "\nno args;\n",
 		ReturnValue: "str\tstring\t(mappings like in procfs)",
 	}
 }
@@ -579,7 +577,7 @@ func (hook *ArgvHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides argv of the Task",
-		Args:        "no args;\n",
+		Args:        "\nno args;\n",
 		ReturnValue: "argv\t[]string\t(array of strings)",
 	}
 }
@@ -611,7 +609,7 @@ func (hook *SignalInfoHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides signal masks and sigactions of the Task",
-		Args:        "no args;\n",
+		Args:        "\nno args;\n",
 		ReturnValue: "SignalMaskDto json \n" +
 			"{\n" +
 			"\tSignalMask number (Task.signalMask signal mask of the task),\n" +
@@ -663,12 +661,12 @@ func (hook *PidInfoHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides PID, GID, UID and session info of Task",
-		Args:        "no args;\n",
+		Args:        "\nno args;\n",
 		ReturnValue: "PidDto json \n" +
 			"{\n" +
-			"\tPid number,\n" +
-			"\tGid number,\n" +
-			"\tUid number,\n" +
+			"\tPID number,\n" +
+			"\tGID number,\n" +
+			"\tUID number,\n" +
 			"\tSession json\n" +
 			"\t{\n" +
 			"\t\tsessionId number,\n" +
@@ -685,10 +683,10 @@ func (hook *PidInfoHook) jsName() string {
 }
 
 type PidDto struct {
-	Pid     int32
-	Gid     int32
-	Uid     int32
-	Session SessionDto
+	PID     int32
+	GID     int32
+	UID     int32
+	Session SessionDTO
 }
 
 func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
@@ -699,13 +697,58 @@ func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 		}
 
 		dto := PidDto{
-			Pid:     PIDGetter(t),
-			Gid:     int32(GIDGetter(t)),
-			Uid:     int32(UIDGetter(t)),
+			PID:     PIDGetter(t),
+			GID:     int32(GIDGetter(t)),
+			UID:     int32(UIDGetter(t)),
 			Session: *SessionGetter(t),
 		}
 
 		return dto, nil
+	}
+}
+
+type UserJSONLogHook struct{}
+
+func (hook *UserJSONLogHook) jsName() string {
+	return "log"
+}
+
+func (hook *UserJSONLogHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Logs the given message",
+		Args:        "\nmsg\tany\t(message to be printed);\n",
+		ReturnValue: "null",
+	}
+}
+
+func (hook *UserJSONLogHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 1 {
+			return nil, util.ArgsCountMismatchError(1, len(args))
+		}
+		arg := args[0]
+
+		runtime := GetJsRuntime()
+		const functionNameInGlobalContext = "stringify"
+		stringify, ok := goja.AssertFunction(runtime.JsVM.Get(functionNameInGlobalContext))
+		if !ok {
+			return nil, errors.New(fmt.Sprintf("failed to load %s", functionNameInGlobalContext))
+		}
+
+		var str string
+		if arg.ExportType() == reflect.TypeOf("") {
+			str = arg.String()
+		} else {
+			valueStr, err := stringify(goja.Undefined(), arg)
+			if err != nil {
+				return nil, err
+			}
+			str = valueStr.String()
+		}
+
+		t.JSONInfof(str)
+		return nil, nil
 	}
 }
 
@@ -723,6 +766,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&PidInfoHook{},
 		&FDHook{},
 		&FDsHook{},
+		&UserJSONLogHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{
@@ -754,7 +798,7 @@ func (hook *FDsHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides information about all fds of Task",
-		Args:        "no args;\n",
+		Args:        "\nno args;\n",
 		ReturnValue: "dto ArrayBuffer (marshalled array of json (format below))\n" +
 			"{\n" +
 			"\tfd string,\n" +
@@ -790,7 +834,7 @@ func (hook *FDHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides information about one specific fd of Task",
-		Args:        "fd number (fd to get info about);\n",
+		Args:        "\nfd number (fd to get info about);\n",
 		ReturnValue: "dto ArrayBuffer (marshalled json (format below))\n" +
 			"{\n" +
 			"\tfd string,\n" +
@@ -1019,8 +1063,13 @@ func (d *IndependentHookAddableAdapter) addSelfToContextObject(object *goja.Obje
 type AddCbBeforeHook struct{}
 
 func (a AddCbBeforeHook) description() HookInfoDto {
-	// TODO add description
-	return HookInfoDto{}
+	return HookInfoDto{
+		Name:        a.jsName(),
+		Description: "Is used for dynamic callback registration (callback will be executed before syscall)",
+		Args: "\nsysno\tnumber\t(syscall number, callback will be executed before syscall with this number);\n" +
+			"callback\tfunction\t(js function to call before syscall execution);\n",
+		ReturnValue: "null",
+	}
 }
 
 func (a AddCbBeforeHook) jsName() string {
@@ -1050,8 +1099,13 @@ func (a AddCbBeforeHook) createCallBack() HookCallback {
 type AddCbAfterHook struct{}
 
 func (a AddCbAfterHook) description() HookInfoDto {
-	// TODO add description
-	return HookInfoDto{}
+	return HookInfoDto{
+		Name:        a.jsName(),
+		Description: "Is used for dynamic callback registration (callback will be executed after syscall)",
+		Args: "\nsysno\tnumber\t(syscall number, callback will be executed after syscall with this number);\n" +
+			"callback\tfunction\t(js function to call after syscall execution);\n",
+		ReturnValue: "null",
+	}
 }
 
 func (a AddCbAfterHook) jsName() string {
