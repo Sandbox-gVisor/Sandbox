@@ -6,22 +6,22 @@ import (
 	"strings"
 )
 
-type RvalJsonLog struct {
+type RvalJSONLog struct {
 	Retval  []string
 	Err     string
 	Errno   string
 	Elapsed string
 }
 
-type straceJsonLog struct {
+type straceJSONLog struct {
 	LogType     string
 	Taskname    string
 	Syscallname string
 	Output      []string
-	Rval        RvalJsonLog
+	Rval        RvalJSONLog
 }
 
-func (s *straceJsonLog) ToString() string {
+func (s *straceJSONLog) ToString() string {
 	b, err := json.Marshal(&s)
 	if err != nil {
 		return "{}"
@@ -29,7 +29,7 @@ func (s *straceJsonLog) ToString() string {
 	return string(b)
 }
 
-func (s *straceJsonLog) GVisorString() string {
+func (s *straceJSONLog) GVisorString() string {
 	if len(s.Rval.Retval) != 0 {
 		return fmt.Sprintf("%v %v %v(%v) = %v (%v)", s.Taskname, s.LogType, s.Syscallname, strings.Join(s.Output, " "), strings.Join(s.Rval.Retval, " "), s.Rval.Elapsed)
 	} else if len(s.Rval.Err) != 0 {
@@ -39,7 +39,7 @@ func (s *straceJsonLog) GVisorString() string {
 }
 
 // add "" to all list elements
-func toJsonEnum(args []string) []string {
+func toJSONEnum(args []string) []string {
 	var result []string
 	for _, s := range args {
 		result = append(result, fmt.Sprintf(`"%s"`, s))
