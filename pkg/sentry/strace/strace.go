@@ -407,7 +407,7 @@ func (i *SyscallInfo) pre(t *kernel.Task, args arch.SyscallArguments, maximumBlo
 		case SockOptLevel:
 			output = append(output, sockOptLevels.Parse(args[arg].Uint64()))
 		case SockOptName:
-			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */ ].Parse(args[arg].Uint64()))
+			output = append(output, sockOptNames[args[arg-1].Uint64() /* level */].Parse(args[arg].Uint64()))
 		case SockAddr:
 			output = append(output, sockAddr(t, args[arg].Pointer(), uint32(args[arg+1].Uint64())))
 		case SockLen:
@@ -553,11 +553,11 @@ func (i *SyscallInfo) post(t *kernel.Task, args arch.SyscallArguments, rval uint
 // printEntry prints the given system call entry.
 func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []string {
 	output := i.pre(t, args, LogMaximumSize)
-	straceLog := &straceJsonLog{
+	straceLog := &straceJSONLog{
 		LogType:     "E",
 		Taskname:    t.Name(),
 		Syscallname: i.name,
-		Output:      output, //toJsonEnum(output),
+		Output:      output, //toJSONEnum(output),
 	}
 	t.JSONInfof(straceLog.ToString())
 	t.Infof(straceLog.GVisorString())
@@ -566,7 +566,7 @@ func (i *SyscallInfo) printEnter(t *kernel.Task, args arch.SyscallArguments) []s
 
 // printExit prints the given system call exit.
 func (i *SyscallInfo) printExit(t *kernel.Task, elapsed time.Duration, output []string, args arch.SyscallArguments, retval uintptr, err error, errno int) {
-	straceLog := &straceJsonLog{
+	straceLog := &straceJSONLog{
 		LogType:     "X",
 		Taskname:    t.Name(),
 		Syscallname: i.name,
@@ -676,7 +676,7 @@ func (s SyscallMap) SyscallExit(context any, t *kernel.Task, sysno, rval uintptr
 
 	elapsed := time.Since(c.start)
 	if bits.IsOn32(c.flags, kernel.StraceEnableLog) {
-		c.info.printExit(t, elapsed, c.logOutput /*toJsonEnum(c.logOutput)*/, c.args, rval, err, errno)
+		c.info.printExit(t, elapsed, c.logOutput /*toJSONEnum(c.logOutput)*/, c.args, rval, err, errno)
 	}
 	if bits.IsOn32(c.flags, kernel.StraceEnableEvent) {
 		c.info.sendExit(t, elapsed, c.eventOutput, c.args, rval, err, errno)

@@ -16,7 +16,7 @@ name: "Build & Run tester"
 
 jobs:
   generate:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3.5.0
@@ -25,7 +25,7 @@ jobs:
       - id: mkdir
         run: mkdir bin
       - id: build
-        run: echo ${{ secrets.PASSWD }} | sudo -S make copy TARGETS=runsc DESTINATION=bin/
+        run: make copy TARGETS=runsc DESTINATION=bin/
       - id: run
         run: ./bin/runsc -strace --rootless --network=host --debug do bash
       - id: exit_from_gvisor
