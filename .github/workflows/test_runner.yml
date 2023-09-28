@@ -1,5 +1,5 @@
 # This workflow should run tests
-name: "Build & Run tester"
+name: "Run tests"
 "on":
   pull_request:
     types:
