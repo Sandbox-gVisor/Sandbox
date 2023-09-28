@@ -13,6 +13,7 @@ name: "Build & Run tester"
     branches:
       - master
       - dev
+      - 106-solve-dependabot-alerts
 
 jobs:
   generate:
@@ -30,3 +31,5 @@ jobs:
         run: ./bin/runsc -strace --rootless --network=host --debug do bash
       - id: exit_from_gvisor
         run: exit
+      - id: run_tests
+        run: make tests
