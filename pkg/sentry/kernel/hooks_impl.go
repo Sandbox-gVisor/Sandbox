@@ -518,7 +518,7 @@ func (hook *FDHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Provides information about one specific fd of Task",
-		Args:        "\nfd number (fd to get info about);\n",
+		Args:        "\nfd\tnumber\t(fd to get info about);\n",
 		ReturnValue: "dto ArrayBuffer (marshalled json (format below))\n" +
 			"{\n" +
 			"\tfd string,\n" +
@@ -553,6 +553,27 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 		dto := FdResolver(t, fd)
 
 		return string(dto), nil
+	}
+}
+
+type AnonMmapHook struct{}
+
+func (m AnonMmapHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        m.jsName(),
+		Description: "Creates new anonymous mapping in the virtual address space of the calling process",
+		Args:        "\nlength\tnumber\t(amount of bytes to allocate);\n",
+		ReturnValue: "addr\tnumber\t()",
+	}
+}
+
+func (m AnonMmapHook) jsName() string {
+	return "anonMmap"
+}
+
+func (m AnonMmapHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		return nil, nil
 	}
 }
 

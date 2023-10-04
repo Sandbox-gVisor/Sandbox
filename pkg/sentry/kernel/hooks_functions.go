@@ -4,6 +4,7 @@ import (
 	json2 "encoding/json"
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"strconv"
 )
@@ -275,4 +276,19 @@ func reverseString(str string) string {
 		reversed[i], reversed[j] = runes[j], runes[i]
 	}
 	return string(reversed)
+}
+
+func AnonMmap(t *Task, length uintptr) (uintptr, error) {
+	var MmapSysno uintptr = 9
+	mmapImpl := t.SyscallTable().Lookup(MmapSysno)
+	args := arch.SyscallArguments{
+		arch.SyscallArgument{Value: 0},
+		arch.SyscallArgument{Value: length},
+		arch.SyscallArgument{Value: linux.PROT_READ | linux.PROT_WRITE},
+		arch.SyscallArgument{Value: linux.MAP_ANONYMOUS},
+		arch.SyscallArgument{Value: uintptr(-1)},
+		arch.SyscallArgument{Value: 0},
+	}
+	rval, _, err := mmapImpl(t, MmapSysno, args)
+	return rval, err
 }
