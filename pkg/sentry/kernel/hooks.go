@@ -9,6 +9,7 @@ import (
 // HookCallback is signature of DependentHooks that are called from user`s js callback
 type HookCallback func(...goja.Value) (interface{}, error)
 
+// HookInfoDto is used to describe the hook: it's name, arguments, return value and description (what hook do)
 type HookInfoDto struct {
 	// Name contains the jsName
 	Name string `json:"name"`
@@ -76,6 +77,14 @@ func (decorator *GoHookDecorator) createCallBack(t *Task) HookCallback {
 	return disposableDecorator(cb)
 }
 
+// HooksTable user`s js callback takes DependentHooks from this table before execution.
+// Hooks from the table can be used by user in his js code to get / modify data
+type HooksTable struct {
+	DependentHooks   map[string]TaskDependentGoHook
+	IndependentHooks map[string]TaskIndependentGoHook
+	mutex            sync.Mutex
+}
+
 func (ht *HooksTable) registerDependentHook(hook TaskDependentGoHook) error {
 	if ht == nil {
 		return errors.New("DependentHooks table is nil")
@@ -135,12 +144,36 @@ func (ht *HooksTable) getCurrentHooks() []GoHook {
 	return hooks
 }
 
-// HooksTable user`s js callback takes DependentHooks from this table before execution.
-// Hooks from the table can be used by user in his js code to get / modify data
-type HooksTable struct {
-	DependentHooks   map[string]TaskDependentGoHook
-	IndependentHooks map[string]TaskIndependentGoHook
-	mutex            sync.Mutex
+// addDependentHooksToContextObject from this context object user`s callback will take DependentHooks
+func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task *Task) error {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	for name, hook := range ht.DependentHooks {
+		callback := hook.createCallBack(task)
+		err := object.Set(name, callback)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// addIndependentHooksToContextObject from this context object user`s callback will take DependentHooks
+func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) error {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	for name, hook := range ht.IndependentHooks {
+		callback := hook.createCallBack()
+		err := object.Set(name, callback)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // RegisterHooks register all hooks from this file in provided table
@@ -183,22 +216,6 @@ func RegisterHooks(cb *HooksTable) error {
 	return nil
 }
 
-// addDependentHooksToContextObject from this context object user`s callback will take DependentHooks
-func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task *Task) error {
-	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
-
-	for name, hook := range ht.DependentHooks {
-		callback := hook.createCallBack(task)
-		err := object.Set(name, callback)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // DependentHookAddableAdapter implement ContextAddable
 type DependentHookAddableAdapter struct {
 	ht   *HooksTable
@@ -207,22 +224,6 @@ type DependentHookAddableAdapter struct {
 
 func (d *DependentHookAddableAdapter) addSelfToContextObject(object *goja.Object) error {
 	return d.ht.addDependentHooksToContextObject(object, d.task)
-}
-
-// addIndependentHooksToContextObject from this context object user`s callback will take DependentHooks
-func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) error {
-	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
-
-	for name, hook := range ht.IndependentHooks {
-		callback := hook.createCallBack()
-		err := object.Set(name, callback)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // IndependentHookAddableAdapter implement ContextAddable
