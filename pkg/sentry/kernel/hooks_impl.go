@@ -573,7 +573,22 @@ func (m AnonMmapHook) jsName() string {
 
 func (m AnonMmapHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
-		return nil, nil
+		if len(args) != 1 {
+			return nil, util.ArgsCountMismatchError(1, len(args))
+		}
+
+		runtime := GetJsRuntime()
+		val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		rval, err := AnonMmap(t, (uintptr(val)))
+		if err != nil {
+			return nil, err
+		}
+
+		return rval, nil
 	}
 }
 
