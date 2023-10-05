@@ -280,13 +280,14 @@ func reverseString(str string) string {
 
 func AnonMmap(t *Task, length uintptr) (uintptr, error) {
 	var MmapSysno uintptr = 9
+	var missingFd uintptr = 0
 	mmapImpl := t.SyscallTable().Lookup(MmapSysno)
 	args := arch.SyscallArguments{
 		arch.SyscallArgument{Value: 0},
 		arch.SyscallArgument{Value: length},
 		arch.SyscallArgument{Value: linux.PROT_READ | linux.PROT_WRITE},
 		arch.SyscallArgument{Value: linux.MAP_ANONYMOUS},
-		arch.SyscallArgument{Value: uintptr(-1)},
+		arch.SyscallArgument{Value: missingFd},
 		arch.SyscallArgument{Value: 0},
 	}
 	rval, _, err := mmapImpl(t, MmapSysno, args)

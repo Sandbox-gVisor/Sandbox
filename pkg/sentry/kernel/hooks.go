@@ -191,6 +191,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&FDHook{},
 		&FDsHook{},
 		&UserJSONLogHook{},
+		&AnonMmapHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{

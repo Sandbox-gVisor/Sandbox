@@ -558,7 +558,7 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 
 type AnonMmapHook struct{}
 
-func (m AnonMmapHook) description() HookInfoDto {
+func (m *AnonMmapHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        m.jsName(),
 		Description: "Creates new anonymous mapping in the virtual address space of the calling process",
@@ -567,23 +567,24 @@ func (m AnonMmapHook) description() HookInfoDto {
 	}
 }
 
-func (m AnonMmapHook) jsName() string {
+func (m *AnonMmapHook) jsName() string {
 	return "anonMmap"
 }
 
-func (m AnonMmapHook) createCallBack(t *Task) HookCallback {
+func (m *AnonMmapHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, util.ArgsCountMismatchError(1, len(args))
 		}
 
 		runtime := GetJsRuntime()
-		val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
+		var length int64
+		length, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
 		if err != nil {
 			return nil, err
 		}
 
-		rval, err := AnonMmap(t, (uintptr(val)))
+		rval, err := AnonMmap(t, uintptr(length))
 		if err != nil {
 			return nil, err
 		}
