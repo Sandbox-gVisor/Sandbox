@@ -578,7 +578,6 @@ func (m AnonMmapHook) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(1, len(args))
 		}
 
-		var length int64
 		length, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
 		if err != nil {
 			return nil, err
@@ -590,6 +589,39 @@ func (m AnonMmapHook) createCallBack(t *Task) HookCallback {
 		}
 
 		return int64(rval), nil
+	}
+}
+
+type MunmapHook struct{}
+
+func (m MunmapHook) description() HookInfoDto {
+	return HookInfoDto{}
+}
+
+func (m MunmapHook) jsName() string {
+	return "munmap"
+}
+
+func (m MunmapHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		runtime := GetJsRuntime()
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		addr, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		var length int64
+		length, err = util.ExtractInt64FromValue(runtime.JsVM, args[1])
+		if err != nil {
+			return nil, err
+		}
+
+		err = Unmap(t, uintptr(addr), uintptr(length))
+		return nil, err
 	}
 }
 

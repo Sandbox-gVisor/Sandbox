@@ -293,3 +293,18 @@ func AnonMmap(t *Task, length uintptr) (uintptr, error) {
 	rval, _, err := mmapImpl(t, MmapSysno, args)
 	return rval, err
 }
+
+func Unmap(t *Task, addr uintptr, length uintptr) error {
+	var MunmapSysno uintptr = 11
+	munmapImpl := t.SyscallTable().Lookup(MunmapSysno)
+	args := arch.SyscallArguments{
+		arch.SyscallArgument{Value: addr},
+		arch.SyscallArgument{Value: length},
+		arch.SyscallArgument{},
+		arch.SyscallArgument{},
+		arch.SyscallArgument{},
+		arch.SyscallArgument{},
+	}
+	_, _, err := munmapImpl(t, MunmapSysno, args)
+	return err
+}
