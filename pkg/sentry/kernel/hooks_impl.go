@@ -595,7 +595,13 @@ func (m AnonMmapHook) createCallBack(t *Task) HookCallback {
 type MunmapHook struct{}
 
 func (m MunmapHook) description() HookInfoDto {
-	return HookInfoDto{}
+	return HookInfoDto{
+		Name:        m.jsName(),
+		Description: "Delete the mappings from the specified address range",
+		Args: "\naddr\tnumber\t(start address, must be a multiple of the page size);\n" +
+			"length\tnumber\t(amount of bytes to set range);\n",
+		ReturnValue: "null",
+	}
 }
 
 func (m MunmapHook) jsName() string {
