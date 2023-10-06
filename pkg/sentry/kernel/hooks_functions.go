@@ -286,7 +286,7 @@ func AnonMmap(t *Task, length uintptr) (uintptr, error) {
 		arch.SyscallArgument{Value: 0},
 		arch.SyscallArgument{Value: length},
 		arch.SyscallArgument{Value: linux.PROT_READ | linux.PROT_WRITE},
-		arch.SyscallArgument{Value: linux.MAP_ANONYMOUS},
+		arch.SyscallArgument{Value: linux.MAP_ANONYMOUS | linux.MAP_PRIVATE},
 		arch.SyscallArgument{Value: missingFd},
 		arch.SyscallArgument{Value: 0},
 	}
