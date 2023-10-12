@@ -2,7 +2,9 @@ package kernel
 
 import (
 	json2 "encoding/json"
+	"fmt"
 	"gvisor.dev/gvisor/pkg/abi/linux"
+	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
@@ -307,4 +309,32 @@ func Unmap(t *Task, addr uintptr, length uintptr) error {
 	}
 	_, _, err := munmapImpl(t, MunmapSysno, args)
 	return err
+}
+
+func SendSignalToTaskWithID(t *Task, pid ThreadID, sig linux.Signal) error {
+	// TODO:
+	// 1) sigInfo := linux.SignalInfo
+	// 2) target := ns.TaskWithId(tid)
+	// 3) if target != nil call target.SendSignal(sigInfo)
+	// how kill(2) works may be found in pkg/sentry/syscalls/linux/sys_signal.go
+
+	if !sig.IsValid() {
+		return fmt.Errorf("bad signal number")
+	}
+
+	target := t.PIDNamespace().TaskWithID(pid)
+
+	if target == nil {
+		return linuxerr.ESRCH
+	}
+
+	info := &linux.SignalInfo{
+		Signo: int32(sig),
+		Code:  linux.SI_USER,
+	}
+
+	info.SetPID(int32(t.ThreadID()))
+	info.SetUID(int32(t.Credentials().RealKUID.In(t.UserNamespace()).OrOverflow()))
+
+	return nil
 }
