@@ -19,7 +19,7 @@ func (ph *PrintHook) description() HookInfoDto {
 		Name:        ph.jsName(),
 		Description: "Prints all passed args",
 		Args:        "\nmsgs\t...any\t(values to be printed);\n",
-		ReturnValue: "null",
+		ReturnValue: "null\n",
 	}
 }
 
@@ -62,7 +62,7 @@ func (hook *WriteBytesHook) description() HookInfoDto {
 		Description: "Write bytes from provided buffer by provided addr. Always tries to write all bytes from buffer",
 		Args: "\naddr\tnumber\t(data from buffer will be written starting from this addr);\n" +
 			"buffer\tArrayBuffer\t(buffer which contains data to be written);\n",
-		ReturnValue: "counter\tnumber\t(amount of really written bytes)",
+		ReturnValue: "counter\tnumber\t(amount of really written bytes)\n",
 	}
 }
 
@@ -107,7 +107,7 @@ func (hook *ReadBytesHook) description() HookInfoDto {
 		Description: "Read bytes to provided buffer by provided addr. Always tries to read count bytes",
 		Args: "\naddr\tnumber\t(data from address space will be read starting from this addr);\n" +
 			"count\tnumber\t(amount of bytes to read from address space);\n",
-		ReturnValue: "buffer\tArrayBuffer\t(contains read data)",
+		ReturnValue: "buffer\tArrayBuffer\t(contains read data)\n",
 	}
 }
 
@@ -153,7 +153,7 @@ func (hook *WriteStringHook) description() HookInfoDto {
 		Description: "Write provided string by provided addr",
 		Args: "\naddr\tnumber\t(string will be written starting from this addr);\n" +
 			"str\tstringt\t(string to be written);\n",
-		ReturnValue: "count number (amount of bytes really written)",
+		ReturnValue: "count number (amount of bytes really written)\n",
 	}
 }
 
@@ -198,7 +198,7 @@ func (hook *ReadStringHook) description() HookInfoDto {
 		Description: "Read string str by provided addr",
 		Args: "\naddr\tnumber\t(string will be read starting from this addr);\n" +
 			"count\tnumber\t(amount of bytes to read from address space);\n",
-		ReturnValue: "str\tstring\t(read string)",
+		ReturnValue: "str\tstring\t(read string)\n",
 	}
 }
 
@@ -242,7 +242,7 @@ func (hook *EnvvGetterHook) description() HookInfoDto {
 		Name:        hook.jsName(),
 		Description: "Provides environment variables of the Task",
 		Args:        "\nno args;\n",
-		ReturnValue: "envs\t[]string\t(array of strings, each string has the format ENV_NAME=env_val)",
+		ReturnValue: "envs\t[]string\t(array of strings, each string has the format ENV_NAME=env_val)\n",
 	}
 }
 
@@ -275,7 +275,7 @@ func (hook *MmapGetterHook) description() HookInfoDto {
 		Name:        hook.jsName(),
 		Description: "Provides mapping info like in procfs",
 		Args:        "\nno args;\n",
-		ReturnValue: "str\tstring\t(mappings like in procfs)",
+		ReturnValue: "str\tstring\t(mappings like in procfs)\n",
 	}
 }
 
@@ -302,7 +302,7 @@ func (hook *ArgvHook) description() HookInfoDto {
 		Name:        hook.jsName(),
 		Description: "Provides argv of the Task",
 		Args:        "\nno args;\n",
-		ReturnValue: "argv\t[]string\t(array of strings)",
+		ReturnValue: "argv\t[]string\t(array of strings)\n",
 	}
 }
 
@@ -442,7 +442,7 @@ func (hook *UserJSONLogHook) description() HookInfoDto {
 		Name:        hook.jsName(),
 		Description: "Logs the given message",
 		Args:        "\nmsg\tany\t(message to be printed);\n",
-		ReturnValue: "null",
+		ReturnValue: "null\n",
 	}
 }
 
@@ -563,7 +563,7 @@ func (m AnonMmapHook) description() HookInfoDto {
 		Name:        m.jsName(),
 		Description: "Creates new anonymous mapping in the virtual address space of the calling process",
 		Args:        "\nlength\tnumber\t(amount of bytes to allocate);\n",
-		ReturnValue: "addr\tnumber\t()",
+		ReturnValue: "addr\tnumber\t(memory region start address)\n",
 	}
 }
 
@@ -600,7 +600,7 @@ func (m MunmapHook) description() HookInfoDto {
 		Description: "Delete the mappings from the specified address range",
 		Args: "\naddr\tnumber\t(start address, must be a multiple of the page size);\n" +
 			"length\tnumber\t(amount of bytes to set range);\n",
-		ReturnValue: "null",
+		ReturnValue: "null\n",
 	}
 }
 
@@ -635,7 +635,10 @@ type SignalByNameHook struct{}
 
 func (s SignalByNameHook) description() HookInfoDto {
 	return HookInfoDto{
-		Name: s.jsName(),
+		Name:        s.jsName(),
+		Description: "Returns number of signal by given signal name",
+		Args:        "\nname\tstring\t(name of signal to get value);\n",
+		ReturnValue: "sig\tnumber\t(the number of the signal or -1 if signal with such name doesn't exist)\n",
 	}
 }
 
@@ -645,7 +648,22 @@ func (s SignalByNameHook) jsName() string {
 
 func (s SignalByNameHook) createCallBack() HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
-		return nil, nil
+		runtime := GetJsRuntime()
+		if len(args) != 1 {
+			return nil, util.ArgsCountMismatchError(1, len(args))
+		}
+
+		name, err := util.ExtractStringFromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		sig, err := linux.GetSignalByName(name)
+		if err != nil {
+			return nil, err
+		}
+
+		return int64(sig), nil
 	}
 }
 
@@ -695,7 +713,7 @@ func (a AddCbBeforeHook) description() HookInfoDto {
 		Description: "Is used for dynamic callback registration (callback will be executed before syscall)",
 		Args: "\nsysno\tnumber\t(syscall number, callback will be executed before syscall with this number);\n" +
 			"callback\tfunction\t(js function to call before syscall execution);\n",
-		ReturnValue: "null",
+		ReturnValue: "null\n",
 	}
 }
 
@@ -731,7 +749,7 @@ func (a AddCbAfterHook) description() HookInfoDto {
 		Description: "Is used for dynamic callback registration (callback will be executed after syscall)",
 		Args: "\nsysno\tnumber\t(syscall number, callback will be executed after syscall with this number);\n" +
 			"callback\tfunction\t(js function to call after syscall execution);\n",
-		ReturnValue: "null",
+		ReturnValue: "null\n",
 	}
 }
 
