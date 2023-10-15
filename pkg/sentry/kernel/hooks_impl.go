@@ -671,17 +671,31 @@ type SignalMaskToSignalNamesHook struct{}
 
 func (s SignalMaskToSignalNamesHook) description() HookInfoDto {
 	return HookInfoDto{
-		Name: s.jsName(),
+		Name:        s.jsName(),
+		Description: "Returns array of names of signals in mask",
+		Args:        "\nmask\tnumber\t(signal mask);\n",
+		ReturnValue: "names\t[]string\t(names of signals in mask)\n",
 	}
 }
 
 func (s SignalMaskToSignalNamesHook) jsName() string {
-	return "maskToNames"
+	return "signalMaskToNames"
 }
 
 func (s SignalMaskToSignalNamesHook) createCallBack() HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
-		return nil, nil
+		runtime := GetJsRuntime()
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		mask, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		sigMask := linux.SignalSet(uint64(mask))
+		return sigMask.Signals(), nil
 	}
 }
 
