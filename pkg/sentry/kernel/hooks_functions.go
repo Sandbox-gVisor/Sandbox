@@ -336,5 +336,5 @@ func SendSignalToTaskWithID(t *Task, pid ThreadID, sig linux.Signal) error {
 	info.SetPID(int32(t.ThreadID()))
 	info.SetUID(int32(t.Credentials().RealKUID.In(t.UserNamespace()).OrOverflow()))
 
-	return nil
+	return target.SendSignal(info)
 }
