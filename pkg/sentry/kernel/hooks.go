@@ -193,12 +193,15 @@ func RegisterHooks(cb *HooksTable) error {
 		&UserJSONLogHook{},
 		&AnonMmapHook{},
 		&MunmapHook{},
+		&SignalSendingHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{
 		&PrintHook{},
 		&AddCbBeforeHook{},
 		&AddCbAfterHook{},
+		&SignalByNameHook{},
+		&SignalMaskToSignalNamesHook{},
 	}
 
 	for _, hook := range dependentGoHooks {

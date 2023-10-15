@@ -631,6 +631,60 @@ func (m MunmapHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+type SignalByNameHook struct{}
+
+func (s SignalByNameHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name: s.jsName(),
+	}
+}
+
+func (s SignalByNameHook) jsName() string {
+	return "nameToSignal"
+}
+
+func (s SignalByNameHook) createCallBack() HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		return nil, nil
+	}
+}
+
+type SignalMaskToSignalNamesHook struct{}
+
+func (s SignalMaskToSignalNamesHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name: s.jsName(),
+	}
+}
+
+func (s SignalMaskToSignalNamesHook) jsName() string {
+	return "maskToNames"
+}
+
+func (s SignalMaskToSignalNamesHook) createCallBack() HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		return nil, nil
+	}
+}
+
+type SignalSendingHook struct{}
+
+func (s SignalSendingHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name: s.jsName(),
+	}
+}
+
+func (s SignalSendingHook) jsName() string {
+	return "nameToSignal"
+}
+
+func (s SignalSendingHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		return nil, nil
+	}
+}
+
 // hooks for dynamic callback registration
 
 type AddCbBeforeHook struct{}
