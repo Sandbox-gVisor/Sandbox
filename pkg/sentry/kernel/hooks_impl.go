@@ -685,7 +685,7 @@ func (s SignalMaskToSignalNamesHook) jsName() string {
 func (s SignalMaskToSignalNamesHook) createCallBack() HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		runtime := GetJsRuntime()
-		if len(args) != 2 {
+		if len(args) != 1 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
 		}
 
@@ -708,11 +708,35 @@ func (s SignalSendingHook) description() HookInfoDto {
 }
 
 func (s SignalSendingHook) jsName() string {
-	return "nameToSignal"
+	return "sendSignal"
 }
 
 func (s SignalSendingHook) createCallBack(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
+
+		runtime := GetJsRuntime()
+		if len(args) != 2 {
+			return nil, util.ArgsCountMismatchError(2, len(args))
+		}
+
+		pid, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		var signo int64
+		signo, err = util.ExtractInt64FromValue(runtime.JsVM, args[1])
+		if err != nil {
+			return nil, err
+		}
+
+		sig := linux.Signal(signo)
+
+		err = SendSignalToTaskWithID(t, ThreadID(int32(pid)), sig)
+		if err != nil {
+			return nil, err
+		}
+
 		return nil, nil
 	}
 }
