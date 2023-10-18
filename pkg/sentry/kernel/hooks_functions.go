@@ -311,13 +311,8 @@ func Unmap(t *Task, addr uintptr, length uintptr) error {
 	return err
 }
 
+// SendSignalToTaskWithID has similar logic to kill implementation (may be found in pkg/sentry/syscalls/linux/sys_signal.go)
 func SendSignalToTaskWithID(t *Task, pid ThreadID, sig linux.Signal) error {
-	// TODO:
-	// 1) sigInfo := linux.SignalInfo
-	// 2) target := ns.TaskWithId(tid)
-	// 3) if target != nil call target.SendSignal(sigInfo)
-	// how kill(2) works may be found in pkg/sentry/syscalls/linux/sys_signal.go
-
 	if !sig.IsValid() {
 		return fmt.Errorf("bad signal number")
 	}
