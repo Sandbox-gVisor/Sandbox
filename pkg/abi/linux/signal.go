@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"gvisor.dev/gvisor/pkg/abi"
 	"gvisor.dev/gvisor/pkg/bits"
+	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"strings"
 )
@@ -151,6 +152,14 @@ var SignalNames = abi.ValueSet{
 	uint64(SIGWINCH):  "SIGWINCH",
 	uint64(SIGXCPU):   "SIGXCPU",
 	uint64(SIGXFSZ):   "SIGXFSZ",
+}
+
+func GetSignalByName(sigName string) (Signal, error) {
+	sig, ok := SignalNames.ParseName(sigName)
+	if ok {
+		return Signal(sig), nil
+	}
+	return Signal(-1), linuxerr.EINVAL
 }
 
 func (s Signal) String() string {

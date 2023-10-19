@@ -90,6 +90,7 @@ go_library(
         "//pkg/marshal",
         "//pkg/marshal/primitive",
         "@org_golang_x_sys//unix:go_default_library",
+        "//pkg/errors/linuxerr",
     ],
 )
 
