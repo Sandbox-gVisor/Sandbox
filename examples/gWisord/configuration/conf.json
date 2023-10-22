@@ -1,0 +1,5 @@
+{
+  "runtime-socket": "localhost:12002",
+  "log-socket": "localhost:12001",
+  "callbacks": []
+}
