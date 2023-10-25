@@ -8,11 +8,19 @@
 
 ## Introduction
 
-In this project, we have undertaken the task of patching gVisor, an open-source container runtime sandbox, to integrate a JavaScript (JS) engine. The JS engine allows us to execute custom system call handlers written in JavaScript. These handlers provide us with valuable information about the running processes, system calls, and their arguments. Additionally, we can use our custom functions called "hooks" to modify specific values within the system call handling process.
+In this project, we have undertaken the task of patching gVisor, an open-source container runtime sandbox, to integrate a JavaScript (JS) engine. 
+The JS engine allows us to execute custom system call handlers written in JavaScript. 
+These handlers provide us with valuable information about the running processes, system calls, and their arguments. 
+Additionally, we can use our custom functions called "hooks" to modify specific values within the system call handling process.
 
 ## Motivation
 
-The motivation behind this project was to extend the capabilities of gVisor and enable more flexible and dynamic handling of system calls. With the JS engine integration, we sought to gain insights into the inner workings of processes, manipulate system call arguments, and control system call behavior, all using JavaScript code.
+The motivation behind this project was to extend the capabilities of gVisor and enable more flexible and dynamic handling of system calls. 
+With the JS engine integration, we sought to gain insights into the inner workings of processes, manipulate system call arguments, and control system call behavior, all using JavaScript code.
+
+## Documentation and examples
+
+May be found in `examples/gWisord/` or just [click](./examples/gWisord/README.md)
 
 ## Features and Hooks
 
