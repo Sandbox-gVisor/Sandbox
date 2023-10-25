@@ -43,5 +43,4 @@ Has the following abilities:
     - new syscall return value 
 
 # Examples
-
-// TODO
+- [Substitution of GET request](./netSender)
