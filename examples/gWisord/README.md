@@ -28,12 +28,22 @@ hooks.print("my message") // "hooks" is reseved key word for our API
 ```
 - local and global storage **// TODO**
 
+## Callback registration
+You have 2 ways to register your callback
+- Call `hooks.AddCbBefore(...)` or `hooks.AddCbAfter(...)`
+- If you are using [sandbox-cli](https://github.com/Sandbox-gVisor/sandbox-cli) you can name the `js` function like: `syscall_{when}_{sysno}`, where
+  - `when` may be _after_ or _before_
+  - `sysno` is the number of syscall
+  
+  For example `syscall_before_1` will be executed before `write`
+
+
 ## Callback before
 Has the following abilities:
 - get syscall arguments
 - set:
   - new values for syscall arguments
-  - new syscall return value (if syscall **new return value** is specified the **syscall** will **NOT be executed**)
+  - both new syscall return value and errno (if syscall **new return value and errno** is specified the **syscall** will **NOT be executed**)
 
 ## Callback after
 Has the following abilities:
