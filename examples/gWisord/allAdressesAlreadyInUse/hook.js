@@ -3,6 +3,6 @@
 function syscall_before_49() {
     return {        // specifying both return value and errno to replace
         "ret": -1,  // return value
-        "errno": 1  // errno
+        "errno": 98  // errno
     }               // because of specified return value and errno the syscall won't be executed
 }
