@@ -53,4 +53,5 @@ Has the following abilities:
     - new syscall return value 
 
 # Examples
-- [Substitution of GET request](./netSender)
+- [Substitution of GET request](./netSender/README.md)
+- [Failing the execution of syscall every time](./allAdressesAlreadyInUse/README.md)
