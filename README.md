@@ -22,6 +22,13 @@ With the JS engine integration, we sought to gain insights into the inner workin
 
 May be found in `examples/gWisord/` or just [click here](./examples/gWisord/README.md)
 
+## Quick launch
+run
+```shell
+./init_script.sh your_config.json
+```
+more about configuration file may be found [here](./examples/gWisord/configuration/README.md)
+
 ## Conclusion
 
 The successful integration of a JavaScript engine into gVisor has significantly enhanced its capabilities 
