@@ -1,4 +1,3 @@
-
 // The name of this function means that this callback
 // will be executed before syscall with sysno == 49 (bind)
 function syscall_before_49() {

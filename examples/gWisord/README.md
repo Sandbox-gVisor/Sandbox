@@ -54,4 +54,4 @@ Has the following abilities:
 
 # Examples
 - [Substitution of GET request](./netSender/README.md)
-- [Failing the execution of syscall every time](./allAdressesAlreadyInUse/README.md)
+- [Failing the execution of syscall every time](allAddressesAlreadyInUse/README.md)
