@@ -23,11 +23,16 @@ With the JS engine integration, we sought to gain insights into the inner workin
 May be found in `examples/gWisord/` or just [click here](./examples/gWisord/README.md)
 
 ## Quick launch
-run
+Run:
 ```shell
-./init_script.sh your_config.json
+./init_script.sh your_config.json // this will build and run gVisor
 ```
 more about configuration file may be found [here](./examples/gWisord/configuration/README.md)
+
+If you have already built the gvisor, you may run:
+```shell
+./run_script your_config.json
+```
 
 ## Conclusion
 
