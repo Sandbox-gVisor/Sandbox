@@ -93,10 +93,10 @@ func ArgvGetter(t *Task) ([]byte, error) {
 }
 
 type SessionDTO struct {
-	SessionID    int32
+	SessionID    int32 `json:"sessionID"`
 	PGID         int32
-	ForegroundID int32
-	OtherPGIDs   []int32
+	ForegroundID int32   `json:"foregroundID"`
+	OtherPGIDs   []int32 `json:"otherPGIDs"`
 }
 
 // SessionGetter provides info about session:

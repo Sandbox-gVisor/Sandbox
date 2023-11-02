@@ -336,15 +336,15 @@ func (hook *SignalInfoHook) description() HookInfoDto {
 		Args:        "\nno args;\n",
 		ReturnValue: "SignalMaskDto json \n" +
 			"{\n" +
-			"\tSignalMask number (Task.signalMask signal mask of the task),\n" +
-			"\tSignalWaitMask number (Task.realSignalMask (Task will be blocked until one of signals in Task.realSignalMask is pending)),\n" +
-			"\tSavedSignalMask number (Task.savedSignalMask (savedSignalMask is the signal mask that should be applied after the task has either delivered one signal to a user handler or is about to resume execution in the untrusted application)),\n" +
-			"\tSigActions array of json\n" +
+			"\tsignalMask number (Task.signalMask signal mask of the task),\n" +
+			"\tsignalWaitMask number (Task.realSignalMask (Task will be blocked until one of signals in Task.realSignalMask is pending)),\n" +
+			"\tsavedSignalMask number (Task.savedSignalMask (savedSignalMask is the signal mask that should be applied after the task has either delivered one signal to a user handler or is about to resume execution in the untrusted application)),\n" +
+			"\tsigActions array of json\n" +
 			"\t{\n" +
-			"\t\tHandler string,\n" +
-			"\t\tFlags string,\n" +
-			"\t\tRestorer number,\n" +
-			"\t\tMask []string (array of strings, each string is a signal name)\n" +
+			"\t\thandler string,\n" +
+			"\t\tflags string,\n" +
+			"\t\trestorer number,\n" +
+			"\t\tsignalsInSet []string (array of strings, each string is a signal name)\n" +
 			"\t}\n" +
 			"};\n",
 	}
@@ -355,10 +355,10 @@ func (hook *SignalInfoHook) jsName() string {
 }
 
 type SignalMaskDto struct {
-	SignalMask      int64
-	SignalWaitMask  int64
-	SavedSignalMask int64
-	SigActions      []linux.SigActionDto
+	SignalMask      int64                `json:"signalMask"`
+	SignalWaitMask  int64                `json:"signalWaitMask"`
+	SavedSignalMask int64                `json:"savedSignalMask"`
+	SigActions      []linux.SigActionDto `json:"sigActions"`
 }
 
 func (hook *SignalInfoHook) createCallBack(t *Task) HookCallback {
@@ -391,11 +391,11 @@ func (hook *PidInfoHook) description() HookInfoDto {
 			"\tPID number,\n" +
 			"\tGID number,\n" +
 			"\tUID number,\n" +
-			"\tSession json\n" +
+			"\tsession json\n" +
 			"\t{\n" +
-			"\t\tsessionId number,\n" +
+			"\t\tsessionID number,\n" +
 			"\t\tPGID number,\n" +
-			"\t\tforeground number,\n" +
+			"\t\tforegroundID number,\n" +
 			"\t\totherPGIDs []number (array of other PGIDS in session)\n" +
 			"\t}\n" +
 			"};\n",
@@ -410,7 +410,7 @@ type PidDto struct {
 	PID     int32
 	GID     int32
 	UID     int32
-	Session SessionDTO
+	Session SessionDTO `json:"session"`
 }
 
 func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
@@ -434,14 +434,14 @@ func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
 type UserJSONLogHook struct{}
 
 func (hook *UserJSONLogHook) jsName() string {
-	return "log"
+	return "logJson"
 }
 
 func (hook *UserJSONLogHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        hook.jsName(),
 		Description: "Logs the given message",
-		Args:        "\nmsg\tany\t(message to be printed);\n",
+		Args:        "\nmsg\tany\t(message to be logged);\n",
 		ReturnValue: "null\n",
 	}
 }

@@ -428,10 +428,10 @@ func (sa SigAction) String() string {
 }
 
 type SigActionDto struct {
-	Handler      string
-	Flags        string
-	Restorer     uint64
-	SignalsInSet []string
+	Handler      string   `json:"handler"`
+	Flags        string   `json:"flags"`
+	Restorer     uint64   `json:"restorer"`
+	SignalsInSet []string `json:"signalsInSet"`
 }
 
 func (sa SigAction) ToDto() SigActionDto {

@@ -22,7 +22,7 @@ For each syscall user can specify 2 callbacks:
 - callback, which will be executed **after** syscall
 
 Both callbacks can use:
-- API provided by gVisor (full list of available functions you may see in [TODO]())
+- API provided by gVisor (full list of available functions you may see in [below](#list-of-api-functions))
 ```js
 hooks.print("my message") // "hooks" is reseved key word for our API
 ```
@@ -58,10 +58,44 @@ Has the following abilities:
 
 # List of API functions
 
-| func name   | args                                    | return value  | description                                                                                         |
-|-------------|-----------------------------------------|---------------|-----------------------------------------------------------------------------------------------------|
-| print       | msgs `...any`                           | `null`        | prints all the given msgs                                                                           |
-| writeBytes  | addr `number`<br/> buffer `ArrayBuffer` | `number`      | writes to memory the given buffer by the given addr. **Returns** the amount of really written bytes |
-| readBytes   | addr `number`<br/> count `number`       | `ArrayBuffer` | reads count bytes from memory by given addr. **Returns** the bytes read                             |
-| writeString | addr `number`<br/> str `string`         | `number`      | writes the given string by given addr. **Returns** the amount of bytes really written               |
+Some API functions have object as return value. The structure of such objects you can see below the table
 
+| func name     | arguments                               | return value             | description                                                                                                        |
+|---------------|-----------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
+| print         | msgs `...any`                           | `null`                   | Prints all the given msgs                                                                                          |
+| writeBytes    | addr `number`<br/> buffer `ArrayBuffer` | `number`                 | Writes to memory the given buffer by the given addr. **Returns** the amount of really written bytes                |
+| readBytes     | addr `number`<br/> count `number`       | `ArrayBuffer`            | Reads count bytes from memory by given addr. **Returns** the bytes read                                            |
+| writeString   | addr `number`<br/> str `string`         | `number`                 | Writes the given string by given addr. **Returns** the amount of bytes really written                              |
+| readString    | addr `number`<br/> count `number`       | `string`                 | Reads the string (string.length <= count) by given addr. **Returns** the read string                               |
+| getEnvs       | -                                       | `[]string`               | **Returns** the array of environment variables (string, which have format like ENVIRONMENT_NAME=environment_value) |
+| getMmaps      | -                                       | `string`                 | **Returns** string, that represents mappings of the task (looks like mappings from procfs)                         |
+| getArgv       | -                                       | `[]string`               | **Returns** array of strings which is the command line arguments                                                   |
+| getSignalInfo | -                                       | `object (SignalInfoDto)` | **Returns** the dto, which provides info about task's signal masks and sigactions                                  |
+| getPidInfo    | -                                       | `object (PidInfoDto)`    | **Returns** the dto, which provides info about task's PID, GID, UID, session                                       |
+| logJson       | msg `any`                               | `null`                   | Sends the given msg to log socket                                                                                  |
+
+```
+SignalInfoDto = {
+  signalMask `number`       // signal mask of the task
+  signalWaitMask `number`   // task will be blocked until one of signals in signalWaitMask is pending
+  savedSignalMask `number`  // savedSignalMask is the signal mask that should be applied after the task has either delivered one signal to a user handler or is about to resume execution in the untrusted application
+  sigactions [
+    handler `string`
+    flags `string`      
+    restorer `number`
+    signalsInSet `[]string` // array of strings, each string is a signal name      
+  ]
+}
+
+PidInfoDto = {
+  PID `number`
+  GID `number`
+  UID `number`
+  session {
+    sessionID `number`
+    PGID `number`
+    foregroundID `number`
+    otherPGIDs `[]number`
+  }
+}
+```
