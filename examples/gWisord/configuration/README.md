@@ -1,6 +1,6 @@
 # Configuration info
 
-Please see example of configuration file: [conf.json](conf.json)
+Please see example of configuration file: [conf.json](conf.json) (In this file you can see our configuration options)
 
 # Options description
 ## `runtime-socket`
@@ -25,4 +25,20 @@ If nobody listens on `log-socket` and the option was specified gVisor will exit 
 
 ## `callbacks`
 
-// TODO
+The value of this option is array (maybe empty) of objects like below (taken from the example [conf.json](conf.json))
+
+```json
+{
+  "sysno": 49,
+  "entry-point": "myFunctionBefore49",
+  "source": "function myFunctionBefore49(arg) {hooks.print(\"hello world!!!\\n\")\nhooks.print(arg)}",
+  "type": "before"
+}
+```
+
+- `sysno` - the number of syscall for which callback should be registered
+- `entry-point` - the name of function to execute
+- `source` - the function together with the body
+- `type` - when the callback should be executed (before or after)
+
+

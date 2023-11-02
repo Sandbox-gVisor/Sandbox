@@ -1,5 +1,12 @@
 {
   "runtime-socket": "localhost:12002",
   "log-socket": "localhost:12001",
-  "callbacks": []
+  "callbacks": [
+    {
+      "sysno": 49,
+      "entry-point": "myFunctionBefore49",
+      "source": "function myFunctionBefore49(arg) {hooks.print(\"hello world!!!\\n\")\nhooks.print(arg)}",
+      "type": "before"
+    }
+  ]
 }
