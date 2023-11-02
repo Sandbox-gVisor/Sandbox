@@ -152,7 +152,7 @@ func (hook *WriteStringHook) description() HookInfoDto {
 		Name:        hook.jsName(),
 		Description: "Write provided string by provided addr",
 		Args: "\naddr\tnumber\t(string will be written starting from this addr);\n" +
-			"str\tstringt\t(string to be written);\n",
+			"str\tstring\t(string to be written);\n",
 		ReturnValue: "count number (amount of bytes really written)\n",
 	}
 }

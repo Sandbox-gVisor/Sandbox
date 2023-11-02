@@ -55,3 +55,13 @@ Has the following abilities:
 # Examples
 - [Substitution of GET request](./netSender/README.md)
 - [Failing the execution of syscall every time](allAddressesAlreadyInUse/README.md)
+
+# List of API functions
+
+| func name   | args                                    | return value  | description                                                                                         |
+|-------------|-----------------------------------------|---------------|-----------------------------------------------------------------------------------------------------|
+| print       | msgs `...any`                           | `null`        | prints all the given msgs                                                                           |
+| writeBytes  | addr `number`<br/> buffer `ArrayBuffer` | `number`      | writes to memory the given buffer by the given addr. **Returns** the amount of really written bytes |
+| readBytes   | addr `number`<br/> count `number`       | `ArrayBuffer` | reads count bytes from memory by given addr. **Returns** the bytes read                             |
+| writeString | addr `number`<br/> str `string`         | `number`      | writes the given string by given addr. **Returns** the amount of bytes really written               |
+
