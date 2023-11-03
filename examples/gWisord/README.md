@@ -60,22 +60,28 @@ Has the following abilities:
 
 Some API functions have object as return value. The structure of such objects you can see below the table
 
-| func name     | arguments                               | return value             | description                                                                                                        |
-|---------------|-----------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
-| print         | msgs `...any`                           | `null`                   | Prints all the given msgs                                                                                          |
-| writeBytes    | addr `number`<br/> buffer `ArrayBuffer` | `number`                 | Writes to memory the given buffer by the given addr. **Returns** the amount of really written bytes                |
-| readBytes     | addr `number`<br/> count `number`       | `ArrayBuffer`            | Reads count bytes from memory by given addr. **Returns** the bytes read                                            |
-| writeString   | addr `number`<br/> str `string`         | `number`                 | Writes the given string by given addr. **Returns** the amount of bytes really written                              |
-| readString    | addr `number`<br/> count `number`       | `string`                 | Reads the string (string.length <= count) by given addr. **Returns** the read string                               |
-| getEnvs       | -                                       | `[]string`               | **Returns** the array of environment variables (string, which have format like ENVIRONMENT_NAME=environment_value) |
-| getMmaps      | -                                       | `string`                 | **Returns** string, that represents mappings of the task (looks like mappings from procfs)                         |
-| getArgv       | -                                       | `[]string`               | **Returns** array of strings which is the command line arguments                                                   |
-| getSignalInfo | -                                       | `object (SignalInfoDto)` | **Returns** the dto, which provides info about task's signal masks and sigactions                                  |
-| getPidInfo    | -                                       | `object (PidInfoDto)`    | **Returns** the dto, which provides info about task's PID, GID, UID, session                                       |
-| logJson       | msg `any`                               | `null`                   | Sends the given msg to log socket                                                                                  |
-| getFdInfo     | fd `number`                             | `object (FdInfoDto)`     | **Returns** the dto, which provides info about task's file description by given fd                                 |
-| getFdsInfo    | -                                       | `[]object (FdInfoDto)`   | **Returns** the array of dto, each dto provides info for some task's file description                              |
-
+| func name         | arguments                               | return value             | description                                                                                                            |
+|-------------------|-----------------------------------------|--------------------------|------------------------------------------------------------------------------------------------------------------------|
+| AddCbBefore       | sysno `number`<br/>cb `function`        | `null`                   | Registers function (**cb**) which will be executed __before__ syscall with number == **sysno**                         |
+| AddCbAfter        | sysno `number`<br/>cb `function`        | `null`                   | Registers function (**cb**) which will be executed __after__ syscall with number == **sysno**                          |
+| anonMmap          | length `number`                         | `number`                 | Allocates **length** bytes in process memory. **Returns** the start address of memory region                           |
+| getArgv           | -                                       | `[]string`               | **Returns** array of strings which is the command line arguments                                                       |
+| getEnvs           | -                                       | `[]string`               | **Returns** the array of environment variables (string, which have format like ENVIRONMENT_NAME=environment_value)     |
+| getFdInfo         | fd `number`                             | `object (FdInfoDto)`     | **Returns** the dto, which provides info about task's file description by given **fd**                                 |
+| getFdsInfo        | -                                       | `[]object (FdInfoDto)`   | **Returns** the array of dto, each dto provides info for some task's file description                                  |
+| getMmaps          | -                                       | `string`                 | **Returns** string, that represents mappings of the task (looks like mappings from procfs)                             |
+| getPidInfo        | -                                       | `object (PidInfoDto)`    | **Returns** the dto, which provides info about task's PID, GID, UID, session                                           |
+| getSignalInfo     | -                                       | `object (SignalInfoDto)` | **Returns** the dto, which provides info about task's signal masks and sigactions                                      |
+| logJson           | msg `any`                               | `null`                   | Sends the given **msg** to log socket                                                                                  |
+| munmap            | addr `number`<br/> length `number`      | `null`                   | Delete the mappings from the specified address range by given **addr** and **length** of the region                    |
+| nameToSignal      | name `string`                           | `number`                 | **Returns** the number of the signal by provided **name**                                                              |
+| print             | msgs `...any`                           | `null`                   | Prints all the given **msgs**                                                                                          |
+| readBytes         | addr `number`<br/> count `number`       | `ArrayBuffer`            | Reads **count** bytes from memory by given **addr**. **Returns** the bytes read                                        |
+| readString        | addr `number`<br/> count `number`       | `string`                 | Reads the string (string.length <= **count**) by given **addr**. **Returns** the read string                           |
+| sendSignal        | pid `number`<br/> signo `number`        | `null`                   | Sends to task with pid == **pid** the signal with number **signo**                                                     |
+| signalMaskToNames | mask `number`                           | `[]string`               | Parses provided signal **mask** to signal names. **Returns** array of strings - names of signals specified in the mask |
+| writeBytes        | addr `number`<br/> buffer `ArrayBuffer` | `number`                 | Writes to memory the given **buffer** by the given **addr**. **Returns** the amount of really written bytes            |
+| writeString       | addr `number`<br/> str `string`         | `number`                 | Writes the given **str** by given **addr**. **Returns** the amount of bytes really written                             |
 
 ```
 SignalInfoDto = {
@@ -104,9 +110,9 @@ PidInfoDto = {
 
 FdInfoDto = {
   fd `number`
-  name `string`
-  mode `string`
-  flags `string`
+  name `string`       // file path
+  mode `string`       // mode like rwxr--r--
+  flags `string`      // flags of the file
   nlinks `number`
   readble `boolean`
   writable `boolean`

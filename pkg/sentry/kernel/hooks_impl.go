@@ -709,7 +709,11 @@ type SignalSendingHook struct{}
 
 func (s SignalSendingHook) description() HookInfoDto {
 	return HookInfoDto{
-		Name: s.jsName(),
+		Name:        s.jsName(),
+		Description: "Sends the given signal to task with given pid",
+		Args: "\npid\tnumber\t(pid of the task to send signal);\n" +
+			"signo\tnumber\t(the number of the signal to send);\n",
+		ReturnValue: "null\n",
 	}
 }
 

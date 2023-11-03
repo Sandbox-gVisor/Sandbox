@@ -203,6 +203,7 @@ func FdResolver(t *Task, fd int32) (FDInfo, error) {
 		FD:       fd,
 		Mode:     parseMask(uint16(linux.FileMode(stat.Mode).Permissions())),
 		Nlinks:   stat.Nlink,
+		Flags:    parseAttributesMask(stat.AttributesMask),
 		Writable: fdesc.IsWritable(),
 		Readable: fdesc.IsReadable(),
 	}
