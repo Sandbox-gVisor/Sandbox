@@ -483,13 +483,13 @@ func (hook *FDsHook) description() HookInfoDto {
 		Name:        hook.jsName(),
 		Description: "Provides information about all fds of Task",
 		Args:        "\nno args;\n",
-		ReturnValue: "dto ArrayBuffer (marshalled array of json (format below))\n" +
+		ReturnValue: "dtos []object (array of file description dtos)\n" +
 			"{\n" +
-			"\tfd string,\n" +
+			"\tfd number,\n" +
 			"\tname string,\n" +
 			"\tmode string,\n" +
 			"\tflags string, \n" +
-			"\tnlinks string,\n" +
+			"\tnlinks number,\n" +
 			"\treadable boolean,\n" +
 			"\twritable boolean,\n" +
 			"};\n",
@@ -506,7 +506,10 @@ func (hook *FDsHook) createCallBack(t *Task) HookCallback {
 			return nil, util.ArgsCountMismatchError(0, len(args))
 		}
 
-		dto := FdsResolver(t)
+		dto, err := FdsResolver(t)
+		if err != nil {
+			return nil, err
+		}
 
 		return dto, nil
 	}
@@ -519,12 +522,12 @@ func (hook *FDHook) description() HookInfoDto {
 		Name:        hook.jsName(),
 		Description: "Provides information about one specific fd of Task",
 		Args:        "\nfd\tnumber\t(fd to get info about);\n",
-		ReturnValue: "dto ArrayBuffer (marshalled json (format below))\n" +
+		ReturnValue: "dto object (file description dto (format see below))\n" +
 			"{\n" +
-			"\tfd string,\n" +
+			"\tfd number,\n" +
 			"\tname string,\n" +
 			"\tmode string,\n" +
-			"\tnlinks string,\n" +
+			"\tnlinks number,\n" +
 			"\tflags string,\n" +
 			"\treadable boolean,\n" +
 			"\twritable boolean,\n" +
@@ -550,9 +553,12 @@ func (hook *FDHook) createCallBack(t *Task) HookCallback {
 
 		fd := int32(val)
 
-		dto := FdResolver(t, fd)
+		dto, err := FdResolver(t, fd)
+		if err != nil {
+			return nil, err
+		}
 
-		return string(dto), nil
+		return dto, nil
 	}
 }
 

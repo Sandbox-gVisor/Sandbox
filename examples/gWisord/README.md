@@ -73,6 +73,9 @@ Some API functions have object as return value. The structure of such objects yo
 | getSignalInfo | -                                       | `object (SignalInfoDto)` | **Returns** the dto, which provides info about task's signal masks and sigactions                                  |
 | getPidInfo    | -                                       | `object (PidInfoDto)`    | **Returns** the dto, which provides info about task's PID, GID, UID, session                                       |
 | logJson       | msg `any`                               | `null`                   | Sends the given msg to log socket                                                                                  |
+| getFdInfo     | fd `number`                             | `object (FdInfoDto)`     | **Returns** the dto, which provides info about task's file description by given fd                                 |
+| getFdsInfo    | -                                       | `[]object (FdInfoDto)`   | **Returns** the array of dto, each dto provides info for some task's file description                              |
+
 
 ```
 SignalInfoDto = {
@@ -97,5 +100,15 @@ PidInfoDto = {
     foregroundID `number`
     otherPGIDs `[]number`
   }
+}
+
+FdInfoDto = {
+  fd `number`
+  name `string`
+  mode `string`
+  flags `string`
+  nlinks `number`
+  readble `boolean`
+  writable `boolean`
 }
 ```

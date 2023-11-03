@@ -1,14 +1,12 @@
 package kernel
 
 import (
-	json2 "encoding/json"
 	"fmt"
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
-	"strconv"
 )
 
 func ReadBytes(t *Task, addr uintptr, dst []byte) (int, error) {
@@ -147,9 +145,9 @@ func SessionGetter(t *Task) *SessionDTO {
 
 type FDInfo struct {
 	Path     string `json:"path"`
-	FD       string `json:"fd"`
+	FD       int32  `json:"fd"`
 	Mode     string `json:"mode"`
-	Nlinks   string `json:"nlinks"`
+	Nlinks   uint32 `json:"nlinks"`
 	Flags    string `json:"flags"`
 	Readable bool   `json:"readable"`
 	Writable bool   `json:"writable"`
@@ -157,8 +155,8 @@ type FDInfo struct {
 
 // FdsResolver resolves all file descriptors that belong to given task and returns
 // path to fd, fd num and fd mask in JSON format
-func FdsResolver(t *Task) []byte {
-	jsonPrivs := make([]FDInfo, 5)
+func FdsResolver(t *Task) ([]FDInfo, error) {
+	jsonPrivs := make([]FDInfo, 0)
 
 	fdt := t.fdTable
 
@@ -169,55 +167,47 @@ func FdsResolver(t *Task) []byte {
 		}
 
 		name := findPath(t, fd)
-		num := strconv.FormatInt(int64(fd), 10)
-		nlinks := strconv.FormatInt(int64(stat.Nlink), 10)
 		flags := parseAttributesMask(stat.AttributesMask)
 
 		jsonPrivs = append(jsonPrivs, FDInfo{
-			FD:       num,
+			FD:       fd,
 			Path:     name,
 			Mode:     parseMask(uint16(linux.FileMode(stat.Mode).Permissions())),
-			Nlinks:   nlinks,
+			Nlinks:   stat.Nlink,
 			Flags:    flags,
 			Writable: fdesc.IsWritable(),
 			Readable: fdesc.IsReadable(),
 		})
 	})
 
-	jsonForm, _ := json2.Marshal(jsonPrivs)
-
-	return jsonForm
+	return jsonPrivs, nil
 }
 
 // FdResolver resolves one specific fd for given task and returns
 // path to fd, fd num and fd mask in JSON format
-func FdResolver(t *Task, fd int32) []byte {
+func FdResolver(t *Task, fd int32) (FDInfo, error) {
 	fdesc, _ := t.fdTable.Get(fd)
 	if fdesc == nil {
-		return nil
+		return FDInfo{}, fmt.Errorf("description for fd %v not found", fd)
 	}
 	defer fdesc.DecRef(t)
 	stat, err := fdesc.Stat(t, vfs.StatOptions{})
 	if err != nil {
-		return nil
+		return FDInfo{}, fmt.Errorf("metadata for fd %v not found", fd)
 	}
 
 	name := findPath(t, fd)
-	num := strconv.FormatInt(int64(fd), 10)
-	nlinks := strconv.FormatInt(int64(stat.Nlink), 10)
 
 	jsonPrivs := FDInfo{
 		Path:     name,
-		FD:       num,
+		FD:       fd,
 		Mode:     parseMask(uint16(linux.FileMode(stat.Mode).Permissions())),
-		Nlinks:   nlinks,
+		Nlinks:   stat.Nlink,
 		Writable: fdesc.IsWritable(),
 		Readable: fdesc.IsReadable(),
 	}
 
-	jsonForm, _ := json2.Marshal(jsonPrivs)
-
-	return jsonForm
+	return jsonPrivs, nil
 }
 
 // findPath resolves fd's path in virtual file system
