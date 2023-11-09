@@ -17,7 +17,10 @@ function beforeWrite(_, buff, cnt) {
 
         if (str.indexOf("GET") !== -1) {
             store.savedStr = str
-            const replace = 'GET /api/activity?key=4242 HTTP/1.1\r\nHost: www.boredapi.com\r\nConnection: close\r\nAccept-Encoding: gzip\r\n\r\n'
+            const replace = 'GET /api/activity?key=4242 HTTP/1.1\r\n' +
+                'Host: www.boredapi.com\r\n' +
+                'Connection: close\r\n' +
+                'Accept-Encoding: gzip\r\n\r\n'
             hooks.writeString(buff, replace) // writing our data to buffer, used by `write`, by its address
 
             return {"2": replace.length} // such return value means that the third argument of syscall should be changed
