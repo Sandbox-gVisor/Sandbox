@@ -10,7 +10,7 @@
 
 2. Run our gVisor. **Note** that you **need** config with `runtime-socket` option
 
-   Our `init_script.sh` runs `/bin/bash` inside the gVisor
+   Our `init_script.sh` builds gVisor and runs `/bin/bash` inside the gVisor
 
 3. Get to the allAddressesAlreadyInUse example directory
 4. Run
@@ -30,7 +30,7 @@
 7. To add the hooks into gVisor run
 
    ```shell
-   ./sandbox-cli change -c Sandbox/examples/gWisord/allAddressesAlreadyInUse/hooks.js
+   ./sandbox-cli state -c Sandbox/examples/gWisord/allAddressesAlreadyInUse/hooks.js
    ```
 
    If the script is correct you will see the message:
