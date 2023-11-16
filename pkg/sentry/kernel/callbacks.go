@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/dop251/goja"
@@ -77,51 +76,55 @@ func (s *SyscallArgsAddableAdapter) addSelfToContextObject(object *goja.Object) 
 
 // CallbackBefore - interface which is used to observe and / or modify syscall arguments
 type CallbackBefore interface {
-	// CallbackBeforeFunc accepts Task, sysno and syscall arguments returns:
+	// CallbackBeforeFunc accepts:
+	//	- Task
+	//	- sysno
+	//	- syscall arguments
 	//
-	// new args, returnValue/err if needed, error if something bad occurred
+	// returns:
+	//	- new args
+	//	- SyscallReturnValue
+	//	- error if something bad occurred
 	CallbackBeforeFunc(t *Task, sysno uintptr, args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValue, error)
 
 	// Info about this callback
-	Info() string
+	Info() callbacks.JsCallbackInfo
 }
 
 // CallbackAfter - interface which is used to replace args / return value / errno of syscall
 type CallbackAfter interface {
-	// CallbackAfterFunc accepts Task, sysno, syscall arguments and returnValue, err after as result of gvisor syscall impl
+	// CallbackAfterFunc accepts:
+	//	- Task
+	//	- sysno
+	//	- syscall arguments
+	//	- returnValue (return value of gvisor syscall impl)
+	//	- err (err of gvisor syscall impl)
 	//
-	// - new args
-	//
-	// - new returnValue
-	//
-	// - new err (should be converted to golang error)
-	//
-	// - error if something went wrong
+	// returns
+	//	- new args
+	//	- SyscallReturnValue
+	//	- error if something went wrong
 	CallbackAfterFunc(t *Task, sysno uintptr, args *arch.SyscallArguments,
 		ret uintptr, err error) (*arch.SyscallArguments, *SyscallReturnValue, error)
 
 	// Info about this callback
-	Info() string
+	Info() callbacks.JsCallbackInfo
 }
 
 // CallbackTable is a storage of functions which can be called before and/ or after syscall execution
 // TODO incapsulate the mutex (exposing mutex - straight way to deadlock or other memes)
 type CallbackTable struct {
 	// callbackBefore is a map of:
-	//
-	// key - sysno (uintptr)
-	//
-	// val - CallbackBefore
+	//	key - sysno (uintptr)
+	//	val - CallbackBefore
 	callbackBefore map[uintptr]CallbackBefore
 
 	// mutexBefore is sync.Mutex used to sync callbackBefore
 	mutexBefore sync.Mutex
 
 	// callbackAfter is a map of:
-	//
-	// key - sysno (uintptr)
-	//
-	// val - CallbackAfter
+	//	key - sysno (uintptr)
+	//	val - CallbackAfter
 	callbackAfter map[uintptr]CallbackAfter
 
 	// mutexAfter is sync.Mutex used to sync callbackAfter
@@ -284,12 +287,8 @@ func (cb *JsCallbackBefore) callbackInfo() *callbacks.JsCallbackInfo {
 	return &cb.info
 }
 
-func (cb *JsCallbackBefore) Info() string {
-	bytes, err := json.Marshal(cb.info)
-	if err != nil {
-		return ""
-	}
-	return string(bytes)
+func (cb *JsCallbackBefore) Info() callbacks.JsCallbackInfo {
+	return cb.info
 }
 
 func (cb *JsCallbackBefore) registerAtCallbackTable(ct *CallbackTable) error {
@@ -300,12 +299,8 @@ func (cb *JsCallbackAfter) callbackInfo() *callbacks.JsCallbackInfo {
 	return &cb.info
 }
 
-func (cb *JsCallbackAfter) Info() string {
-	bytes, err := json.Marshal(cb.info)
-	if err != nil {
-		return ""
-	}
-	return string(bytes)
+func (cb *JsCallbackAfter) Info() callbacks.JsCallbackInfo {
+	return cb.info
 }
 
 func (cb *JsCallbackAfter) registerAtCallbackTable(ct *CallbackTable) error {
@@ -573,7 +568,8 @@ func dynamicJsCallbackEntryPoint() string {
 
 // DynamicJsCallbackBefore implements CallbackBefore
 type DynamicJsCallbackBefore struct {
-	Holder *goja.Object
+	CallbackInfo callbacks.JsCallbackInfo
+	Holder       *goja.Object
 }
 
 func (d *DynamicJsCallbackBefore) CallbackBeforeFunc(t *Task, _ uintptr,
@@ -585,13 +581,14 @@ func (d *DynamicJsCallbackBefore) CallbackBeforeFunc(t *Task, _ uintptr,
 	return RunAbstractCallback(t, dynamicJsCallbackEntryPoint(), args, context)
 }
 
-func (d *DynamicJsCallbackBefore) Info() string {
-	return "dynamic js callback before"
+func (d *DynamicJsCallbackBefore) Info() callbacks.JsCallbackInfo {
+	return d.CallbackInfo
 }
 
 // DynamicJsCallbackAfter implements CallbackAfter
 type DynamicJsCallbackAfter struct {
-	Holder *goja.Object
+	CallbackInfo callbacks.JsCallbackInfo
+	Holder       *goja.Object
 }
 
 func (d *DynamicJsCallbackAfter) CallbackAfterFunc(t *Task, _ uintptr,
@@ -604,6 +601,6 @@ func (d *DynamicJsCallbackAfter) CallbackAfterFunc(t *Task, _ uintptr,
 	return RunAbstractCallback(t, dynamicJsCallbackEntryPoint(), args, builder.Build())
 }
 
-func (d *DynamicJsCallbackAfter) Info() string {
-	return "dynamic js callback after"
+func (d *DynamicJsCallbackAfter) Info() callbacks.JsCallbackInfo {
+	return d.CallbackInfo
 }

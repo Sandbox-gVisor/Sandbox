@@ -70,7 +70,6 @@ const ResponseTypeOk = "ok"
 
 func registerCommands(table *CommandTable) error {
 	commands := []Command{
-		&ChangeSyscallCallbackCommand{},
 		&GetHooksInfoCommand{},
 		&ChangeStateCommand{},
 		&CallbacksListCommand{},
@@ -176,51 +175,6 @@ func handleConnection(kernel *Kernel, conn net.Conn) {
 	if err != nil {
 		log.Println(err)
 	}
-}
-
-// change callbacks cmd
-
-type ChangeSyscallCallbackCommand struct{}
-
-func (c ChangeSyscallCallbackCommand) name() string {
-	return "change-callbacks"
-}
-
-type ChangeSyscallDto struct {
-	Type        string                     `json:"type"`
-	CallbackDto []callbacks.JsCallbackInfo `json:"callbacks"`
-}
-
-func (c ChangeSyscallCallbackCommand) execute(_ *Kernel, raw []byte) (any, error) {
-
-	var request ChangeSyscallDto
-	err := json.Unmarshal(raw, &request)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(request.CallbackDto) == 0 {
-		return nil, errors.New("callbacks list is empty")
-	}
-
-	var jsCallbacks []JsCallback
-	for _, dto := range request.CallbackDto {
-		jsCallback, err := JsCallbackByInfo(dto)
-		if err != nil {
-			return nil, err
-		}
-		jsCallbacks = append(jsCallbacks, jsCallback)
-	}
-
-	for _, cb := range jsCallbacks {
-		cbCopy := cb // DON'T touch or golang will do trash
-		err := cbCopy.registerAtCallbackTable(GetJsRuntime().callbackTable)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return nil, nil
 }
 
 // change cb cmd from source
@@ -373,20 +327,21 @@ func (c CallbacksListCommand) execute(_ *Kernel, _ []byte) (any, error) {
 
 	var infos []callbacks.JsCallbackInfo
 
-	for sysno, cbBefore := range table.callbackBefore {
-		info, err := callbacks.JsCallbackInfoFromStr(cbBefore.Info())
-		if err != nil {
+	for _, cbBefore := range table.callbackBefore {
+		info := cbBefore.Info()
+		/*if err != nil {
 			info = unknownCallback(sysno, JsCallbackTypeBefore)
-		}
-		infos = append(infos, *info)
+		}*/
+		infos = append(infos, info)
 	}
 
-	for sysno, cbAfter := range table.callbackAfter {
-		info, err := callbacks.JsCallbackInfoFromStr(cbAfter.Info())
+	for _, cbAfter := range table.callbackAfter {
+		info := cbAfter.Info()
+		/*info, err := callbacks.JsCallbackInfoFromStr(cbAfter.Info())
 		if err != nil {
 			info = unknownCallback(sysno, JsCallbackTypeAfter)
-		}
-		infos = append(infos, *info)
+		}*/
+		infos = append(infos, info)
 	}
 
 	response := CallbackListResponse{JsCallbacks: infos}
