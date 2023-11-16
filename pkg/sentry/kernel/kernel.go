@@ -483,7 +483,9 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	}
 
 	if configDto, err := callbacks.Parse(args.SyscallCallbacksInitConfigFD); err != nil {
-		fmt.Printf("failed to parse JSON config %v\n", err)
+		if args.SyscallCallbacksInitConfigFD != -1 {
+			fmt.Printf("failed to parse JSON config %v\n", err)
+		}
 	} else {
 		//fmt.Println(" --- ", configDto.UISocket)
 		for _, dto := range configDto.CallbackDtos {
