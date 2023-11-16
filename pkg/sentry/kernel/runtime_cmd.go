@@ -329,18 +329,11 @@ func (c CallbacksListCommand) execute(_ *Kernel, _ []byte) (any, error) {
 
 	for _, cbBefore := range table.callbackBefore {
 		info := cbBefore.Info()
-		/*if err != nil {
-			info = unknownCallback(sysno, JsCallbackTypeBefore)
-		}*/
 		infos = append(infos, info)
 	}
 
 	for _, cbAfter := range table.callbackAfter {
 		info := cbAfter.Info()
-		/*info, err := callbacks.JsCallbackInfoFromStr(cbAfter.Info())
-		if err != nil {
-			info = unknownCallback(sysno, JsCallbackTypeAfter)
-		}*/
 		infos = append(infos, info)
 	}
 

@@ -604,3 +604,29 @@ func (d *DynamicJsCallbackAfter) CallbackAfterFunc(t *Task, _ uintptr,
 func (d *DynamicJsCallbackAfter) Info() callbacks.JsCallbackInfo {
 	return d.CallbackInfo
 }
+
+func fillJsCallbackInfoForDynamicCallback(info callbacks.JsCallbackInfo, body string) callbacks.JsCallbackInfo {
+	info.CallbackBody = body
+	info.CallbackSource = body
+	_, after, ok := strings.Cut(body, "function")
+	if !ok {
+		return *unknownCallback(uintptr(info.Sysno), info.Type)
+	}
+	trimmed := strings.TrimSpace(after)
+	splited := strings.SplitN(trimmed, "(", 2)
+	if len(splited) != 2 {
+		return *unknownCallback(uintptr(info.Sysno), info.Type)
+	}
+	info.EntryPoint = strings.TrimSpace(splited[0])
+	splited = strings.SplitN(splited[1], ")", 2)
+	if len(splited) != 2 {
+		return info
+	}
+	args := strings.Split(splited[0], ",")
+	info.CallbackArgs = make([]string, 0)
+	for i := 0; i < len(args); i++ {
+		cleanedArg := strings.Trim(args[i], "\t ,\n")
+		info.CallbackArgs = append(info.CallbackArgs, cleanedArg)
+	}
+	return info
+}
