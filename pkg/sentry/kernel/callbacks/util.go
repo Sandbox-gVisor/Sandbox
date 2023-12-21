@@ -110,7 +110,7 @@ func (info *JsCallbackInfo) ToString() string {
 		info.Sysno, info.EntryPoint, info.CallbackBody, info.CallbackArgs, info.Type)
 }
 
-const CallbackRegex = `function\s+(sys_(\w+)_(\d+))\s*\(([^)]*)\)\s*{([^}]*)}`
+const CallbackRegex = `function\s+(syscall_(\w+)_(\d+))\s*\(([^)]*)\)\s*{([^}]*)}`
 
 func ExtractCallbacksFromScript(script string) ([]JsCallbackInfo, error) {
 	statements, err := ExtractStatementsFromScript(script)

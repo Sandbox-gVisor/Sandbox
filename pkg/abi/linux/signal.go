@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"gvisor.dev/gvisor/pkg/abi"
 	"gvisor.dev/gvisor/pkg/bits"
+	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"strings"
 )
@@ -153,8 +154,16 @@ var SignalNames = abi.ValueSet{
 	uint64(SIGXFSZ):   "SIGXFSZ",
 }
 
-func (sig Signal) String() string {
-	return fmt.Sprintf("%v", SignalNames.ParseDecimal(uint64(sig)))
+func GetSignalByName(sigName string) (Signal, error) {
+	sig, ok := SignalNames.ParseName(sigName)
+	if ok {
+		return Signal(sig), nil
+	}
+	return Signal(-1), linuxerr.EINVAL
+}
+
+func (s Signal) String() string {
+	return fmt.Sprintf("%v", SignalNames.ParseDecimal(uint64(s)))
 }
 
 // SignalSet is a signal mask with a bit corresponding to each signal.
@@ -419,10 +428,10 @@ func (sa SigAction) String() string {
 }
 
 type SigActionDto struct {
-	Handler      string
-	Flags        string
-	Restorer     uint64
-	SignalsInSet []string
+	Handler      string   `json:"handler"`
+	Flags        string   `json:"flags"`
+	Restorer     uint64   `json:"restorer"`
+	SignalsInSet []string `json:"signalsInSet"`
 }
 
 func (sa SigAction) ToDto() SigActionDto {

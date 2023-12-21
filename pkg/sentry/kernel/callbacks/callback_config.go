@@ -1,3 +1,5 @@
+// Package callbacks defines configurations for hooks and
+// useful functions to interact with js values
 package callbacks
 
 import (

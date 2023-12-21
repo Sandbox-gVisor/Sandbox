@@ -319,6 +319,8 @@ go_library(
         "version.go",
         "callbacks.go",
         "hooks.go",
+        "hooks_functions.go",
+        "hooks_impl.go",
         "runtime_cmd.go"
     ],
     imports = [
