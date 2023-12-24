@@ -46,11 +46,14 @@ import (
 	"gvisor.dev/gvisor/pkg/cleanup"
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/cpuid"
+	"gvisor.dev/gvisor/pkg/devutil"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/eventchannel"
 	"gvisor.dev/gvisor/pkg/fspath"
 	"gvisor.dev/gvisor/pkg/log"
+	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/nsfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/pipefs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/sockfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/timerfd"
@@ -85,17 +88,17 @@ import (
 // allow easy access everywhere.
 var IOUringEnabled = false
 
-// userCounters is a set of user counters.
+// UserCounters is a set of user counters.
 //
 // +stateify savable
-type userCounters struct {
+type UserCounters struct {
 	uid auth.KUID
 
 	rlimitNProc atomicbitops.Uint64
 }
 
 // incRLimitNProc increments the rlimitNProc counter.
-func (uc *userCounters) incRLimitNProc(ctx context.Context) error {
+func (uc *UserCounters) incRLimitNProc(ctx context.Context) error {
 	lim := limits.FromContext(ctx).Get(limits.ProcessCount)
 	creds := auth.CredentialsFromContext(ctx)
 	nproc := uc.rlimitNProc.Add(1)
@@ -109,7 +112,7 @@ func (uc *userCounters) incRLimitNProc(ctx context.Context) error {
 }
 
 // decRLimitNProc decrements the rlimitNProc counter.
-func (uc *userCounters) decRLimitNProc() {
+func (uc *UserCounters) decRLimitNProc() {
 	uc.rlimitNProc.Add(^uint64(0))
 }
 
@@ -143,18 +146,17 @@ type Kernel struct {
 	mf *pgalloc.MemoryFile `state:"nosave"`
 
 	// See InitKernelArgs for the meaning of these fields.
-	featureSet                  cpuid.FeatureSet
-	timekeeper                  *Timekeeper
-	tasks                       *TaskSet
-	rootUserNamespace           *auth.UserNamespace
-	rootNetworkNamespace        *inet.Namespace
-	applicationCores            uint
-	useHostCores                bool
-	extraAuxv                   []arch.AuxEntry
-	vdso                        *loader.VDSO
-	rootUTSNamespace            *UTSNamespace
-	rootIPCNamespace            *IPCNamespace
-	rootAbstractSocketNamespace *AbstractSocketNamespace
+	featureSet           cpuid.FeatureSet
+	timekeeper           *Timekeeper
+	tasks                *TaskSet
+	rootUserNamespace    *auth.UserNamespace
+	rootNetworkNamespace *inet.Namespace
+	applicationCores     uint
+	useHostCores         bool
+	extraAuxv            []arch.AuxEntry
+	vdso                 *loader.VDSO
+	rootUTSNamespace     *UTSNamespace
+	rootIPCNamespace     *IPCNamespace
 
 	// futexes is the "root" futex.Manager, from which all others are forked.
 	// This is necessary to ensure that shared futexes are coherent across all
@@ -280,6 +282,9 @@ type Kernel struct {
 	// syscalls (as opposed to named pipes created by mknod()).
 	pipeMount *vfs.Mount
 
+	// nsfsMount is the Mount used for namespaces.
+	nsfsMount *vfs.Mount
+
 	// shmMount is the Mount used for anonymous files created by the
 	// memfd_create() syscalls. It is analogous to Linux's shm_mnt.
 	shmMount *vfs.Mount
@@ -323,8 +328,16 @@ type Kernel struct {
 	cgroupRegistry *CgroupRegistry
 
 	// userCountersMap maps auth.KUID into a set of user counters.
-	userCountersMap   map[auth.KUID]*userCounters
+	userCountersMap   map[auth.KUID]*UserCounters
 	userCountersMapMu userCountersMutex `state:"nosave"`
+
+	// MaxFDLimit specifies the maximum file descriptor number that can be
+	// used by processes.
+	MaxFDLimit atomicbitops.Int32
+
+	// devGofers maps container ID to its device gofer client.
+	devGofers   map[string]*devutil.GoferClient `state:"nosave"`
+	devGofersMu sync.Mutex                      `state:"nosave"`
 }
 
 // GojaRuntime is a js engine, where running user callbacks
@@ -423,11 +436,13 @@ type InitKernelArgs struct {
 	// RootIPCNamespace is the root IPC namespace.
 	RootIPCNamespace *IPCNamespace
 
-	// RootAbstractSocketNamespace is the root Abstract Socket namespace.
-	RootAbstractSocketNamespace *AbstractSocketNamespace
-
 	// PIDNamespace is the root PID namespace.
 	PIDNamespace *PIDNamespace
+
+	// MaxFDLimit specifies the maximum file descriptor number that can be
+	// used by processes.  If it is zero, the limit will be set to
+	// unlimited.
+	MaxFDLimit int32
 
 	SyscallCallbacksInitConfigFD int
 
@@ -509,10 +524,9 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	k.rootUserNamespace = args.RootUserNamespace
 	k.rootUTSNamespace = args.RootUTSNamespace
 	k.rootIPCNamespace = args.RootIPCNamespace
-	k.rootAbstractSocketNamespace = args.RootAbstractSocketNamespace
 	k.rootNetworkNamespace = args.RootNetworkNamespace
 	if k.rootNetworkNamespace == nil {
-		k.rootNetworkNamespace = inet.NewRootNamespace(nil, nil)
+		k.rootNetworkNamespace = inet.NewRootNamespace(nil, nil, args.RootUserNamespace)
 	}
 	k.runningTasksCond.L = &k.runningTasksMu
 	k.cpuClockTickerWakeCh = make(chan struct{}, 1)
@@ -536,7 +550,11 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	k.netlinkPorts = port.New()
 	k.ptraceExceptions = make(map[*Task]*Task)
 	k.YAMAPtraceScope = atomicbitops.FromInt32(linux.YAMA_SCOPE_RELATIONAL)
-	k.userCountersMap = make(map[auth.KUID]*userCounters)
+	k.userCountersMap = make(map[auth.KUID]*UserCounters)
+	if args.MaxFDLimit == 0 {
+		args.MaxFDLimit = MaxFdLimit
+	}
+	k.MaxFDLimit.Store(args.MaxFDLimit)
 
 	ctx := k.SupervisorContext()
 	if err := k.vfs.Init(ctx); err != nil {
@@ -556,7 +574,26 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	pipeMount := k.vfs.NewDisconnectedMount(pipeFilesystem, nil, &vfs.MountOptions{})
 	k.pipeMount = pipeMount
 
-	tmpfsFilesystem, tmpfsRoot, err := tmpfs.NewFilesystem(ctx, &k.vfs, auth.NewRootCredentials(k.rootUserNamespace))
+	nsfsFilesystem, err := nsfs.NewFilesystem(&k.vfs)
+	if err != nil {
+		return fmt.Errorf("failed to create nsfs filesystem: %v", err)
+	}
+	defer nsfsFilesystem.DecRef(ctx)
+	k.nsfsMount = k.vfs.NewDisconnectedMount(nsfsFilesystem, nil, &vfs.MountOptions{})
+	k.rootNetworkNamespace.SetInode(nsfs.NewInode(ctx, k.nsfsMount, k.rootNetworkNamespace))
+	k.rootIPCNamespace.SetInode(nsfs.NewInode(ctx, k.nsfsMount, k.rootIPCNamespace))
+	k.rootUTSNamespace.SetInode(nsfs.NewInode(ctx, k.nsfsMount, k.rootUTSNamespace))
+
+	tmpfsOpts := vfs.GetFilesystemOptions{
+		InternalData: tmpfs.FilesystemOpts{
+			// See mm/shmem.c:shmem_init() => vfs_kern_mount(flags=SB_KERNMOUNT).
+			// Note how mm/shmem.c:shmem_fill_super() does not provide a default
+			// value for sbinfo->max_blocks when SB_KERNMOUNT is set.
+			DisableDefaultSizeLimit: true,
+		},
+		InternalMount: true,
+	}
+	tmpfsFilesystem, tmpfsRoot, err := tmpfs.FilesystemType{}.GetFilesystem(ctx, &k.vfs, auth.NewRootCredentials(k.rootUserNamespace), "", tmpfsOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create tmpfs filesystem: %v", err)
 	}
@@ -583,6 +620,57 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	return nil
 }
 
+// +stateify savable
+type privateMemoryFileMetadata struct {
+	owners []string
+}
+
+func savePrivateMFs(ctx context.Context, w wire.Writer, mfsToSave map[string]*pgalloc.MemoryFile) error {
+	var meta privateMemoryFileMetadata
+	// Generate the order in which private memory files are saved.
+	for fsID := range mfsToSave {
+		meta.owners = append(meta.owners, fsID)
+	}
+	// Save the metadata.
+	if _, err := state.Save(ctx, w, &meta); err != nil {
+		return err
+	}
+	// Followed by the private memory files in order.
+	for _, fsID := range meta.owners {
+		if err := mfsToSave[fsID].SaveTo(ctx, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadPrivateMFs(ctx context.Context, r wire.Reader) error {
+	// Load the metadata.
+	var meta privateMemoryFileMetadata
+	if _, err := state.Load(ctx, r, &meta); err != nil {
+		return err
+	}
+	var mfmap map[string]*pgalloc.MemoryFile
+	if mfmapv := ctx.Value(vfs.CtxFilesystemMemoryFileMap); mfmapv != nil {
+		mfmap = mfmapv.(map[string]*pgalloc.MemoryFile)
+	}
+	// Ensure that it is consistent with CtxFilesystemMemoryFileMap.
+	if len(mfmap) != len(meta.owners) {
+		return fmt.Errorf("inconsistent private memory files on restore: savedMFOwners = %v, CtxFilesystemMemoryFileMap = %v", meta.owners, mfmap)
+	}
+	// Load all private memory files.
+	for _, fsID := range meta.owners {
+		mf, ok := mfmap[fsID]
+		if !ok {
+			return fmt.Errorf("saved memory file for %q was not configured on restore", fsID)
+		}
+		if err := mf.LoadFrom(ctx, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SaveTo saves the state of k to w.
 //
 // Preconditions: The kernel must be paused throughout the call to SaveTo.
@@ -606,10 +694,13 @@ func (k *Kernel) SaveTo(ctx context.Context, w wire.Writer) error {
 		return fmt.Errorf("failed to invalidate unsavable mappings: %v", err)
 	}
 
+	// Capture all private memory files.
+	mfsToSave := make(map[string]*pgalloc.MemoryFile)
+	vfsCtx := context.WithValue(ctx, vfs.CtxFilesystemMemoryFileMap, mfsToSave)
 	// Prepare filesystems for saving. This must be done after
 	// invalidateUnsavableMappings(), since dropping memory mappings may
 	// affect filesystem state (e.g. page cache reference counts).
-	if err := k.vfs.PrepareSave(ctx); err != nil {
+	if err := k.vfs.PrepareSave(vfsCtx); err != nil {
 		return err
 	}
 
@@ -644,12 +735,15 @@ func (k *Kernel) SaveTo(ctx context.Context, w wire.Writer) error {
 	log.Infof("Kernel save stats: %s", stats.String())
 	log.Infof("Kernel save took [%s].", time.Since(kernelStart))
 
-	// Save the memory file's state.
+	// Save the memory files' state.
 	memoryStart := time.Now()
 	if err := k.mf.SaveTo(ctx, w); err != nil {
 		return err
 	}
-	log.Infof("Memory save took [%s].", time.Since(memoryStart))
+	if err := savePrivateMFs(ctx, w, mfsToSave); err != nil {
+		return err
+	}
+	log.Infof("Memory files save took [%s].", time.Since(memoryStart))
 
 	log.Infof("Overall save took [%s].", time.Since(saveStart))
 
@@ -722,12 +816,15 @@ func (k *Kernel) LoadFrom(ctx context.Context, r wire.Reader, timeReady chan str
 	// Restore the root network stack.
 	k.rootNetworkNamespace.RestoreRootStack(net)
 
-	// Load the memory file's state.
+	// Load the memory files' state.
 	memoryStart := time.Now()
 	if err := k.mf.LoadFrom(ctx, r); err != nil {
 		return err
 	}
-	log.Infof("Memory load took [%s].", time.Since(memoryStart))
+	if err := loadPrivateMFs(ctx, r); err != nil {
+		return err
+	}
+	log.Infof("Memory files load took [%s].", time.Since(memoryStart))
 
 	log.Infof("Overall load took [%s]", time.Since(loadStart))
 
@@ -821,9 +918,6 @@ type CreateProcessArgs struct {
 	// PIDNamespace is the initial PID Namespace.
 	PIDNamespace *PIDNamespace
 
-	// AbstractSocketNamespace is the initial Abstract Socket namespace.
-	AbstractSocketNamespace *AbstractSocketNamespace
-
 	// MountNamespace optionally contains the mount namespace for this
 	// process. If nil, the init process's mount namespace is used.
 	//
@@ -864,7 +958,9 @@ func (ctx *createProcessContext) Value(key any) any {
 	case CtxPIDNamespace:
 		return ctx.args.PIDNamespace
 	case CtxUTSNamespace:
-		return ctx.args.UTSNamespace
+		utsns := ctx.args.UTSNamespace
+		utsns.IncRef()
+		return utsns
 	case ipc.CtxIPCNamespace:
 		ipcns := ctx.args.IPCNamespace
 		ipcns.IncRef()
@@ -875,8 +971,7 @@ func (ctx *createProcessContext) Value(key any) any {
 		if ctx.args.MountNamespace == nil {
 			return nil
 		}
-		root := ctx.args.MountNamespace.Root()
-		root.IncRef()
+		root := ctx.args.MountNamespace.Root(ctx)
 		return root
 	case vfs.CtxMountNamespace:
 		if ctx.kernel.globalInit == nil {
@@ -885,12 +980,16 @@ func (ctx *createProcessContext) Value(key any) any {
 		mntns := ctx.kernel.GlobalInit().Leader().MountNamespace()
 		mntns.IncRef()
 		return mntns
+	case devutil.CtxDevGoferClient:
+		return ctx.kernel.getDevGoferClient(ctx.args.ContainerID)
 	case inet.CtxStack:
 		return ctx.kernel.RootNetworkNamespace().Stack()
 	case ktime.CtxRealtimeClock:
 		return ctx.kernel.RealtimeClock()
 	case limits.CtxLimits:
 		return ctx.args.Limits
+	case pgalloc.CtxMemoryCgroupID:
+		return ctx.getMemoryCgroupID()
 	case pgalloc.CtxMemoryFile:
 		return ctx.kernel.mf
 	case pgalloc.CtxMemoryFileProvider:
@@ -908,6 +1007,17 @@ func (ctx *createProcessContext) Value(key any) any {
 	default:
 		return nil
 	}
+}
+
+func (ctx *createProcessContext) getMemoryCgroupID() uint32 {
+	for cg := range ctx.args.InitialCgroups {
+		for _, ctl := range cg.Controllers() {
+			if ctl.Type() == CgroupControllerMemory {
+				return cg.ID()
+			}
+		}
+	}
+	return InvalidCgroupID
 }
 
 // CreateProcess creates a new task in a new thread group with the given
@@ -937,8 +1047,7 @@ func (k *Kernel) CreateProcess(args CreateProcessArgs) (*ThreadGroup, ThreadID, 
 		mntns.IncRef()
 	}
 	// Get the root directory from the MountNamespace.
-	root := mntns.Root()
-	root.IncRef()
+	root := mntns.Root(ctx)
 	defer root.DecRef(ctx)
 
 	// Grab the working directory.
@@ -1018,21 +1127,22 @@ func (k *Kernel) CreateProcess(args CreateProcessArgs) (*ThreadGroup, ThreadID, 
 
 	// Create the task.
 	config := &TaskConfig{
-		Kernel:                  k,
-		ThreadGroup:             tg,
-		TaskImage:               image,
-		FSContext:               fsContext,
-		FDTable:                 args.FDTable,
-		Credentials:             args.Credentials,
-		NetworkNamespace:        k.RootNetworkNamespace(),
-		AllowedCPUMask:          sched.NewFullCPUSet(k.applicationCores),
-		UTSNamespace:            args.UTSNamespace,
-		IPCNamespace:            args.IPCNamespace,
-		AbstractSocketNamespace: args.AbstractSocketNamespace,
-		MountNamespace:          mntns,
-		ContainerID:             args.ContainerID,
-		InitialCgroups:          args.InitialCgroups,
-		UserCounters:            k.GetUserCounters(args.Credentials.RealKUID),
+		Kernel:           k,
+		ThreadGroup:      tg,
+		TaskImage:        image,
+		FSContext:        fsContext,
+		FDTable:          args.FDTable,
+		Credentials:      args.Credentials,
+		NetworkNamespace: k.RootNetworkNamespace(),
+		AllowedCPUMask:   sched.NewFullCPUSet(k.applicationCores),
+		UTSNamespace:     args.UTSNamespace,
+		IPCNamespace:     args.IPCNamespace,
+		MountNamespace:   mntns,
+		ContainerID:      args.ContainerID,
+		InitialCgroups:   args.InitialCgroups,
+		UserCounters:     k.GetUserCounters(args.Credentials.RealKUID),
+		// A task with no parent starts out with no session keyring.
+		SessionKeyring: nil,
 	}
 	config.NetworkNamespace.IncRef()
 	t, err := k.tasks.NewTask(ctx, config)
@@ -1102,7 +1212,7 @@ func (k *Kernel) Start() error {
 func (k *Kernel) pauseTimeLocked(ctx context.Context) {
 	// Since all task goroutines have been stopped by precondition, the CPU clock
 	// ticker should stop on its own; wait for it to do so, waking it up from
-	// sleeping betwen ticks if necessary.
+	// sleeping between ticks if necessary.
 	k.runningTasksMu.Lock()
 	for k.cpuClockTickerRunning {
 		select {
@@ -1292,11 +1402,33 @@ func (k *Kernel) SendExternalSignal(info *linux.SignalInfo, context string) {
 }
 
 // SendExternalSignalThreadGroup injects a signal into an specific ThreadGroup.
+//
 // This function doesn't skip signals like SendExternalSignal does.
 func (k *Kernel) SendExternalSignalThreadGroup(tg *ThreadGroup, info *linux.SignalInfo) error {
 	k.extMu.Lock()
 	defer k.extMu.Unlock()
 	return tg.SendSignal(info)
+}
+
+// SendExternalSignalProcessGroup sends a signal to all ThreadGroups in the
+// given process group.
+//
+// This function doesn't skip signals like SendExternalSignal does.
+func (k *Kernel) SendExternalSignalProcessGroup(pg *ProcessGroup, info *linux.SignalInfo) error {
+	k.extMu.Lock()
+	defer k.extMu.Unlock()
+	// If anything goes wrong, we'll return the error, but still try our
+	// best to deliver to other processes in the group.
+	var firstErr error
+	for _, tg := range k.TaskSet().Root.ThreadGroups() {
+		if tg.ProcessGroup() != pg {
+			continue
+		}
+		if err := tg.SendSignal(info); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // SendContainerSignal sends the given signal to all processes inside the
@@ -1366,6 +1498,7 @@ func (k *Kernel) RootUserNamespace() *auth.UserNamespace {
 
 // RootUTSNamespace returns the root UTSNamespace.
 func (k *Kernel) RootUTSNamespace() *UTSNamespace {
+	k.rootUTSNamespace.IncRef()
 	return k.rootUTSNamespace
 }
 
@@ -1378,11 +1511,6 @@ func (k *Kernel) RootIPCNamespace() *IPCNamespace {
 // RootPIDNamespace returns the root PIDNamespace.
 func (k *Kernel) RootPIDNamespace() *PIDNamespace {
 	return k.tasks.Root
-}
-
-// RootAbstractSocketNamespace returns the root AbstractSocketNamespace.
-func (k *Kernel) RootAbstractSocketNamespace() *AbstractSocketNamespace {
-	return k.rootAbstractSocketNamespace
 }
 
 // RootNetworkNamespace returns the root network namespace, always non-nil.
@@ -1609,7 +1737,9 @@ func (ctx *supervisorContext) Value(key any) any {
 	case CtxPIDNamespace:
 		return ctx.Kernel.tasks.Root
 	case CtxUTSNamespace:
-		return ctx.Kernel.rootUTSNamespace
+		utsns := ctx.Kernel.rootUTSNamespace
+		utsns.IncRef()
+		return utsns
 	case ipc.CtxIPCNamespace:
 		ipcns := ctx.Kernel.rootIPCNamespace
 		ipcns.IncRef()
@@ -1621,8 +1751,7 @@ func (ctx *supervisorContext) Value(key any) any {
 		if ctx.Kernel.globalInit == nil {
 			return vfs.VirtualDentry{}
 		}
-		root := ctx.Kernel.GlobalInit().Leader().MountNamespace().Root()
-		root.IncRef()
+		root := ctx.Kernel.GlobalInit().Leader().MountNamespace().Root(ctx)
 		return root
 	case vfs.CtxMountNamespace:
 		if ctx.Kernel.globalInit == nil {
@@ -1703,6 +1832,11 @@ func (k *Kernel) PipeMount() *vfs.Mount {
 	return k.pipeMount
 }
 
+// GetNamespaceInode returns a new nsfs inode which serves as a reference counter for the namespace.
+func (k *Kernel) GetNamespaceInode(ctx context.Context, ns vfs.Namespace) refs.TryRefCounter {
+	return nsfs.NewInode(ctx, k.nsfsMount, ns)
+}
+
 // ShmMount returns the tmpfs mount.
 func (k *Kernel) ShmMount() *vfs.Mount {
 	return k.shmMount
@@ -1726,12 +1860,14 @@ func (k *Kernel) Release() {
 	ctx := k.SupervisorContext()
 	k.hostMount.DecRef(ctx)
 	k.pipeMount.DecRef(ctx)
+	k.nsfsMount.DecRef(ctx)
 	k.shmMount.DecRef(ctx)
 	k.socketMount.DecRef(ctx)
 	k.vfs.Release(ctx)
 	k.timekeeper.Destroy()
 	k.vdso.Release(ctx)
-	k.RootNetworkNamespace().DecRef()
+	k.RootNetworkNamespace().DecRef(ctx)
+	k.cleaupDevGofers()
 }
 
 // PopulateNewCgroupHierarchy moves all tasks into a newly created cgroup
@@ -1773,6 +1909,7 @@ func (k *Kernel) ReleaseCgroupHierarchy(hid uint32) {
 		for cg := range t.cgroups {
 			if cg.HierarchyID() == hid {
 				cg.Leave(t)
+				t.ResetMemCgIDFromCgroup(cg)
 				delete(t.cgroups, cg)
 				releasedCGs = append(releasedCGs, cg)
 				// A task can't be part of multiple cgroups from the same
@@ -1790,6 +1927,8 @@ func (k *Kernel) ReleaseCgroupHierarchy(hid uint32) {
 	}
 }
 
+// ReplaceFSContextRoots updates root and cwd to `newRoot` in the FSContext
+// across all tasks whose old root or cwd were `oldRoot`.
 func (k *Kernel) ReplaceFSContextRoots(ctx context.Context, oldRoot vfs.VirtualDentry, newRoot vfs.VirtualDentry) {
 	k.tasks.mu.RLock()
 	oldRootDecRefs := 0
@@ -1817,7 +1956,8 @@ func (k *Kernel) ReplaceFSContextRoots(ctx context.Context, oldRoot vfs.VirtualD
 	}
 }
 
-func (k *Kernel) GetUserCounters(uid auth.KUID) *userCounters {
+// GetUserCounters returns the user counters for the given KUID.
+func (k *Kernel) GetUserCounters(uid auth.KUID) *UserCounters {
 	k.userCountersMapMu.Lock()
 	defer k.userCountersMapMu.Unlock()
 
@@ -1825,7 +1965,52 @@ func (k *Kernel) GetUserCounters(uid auth.KUID) *userCounters {
 		return uc
 	}
 
-	uc := &userCounters{}
+	uc := &UserCounters{}
 	k.userCountersMap[uid] = uc
 	return uc
+}
+
+// AddDevGofer initializes the dev gofer connection and starts tracking it.
+// It takes ownership of goferFD.
+func (k *Kernel) AddDevGofer(cid string, goferFD int) error {
+	client, err := devutil.NewGoferClient(k.SupervisorContext(), goferFD)
+	if err != nil {
+		return err
+	}
+
+	k.devGofersMu.Lock()
+	defer k.devGofersMu.Unlock()
+	if k.devGofers == nil {
+		k.devGofers = make(map[string]*devutil.GoferClient)
+	}
+	k.devGofers[cid] = client
+	return nil
+}
+
+// RemoveDevGofer closes the dev gofer connection, if one exists, and stops
+// tracking it.
+func (k *Kernel) RemoveDevGofer(cid string) {
+	k.devGofersMu.Lock()
+	defer k.devGofersMu.Unlock()
+	client, ok := k.devGofers[cid]
+	if !ok {
+		return
+	}
+	client.Close()
+	delete(k.devGofers, cid)
+}
+
+func (k *Kernel) getDevGoferClient(cid string) *devutil.GoferClient {
+	k.devGofersMu.Lock()
+	defer k.devGofersMu.Unlock()
+	return k.devGofers[cid]
+}
+
+func (k *Kernel) cleaupDevGofers() {
+	k.devGofersMu.Lock()
+	defer k.devGofersMu.Unlock()
+	for _, client := range k.devGofers {
+		client.Close()
+	}
+	k.devGofers = nil
 }

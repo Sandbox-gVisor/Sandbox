@@ -51,12 +51,15 @@ func BuildProgram(s *specs.LinuxSeccomp) (bpf.Program, error) {
 		return bpf.Program{}, fmt.Errorf("invalid seccomp rules: %w", err)
 	}
 
-	instrs, err := seccomp.BuildProgram(ruleset, defaultAction, killThreadAction)
+	instrs, _, err := seccomp.BuildProgram(ruleset, seccomp.ProgramOptions{
+		DefaultAction: defaultAction,
+		BadArchAction: killThreadAction,
+	})
 	if err != nil {
 		return bpf.Program{}, fmt.Errorf("building seccomp program: %w", err)
 	}
 
-	program, err := bpf.Compile(instrs)
+	program, err := bpf.Compile(instrs, true /* optimize */)
 	if err != nil {
 		return bpf.Program{}, fmt.Errorf("compiling seccomp program: %w", err)
 	}
@@ -121,7 +124,7 @@ func convertRules(s *specs.LinuxSeccomp) ([]seccomp.RuleSet, error) {
 		}
 
 		// Args
-		rules, err := convertArgs(syscall.Args)
+		rule, err := convertArgs(syscall.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -136,9 +139,7 @@ func convertRules(s *specs.LinuxSeccomp) ([]seccomp.RuleSet, error) {
 				continue
 			}
 
-			for _, rule := range rules {
-				sysRules.AddRule(uintptr(syscallNo), rule)
-			}
+			sysRules.Add(uintptr(syscallNo), rule)
 		}
 
 		ruleset = append(ruleset, seccomp.RuleSet{
@@ -151,7 +152,7 @@ func convertRules(s *specs.LinuxSeccomp) ([]seccomp.RuleSet, error) {
 }
 
 // convertArgs converts an OCI seccomp argument rule to a list of seccomp.Rule.
-func convertArgs(args []specs.LinuxSeccompArg) ([]seccomp.Rule, error) {
+func convertArgs(args []specs.LinuxSeccompArg) (seccomp.SyscallRule, error) {
 	argCounts := make([]uint, 6)
 
 	for _, arg := range args {
@@ -177,12 +178,12 @@ func convertArgs(args []specs.LinuxSeccompArg) ([]seccomp.Rule, error) {
 	}
 
 	if hasMultipleArgs {
-		rules := []seccomp.Rule{}
+		rules := seccomp.Or{}
 
 		// Old runc behavior - do this for compatibility.
 		// Add rules as ORs by adding separate Rules.
 		for _, arg := range args {
-			rule := seccomp.Rule{nil, nil, nil, nil, nil, nil}
+			rule := seccomp.PerArg{nil, nil, nil, nil, nil, nil}
 
 			if err := convertRule(arg, &rule); err != nil {
 				return nil, err
@@ -195,33 +196,33 @@ func convertArgs(args []specs.LinuxSeccompArg) ([]seccomp.Rule, error) {
 	}
 
 	// Add rules as ANDs by adding to the same Rule.
-	rule := seccomp.Rule{nil, nil, nil, nil, nil, nil}
+	rule := seccomp.PerArg{nil, nil, nil, nil, nil, nil}
 	for _, arg := range args {
 		if err := convertRule(arg, &rule); err != nil {
 			return nil, err
 		}
 	}
 
-	return []seccomp.Rule{rule}, nil
+	return rule, nil
 }
 
-// convertRule converts and adds the arg to a rule.
-func convertRule(arg specs.LinuxSeccompArg, rule *seccomp.Rule) error {
+// convertRule converts and adds the arg to a PerArg rule.
+func convertRule(arg specs.LinuxSeccompArg, perArg *seccomp.PerArg) error {
 	switch arg.Op {
 	case specs.OpEqualTo:
-		rule[arg.Index] = seccomp.EqualTo(arg.Value)
+		perArg[arg.Index] = seccomp.EqualTo(arg.Value)
 	case specs.OpNotEqual:
-		rule[arg.Index] = seccomp.NotEqual(arg.Value)
+		perArg[arg.Index] = seccomp.NotEqual(arg.Value)
 	case specs.OpGreaterThan:
-		rule[arg.Index] = seccomp.GreaterThan(arg.Value)
+		perArg[arg.Index] = seccomp.GreaterThan(arg.Value)
 	case specs.OpGreaterEqual:
-		rule[arg.Index] = seccomp.GreaterThanOrEqual(arg.Value)
+		perArg[arg.Index] = seccomp.GreaterThanOrEqual(arg.Value)
 	case specs.OpLessThan:
-		rule[arg.Index] = seccomp.LessThan(arg.Value)
+		perArg[arg.Index] = seccomp.LessThan(arg.Value)
 	case specs.OpLessEqual:
-		rule[arg.Index] = seccomp.LessThanOrEqual(arg.Value)
+		perArg[arg.Index] = seccomp.LessThanOrEqual(arg.Value)
 	case specs.OpMaskedEqual:
-		rule[arg.Index] = seccomp.MaskedEqual(uintptr(arg.Value), uintptr(arg.ValueTwo))
+		perArg[arg.Index] = seccomp.MaskedEqual(uintptr(arg.Value), uintptr(arg.ValueTwo))
 	default:
 		return fmt.Errorf("unsupported operand: %q", arg.Op)
 	}

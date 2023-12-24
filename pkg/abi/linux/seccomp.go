@@ -50,11 +50,19 @@ func (a BPFAction) String() string {
 	case SECCOMP_RET_KILL_THREAD:
 		return "kill thread"
 	case SECCOMP_RET_TRAP:
-		return fmt.Sprintf("trap (%d)", a.Data())
+		data := a.Data()
+		if data == 0 {
+			return "trap"
+		}
+		return fmt.Sprintf("trap (data=%#x)", data)
 	case SECCOMP_RET_ERRNO:
-		return fmt.Sprintf("errno (%d)", a.Data())
+		return fmt.Sprintf("return errno=%#x", a.Data())
 	case SECCOMP_RET_TRACE:
-		return fmt.Sprintf("trace (%d)", a.Data())
+		data := a.Data()
+		if data == 0 {
+			return "trace"
+		}
+		return fmt.Sprintf("trace (data=%#x)", data)
 	case SECCOMP_RET_ALLOW:
 		return "allow"
 	}
@@ -103,4 +111,20 @@ type SeccompData struct {
 
 	// Args contains the first 6 system call arguments.
 	Args [6]uint64
+}
+
+// String returns a human-friendly representation of this `SeccompData`.
+func (sd SeccompData) String() string {
+	return fmt.Sprintf(
+		"sysno=%d arch=%#x rip=%#x args=[%#x %#x %#x %#x %#x %#x]",
+		sd.Nr,
+		sd.Arch,
+		sd.InstructionPointer,
+		sd.Args[0],
+		sd.Args[1],
+		sd.Args[2],
+		sd.Args[3],
+		sd.Args[4],
+		sd.Args[5],
+	)
 }

@@ -61,6 +61,9 @@ const (
 	// XFEATURE_MASK_FPSSE is xsave features that are always enabled in
 	// signal frame fpstate.
 	XFEATURE_MASK_FPSSE = 0x3
+
+	// FXSAVE_AREA_SIZE is the size of the FXSAVE area.
+	FXSAVE_AREA_SIZE = 512
 )
 
 // initX86FPState (defined in asm files) sets up initial state.
@@ -108,9 +111,7 @@ func (s *State) Fork() State {
 // Reset resets s to its initial state.
 func (s *State) Reset() {
 	f := *s
-	for i := range f {
-		f[i] = 0
-	}
+	clear(f)
 	initX86FPState(&f[0], cpuid.HostFeatureSet().UseXsave())
 }
 
@@ -266,9 +267,7 @@ func (s *State) SanitizeUser(featureSet cpuid.FeatureSet) {
 		hostarch.ByteOrder.PutUint64(f[xstateBVOffset:], xstateBV)
 		// Force XCOMP_BV and reserved bytes in the XSAVE header to 0.
 		reserved := f[xsaveHeaderZeroedOffset : xsaveHeaderZeroedOffset+xsaveHeaderZeroedBytes]
-		for i := range reserved {
-			reserved[i] = 0
-		}
+		clear(reserved)
 	}
 }
 
@@ -323,7 +322,7 @@ const fxsaveBV uint64 = cpuid.XSAVEFeatureX87 | cpuid.XSAVEFeatureSSE
 // AfterLoad converts the loaded state to the format that compatible with the
 // current processor.
 func (s *State) AfterLoad() {
-	old := *s
+	old := s.Slice()
 
 	// Recreate the slice. This is done to ensure that it is aligned
 	// appropriately in memory, and large enough to accommodate any new
@@ -348,8 +347,9 @@ func (s *State) AfterLoad() {
 	// (according to XSTATE_BV) which we do not support.
 	// What do we support?
 	supportedBV := fxsaveBV
-	if fs := cpuid.HostFeatureSet(); fs.UseXsave() {
-		supportedBV = fs.ValidXCR0Mask()
+	hostFeatureSet := cpuid.HostFeatureSet()
+	if hostFeatureSet.UseXsave() {
+		supportedBV = hostFeatureSet.ValidXCR0Mask()
 	}
 
 	// What was in use?
@@ -372,7 +372,7 @@ func (s *State) AfterLoad() {
 	if mxcsrBefore != mxcsrAfter {
 		panic(fmt.Sprintf("incompatible mxcsr value: %x (%x)", mxcsrBefore, mxcsrAfter))
 	}
-	if fs := cpuid.HostFeatureSet(); fs.UseXsave() {
+	if hostFeatureSet.UseXsave() {
 		if err := safecopy.CheckXstate(s.BytePointer()); err != nil {
 			panic(fmt.Sprintf("incompatible state: %s (%#v)", err, *s))
 		}

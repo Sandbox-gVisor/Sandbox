@@ -32,8 +32,8 @@ func NewMemoryManager(p platform.Platform, mfp pgalloc.MemoryFileProvider, sleep
 	return &MemoryManager{
 		p:                  p,
 		mfp:                mfp,
+		mf:                 mfp.MemoryFile(),
 		haveASIO:           p.SupportsAddressSpaceIO(),
-		privateRefs:        &privateRefs{},
 		users:              atomicbitops.FromInt32(1),
 		auxv:               arch.Auxv{},
 		dumpability:        atomicbitops.FromInt32(int32(UserDumpable)),
@@ -73,15 +73,15 @@ func (mm *MemoryManager) Fork(ctx context.Context) (*MemoryManager, error) {
 	mm.mappingMu.RLock()
 	defer mm.mappingMu.RUnlock()
 	mm2 := &MemoryManager{
-		p:           mm.p,
-		mfp:         mm.mfp,
-		haveASIO:    mm.haveASIO,
-		layout:      mm.layout,
-		privateRefs: mm.privateRefs,
-		users:       atomicbitops.FromInt32(1),
-		brk:         mm.brk,
-		usageAS:     mm.usageAS,
-		dataAS:      mm.dataAS,
+		p:        mm.p,
+		mfp:      mm.mfp,
+		mf:       mm.mf,
+		haveASIO: mm.haveASIO,
+		layout:   mm.layout,
+		users:    atomicbitops.FromInt32(1),
+		brk:      mm.brk,
+		usageAS:  mm.usageAS,
+		dataAS:   mm.dataAS,
 		// "The child does not inherit its parent's memory locks (mlock(2),
 		// mlockall(2))." - fork(2). So lockedAS is 0 and defMLockMode is
 		// MLockNone, both of which are zero values. vma.mlockMode is reset
@@ -144,11 +144,12 @@ func (mm *MemoryManager) Fork(ctx context.Context) (*MemoryManager, error) {
 	mm2.activeMu.NestedLock(activeLockForked)
 	defer mm2.activeMu.NestedUnlock(activeLockForked)
 	if dontforks {
-		defer mm.pmas.MergeRange(mm.applicationAddrRange())
+		defer mm.pmas.MergeInsideRange(mm.applicationAddrRange())
 	}
 	srcvseg := mm.vmas.FirstSegment()
 	dstpgap := mm2.pmas.FirstGap()
 	var unmapAR hostarch.AddrRange
+	memCgID := pgalloc.MemoryCgroupIDFromContext(ctx)
 	for srcpseg := mm.pmas.FirstSegment(); srcpseg.Ok(); srcpseg = srcpseg.NextSegment() {
 		pma := srcpseg.ValuePtr()
 		if !pma.private {
@@ -197,8 +198,8 @@ func (mm *MemoryManager) Fork(ctx context.Context) (*MemoryManager, error) {
 			pma.maxPerms.Write = false
 		}
 		fr := srcpseg.fileRange()
-		mm2.incPrivateRef(fr)
-		srcpseg.ValuePtr().file.IncRef(fr)
+		// srcpseg.ValuePtr().file == mm.mf since pma.private == true.
+		mm.mf.IncRef(fr, memCgID)
 		addrRange := srcpseg.Range()
 		mm2.addRSSLocked(addrRange)
 		dstpgap = mm2.pmas.Insert(dstpgap, addrRange, *pma).NextGap()

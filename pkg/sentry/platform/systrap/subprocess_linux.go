@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/abi/linux"
+	"gvisor.dev/gvisor/pkg/bpf"
 	"gvisor.dev/gvisor/pkg/seccomp"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 )
@@ -53,18 +54,18 @@ func attachedThread(flags uintptr, defaultAction linux.BPFAction) (*thread, erro
 	rules := []seccomp.RuleSet{}
 	if defaultAction != linux.SECCOMP_RET_ALLOW {
 		ruleSet := seccomp.RuleSet{
-			Rules: seccomp.SyscallRules{
-				unix.SYS_CLONE: []seccomp.Rule{
+			Rules: seccomp.MakeSyscallRules(map[uintptr]seccomp.SyscallRule{
+				unix.SYS_CLONE: seccomp.Or{
 					// Allow creation of new subprocesses (used by the master).
-					{seccomp.EqualTo(unix.CLONE_FILES | unix.SIGKILL)},
+					seccomp.PerArg{seccomp.EqualTo(unix.CLONE_FILES | unix.SIGKILL)},
 					// Allow creation of new sysmsg thread.
-					{seccomp.EqualTo(
+					seccomp.PerArg{seccomp.EqualTo(
 						unix.CLONE_FILES |
 							unix.CLONE_FS |
 							unix.CLONE_VM |
 							unix.CLONE_PTRACE)},
-					// Allow creation of new threads within a single address space (used by addresss spaces).
-					{seccomp.EqualTo(
+					// Allow creation of new threads within a single address space (used by address spaces).
+					seccomp.PerArg{seccomp.EqualTo(
 						unix.CLONE_FILES |
 							unix.CLONE_FS |
 							unix.CLONE_SIGHAND |
@@ -74,58 +75,65 @@ func attachedThread(flags uintptr, defaultAction linux.BPFAction) (*thread, erro
 				},
 
 				// For the initial process creation.
-				unix.SYS_WAIT4: {},
-				unix.SYS_EXIT:  {},
+				unix.SYS_WAIT4: seccomp.MatchAll{},
+				unix.SYS_EXIT:  seccomp.MatchAll{},
 
 				// For the stub prctl dance (all).
-				unix.SYS_PRCTL: []seccomp.Rule{
-					{seccomp.EqualTo(unix.PR_SET_PDEATHSIG), seccomp.EqualTo(unix.SIGKILL)},
-					{seccomp.EqualTo(linux.PR_SET_NO_NEW_PRIVS), seccomp.EqualTo(1)},
+				unix.SYS_PRCTL: seccomp.Or{
+					seccomp.PerArg{seccomp.EqualTo(unix.PR_SET_PDEATHSIG), seccomp.EqualTo(unix.SIGKILL)},
+					seccomp.PerArg{seccomp.EqualTo(linux.PR_SET_NO_NEW_PRIVS), seccomp.EqualTo(1)},
 				},
-				unix.SYS_GETPPID: {},
+				unix.SYS_GETPPID: seccomp.MatchAll{},
 
 				// For the stub to stop itself (all).
-				unix.SYS_GETPID: {},
-				unix.SYS_KILL: []seccomp.Rule{
-					{seccomp.MatchAny{}, seccomp.EqualTo(unix.SIGSTOP)},
+				unix.SYS_GETPID: seccomp.MatchAll{},
+				unix.SYS_KILL: seccomp.PerArg{
+					seccomp.AnyValue{},
+					seccomp.EqualTo(unix.SIGSTOP),
 				},
 
 				// Injected to support the address space operations.
-				unix.SYS_MMAP:   {},
-				unix.SYS_MUNMAP: {},
+				unix.SYS_MMAP:   seccomp.MatchAll{},
+				unix.SYS_MUNMAP: seccomp.MatchAll{},
 
 				// For sysmsg threads. Look at sysmsg/sighandler.c for more details.
-				unix.SYS_RT_SIGRETURN: {},
-				unix.SYS_SCHED_YIELD:  {},
-				unix.SYS_FUTEX: {
-					seccomp.Rule{
-						seccomp.MatchAny{},
+				unix.SYS_RT_SIGRETURN: seccomp.MatchAll{},
+				unix.SYS_SCHED_YIELD:  seccomp.MatchAll{},
+				unix.SYS_FUTEX: seccomp.Or{
+					seccomp.PerArg{
+						seccomp.AnyValue{},
 						seccomp.EqualTo(linux.FUTEX_WAIT),
-						seccomp.MatchAny{},
-						seccomp.MatchAny{},
+						seccomp.AnyValue{},
+						seccomp.AnyValue{},
 					},
-					seccomp.Rule{
-						seccomp.MatchAny{},
+					seccomp.PerArg{
+						seccomp.AnyValue{},
 						seccomp.EqualTo(linux.FUTEX_WAKE),
-						seccomp.MatchAny{},
-						seccomp.MatchAny{},
+						seccomp.AnyValue{},
+						seccomp.AnyValue{},
 					},
 				},
-				unix.SYS_SIGALTSTACK: {},
-				unix.SYS_TKILL: {
-					{seccomp.MatchAny{}, seccomp.EqualTo(unix.SIGSTOP)},
+				unix.SYS_SIGALTSTACK: seccomp.MatchAll{},
+				unix.SYS_TKILL: seccomp.PerArg{
+					seccomp.AnyValue{},
+					seccomp.EqualTo(unix.SIGSTOP),
 				},
-				unix.SYS_GETTID: {},
-				seccomp.SYS_SECCOMP: {
-					{seccomp.EqualTo(linux.SECCOMP_SET_MODE_FILTER), seccomp.EqualTo(0), seccomp.MatchAny{}},
+				unix.SYS_GETTID: seccomp.MatchAll{},
+				seccomp.SYS_SECCOMP: seccomp.PerArg{
+					seccomp.EqualTo(linux.SECCOMP_SET_MODE_FILTER),
+					seccomp.EqualTo(0),
+					seccomp.AnyValue{},
 				},
-			},
+			}),
 			Action: linux.SECCOMP_RET_ALLOW,
 		}
 		rules = append(rules, ruleSet)
 		rules = appendArchSeccompRules(rules)
 	}
-	instrs, err := seccomp.BuildProgram(rules, defaultAction, defaultAction)
+	instrs, _, err := seccomp.BuildProgram(rules, seccomp.ProgramOptions{
+		DefaultAction: defaultAction,
+		BadArchAction: defaultAction,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +147,7 @@ func attachedThread(flags uintptr, defaultAction linux.BPFAction) (*thread, erro
 // not race instrument it.
 //
 //go:norace
-func forkStub(flags uintptr, instrs []linux.BPFInstruction) (*thread, error) {
+func forkStub(flags uintptr, instrs []bpf.Instruction) (*thread, error) {
 	// Declare all variables up front in order to ensure that there's no
 	// need for allocations between beforeFork & afterFork.
 	var (

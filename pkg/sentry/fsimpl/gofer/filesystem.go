@@ -26,6 +26,7 @@ import (
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/fspath"
+	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/host"
 	"gvisor.dev/gvisor/pkg/sentry/fsmetric"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
@@ -192,15 +193,15 @@ func (fs *filesystem) stepLocked(ctx context.Context, rp resolvingPath, d *dentr
 	if name == ".." {
 		if isRoot, err := rp.CheckRoot(ctx, &d.vfsd); err != nil {
 			return nil, false, err
-		} else if isRoot || d.parent == nil {
+		} else if isRoot || d.parent.Load() == nil {
 			rp.Advance()
 			return d, false, nil
 		}
-		if err := rp.CheckMount(ctx, &d.parent.vfsd); err != nil {
+		if err := rp.CheckMount(ctx, &d.parent.Load().vfsd); err != nil {
 			return nil, false, err
 		}
 		rp.Advance()
-		return d.parent, false, nil
+		return d.parent.Load(), false, nil
 	}
 	child, err := fs.getChildAndWalkPathLocked(ctx, d, rp, ds)
 	if err != nil {
@@ -271,7 +272,7 @@ func (fs *filesystem) getRemoteChildLocked(ctx context.Context, parent *dentry, 
 	defer parent.childrenMu.Unlock()
 
 	if checkForRace {
-		// See if we raced with anoter getRemoteChild call that added
+		// See if we raced with another getRemoteChild call that added
 		// to the cache.
 		if cachedChild, ok := parent.children[name]; ok && cachedChild != nil {
 			// We raced. Destroy our child and return the cached
@@ -540,6 +541,15 @@ func (fs *filesystem) doCreateAt(ctx context.Context, rp *vfs.ResolvingPath, dir
 func (fs *filesystem) unlinkAt(ctx context.Context, rp *vfs.ResolvingPath, dir bool) error {
 	var ds *[]*dentry
 	fs.renameMu.RLock()
+	// We need to DecRef outside of fs.renameMu because forgetting a dead
+	// mountpoint could result in this filesystem being released which acquires
+	// fs.renameMu.
+	var toDecRef []refs.RefCounter
+	defer func() {
+		for _, ref := range toDecRef {
+			ref.DecRef(ctx)
+		}
+	}()
 	defer fs.renameMuRUnlockAndCheckCaching(ctx, &ds)
 	start := rp.Start().Impl().(*dentry)
 	parent, err := fs.walkParentDirLocked(ctx, rp, start, &ds)
@@ -701,7 +711,7 @@ func (fs *filesystem) unlinkAt(ctx context.Context, rp *vfs.ResolvingPath, dir b
 	defer parent.childrenMu.Unlock()
 
 	if child != nil {
-		vfsObj.CommitDeleteDentry(ctx, &child.vfsd) // +checklocksforce: see above.
+		toDecRef = vfsObj.CommitDeleteDentry(ctx, &child.vfsd) // +checklocksforce: see above.
 		child.setDeleted()
 		if child.isSynthetic() {
 			parent.syntheticChildren--
@@ -1117,6 +1127,9 @@ func (d *dentry) open(ctx context.Context, rp *vfs.ResolvingPath, opts *vfs.Open
 		if d.isSynthetic() {
 			return d.pipe.Open(ctx, mnt, &d.vfsd, opts.Flags, &d.locks)
 		}
+		if d.fs.opts.disableFifoOpen {
+			return nil, linuxerr.EPERM
+		}
 	}
 
 	if vfd == nil {
@@ -1126,7 +1139,7 @@ func (d *dentry) open(ctx context.Context, rp *vfs.ResolvingPath, opts *vfs.Open
 	}
 
 	if trunc {
-		// If no errors occured so far then update file size in memory. This
+		// If no errors occurred so far then update file size in memory. This
 		// step is required even if !d.cachedMetadataAuthoritative() because
 		// d.mappings has to be updated.
 		// d.metadataMu has already been acquired if trunc == true.
@@ -1319,6 +1332,14 @@ func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldPa
 	// Resolve newParent first to verify that it's on this Mount.
 	var ds *[]*dentry
 	fs.renameMu.Lock()
+	// We need to DecRef outside of fs.mu because forgetting a dead mountpoint
+	// could result in this filesystem being released which acquires fs.mu.
+	var toDecRef []refs.RefCounter
+	defer func() {
+		for _, ref := range toDecRef {
+			ref.DecRef(ctx)
+		}
+	}()
 	defer fs.renameMuUnlockAndCheckCaching(ctx, &ds)
 	newParent, err := fs.walkParentDirLocked(ctx, rp, rp.Start().Impl().(*dentry), &ds)
 	if err != nil {
@@ -1468,7 +1489,7 @@ func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldPa
 		defer oldParent.childrenMu.Unlock()
 	}
 
-	vfsObj.CommitRenameReplaceDentry(ctx, &renamed.vfsd, replacedVFSD)
+	toDecRef = vfsObj.CommitRenameReplaceDentry(ctx, &renamed.vfsd, replacedVFSD)
 	if replaced != nil {
 		replaced.setDeleted()
 		if replaced.isSynthetic() {
@@ -1570,7 +1591,7 @@ func (fs *filesystem) StatFSAt(ctx context.Context, rp *vfs.ResolvingPath) (linu
 	}
 	// If d is synthetic, invoke statfs on the first ancestor of d that isn't.
 	for d.isSynthetic() {
-		d = d.parent
+		d = d.parent.Load()
 	}
 	statfs, err := d.statfs(ctx)
 	if err != nil {
@@ -1743,6 +1764,9 @@ func (fs *filesystem) MountOptions() string {
 	if fs.opts.regularFilesUseSpecialFileFD {
 		optsKV = append(optsKV, mopt{moptDisableFileHandleSharing, nil})
 	}
+	if fs.opts.disableFifoOpen {
+		optsKV = append(optsKV, mopt{moptDisableFifoOpen, nil})
+	}
 	if fs.opts.forcePageCache {
 		optsKV = append(optsKV, mopt{moptForcePageCache, nil})
 	}
@@ -1761,4 +1785,9 @@ func (fs *filesystem) MountOptions() string {
 		opts = append(opts, opt.String())
 	}
 	return strings.Join(opts, ",")
+}
+
+// IsDescendant implements vfs.FilesystemImpl.IsDescendant.
+func (fs *filesystem) IsDescendant(vfsroot, vd vfs.VirtualDentry) bool {
+	return genericIsDescendant(vfsroot.Dentry(), vd.Dentry().Impl().(*dentry))
 }

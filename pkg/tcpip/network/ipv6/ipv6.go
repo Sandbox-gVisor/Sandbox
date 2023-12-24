@@ -16,9 +16,7 @@
 package ipv6
 
 import (
-	"encoding/binary"
 	"fmt"
-	"hash/fnv"
 	"math"
 	"reflect"
 	"sort"
@@ -30,7 +28,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/header/parse"
-	"gvisor.dev/gvisor/pkg/tcpip/network/hash"
 	"gvisor.dev/gvisor/pkg/tcpip/network/internal/fragmentation"
 	"gvisor.dev/gvisor/pkg/tcpip/network/internal/ip"
 	"gvisor.dev/gvisor/pkg/tcpip/network/internal/multicast"
@@ -777,7 +774,7 @@ func (e *endpoint) handleFragments(r *stack.Route, networkMTU uint32, pkt stack.
 
 	pf := fragmentation.MakePacketFragmenter(pkt, fragmentPayloadLen, calculateFragmentReserve(pkt))
 	defer pf.Release()
-	id := e.protocol.ids[hashRoute(r, e.protocol.hashIV)%buckets].Add(1)
+	id := e.getFragmentID()
 
 	var n int
 	for {
@@ -2054,10 +2051,10 @@ func (e *endpoint) acquireAddressOrCreateTempLocked(localAddr tcpip.Address, all
 }
 
 // AcquireOutgoingPrimaryAddress implements stack.AddressableEndpoint.
-func (e *endpoint) AcquireOutgoingPrimaryAddress(remoteAddr tcpip.Address, allowExpired bool) stack.AddressEndpoint {
+func (e *endpoint) AcquireOutgoingPrimaryAddress(remoteAddr, srcHint tcpip.Address, allowExpired bool) stack.AddressEndpoint {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.acquireOutgoingPrimaryAddressRLocked(remoteAddr, allowExpired)
+	return e.acquireOutgoingPrimaryAddressRLocked(remoteAddr, srcHint, allowExpired)
 }
 
 // getLinkLocalAddressRLocked returns a link-local address from the primary list
@@ -2084,7 +2081,9 @@ func (e *endpoint) getLinkLocalAddressRLocked() tcpip.Address {
 // but with locking requirements.
 //
 // Precondition: e.mu must be read locked.
-func (e *endpoint) acquireOutgoingPrimaryAddressRLocked(remoteAddr tcpip.Address, allowExpired bool) stack.AddressEndpoint {
+func (e *endpoint) acquireOutgoingPrimaryAddressRLocked(remoteAddr, srcHint tcpip.Address, allowExpired bool) stack.AddressEndpoint {
+	// TODO(b/309216156): Support IPv6 hints.
+
 	// addrCandidate is a candidate for Source Address Selection, as per
 	// RFC 6724 section 5.
 	type addrCandidate struct {
@@ -2097,7 +2096,7 @@ func (e *endpoint) acquireOutgoingPrimaryAddressRLocked(remoteAddr tcpip.Address
 	}
 
 	if remoteAddr.BitLen() == 0 {
-		return e.mu.addressableEndpointState.AcquireOutgoingPrimaryAddress(remoteAddr, allowExpired)
+		return e.mu.addressableEndpointState.AcquireOutgoingPrimaryAddress(remoteAddr, srcHint, allowExpired)
 	}
 
 	// Create a candidate set of available addresses we can potentially use as a
@@ -2196,7 +2195,7 @@ func (e *endpoint) acquireOutgoingPrimaryAddressRLocked(remoteAddr tcpip.Address
 	// Return the most preferred address that can have its reference count
 	// incremented.
 	for _, c := range cs {
-		if c.addressEndpoint.IncRef() {
+		if c.addressEndpoint.TryIncRef() {
 			return c.addressEndpoint
 		}
 	}
@@ -2288,9 +2287,6 @@ type protocol struct {
 		multicastForwardingDisp stack.MulticastForwardingEventDispatcher
 	}
 
-	ids    []atomicbitops.Uint32
-	hashIV uint32
-
 	// defaultTTL is the current default TTL for the protocol. Only the
 	// uint8 portion of it is meaningful.
 	defaultTTL atomicbitops.Uint32
@@ -2341,7 +2337,7 @@ func (p *protocol) NewEndpoint(nic stack.NetworkInterface, dispatcher stack.Tran
 	const maxMulticastSolicit = 3
 	dadOptions := ip.DADOptions{
 		Clock:              p.stack.Clock(),
-		SecureRNG:          p.stack.SecureRNG(),
+		SecureRNG:          p.stack.SecureRNG().Reader,
 		NonceSize:          nonceSize,
 		ExtendDADTransmits: maxMulticastSolicit,
 		Protocol:           &e.mu.ndp,
@@ -2749,21 +2745,10 @@ type Options struct {
 func NewProtocolWithOptions(opts Options) stack.NetworkProtocolFactory {
 	opts.NDPConfigs.validate()
 
-	ids := hash.RandN32(buckets)
-	hashIV := hash.RandN32(1)[0]
-
-	atomicIds := make([]atomicbitops.Uint32, len(ids))
-	for i := range ids {
-		atomicIds[i] = atomicbitops.FromUint32(ids[i])
-	}
-
 	return func(s *stack.Stack) stack.NetworkProtocol {
 		p := &protocol{
 			stack:   s,
 			options: opts,
-
-			ids:    atomicIds,
-			hashIV: hashIV,
 		}
 		p.fragmentation = fragmentation.NewFragmentation(header.IPv6FragmentExtHdrFragmentOffsetBytesPerUnit, fragmentation.HighFragThreshold, fragmentation.LowFragThreshold, ReassembleTimeout, s.Clock(), p)
 		p.mu.eps = make(map[tcpip.NICID]*endpoint)
@@ -2800,28 +2785,15 @@ func calculateFragmentReserve(pkt stack.PacketBufferPtr) int {
 	return pkt.AvailableHeaderBytes() + len(pkt.NetworkHeader().Slice()) + header.IPv6FragmentHeaderSize
 }
 
-// hashRoute calculates a hash value for the given route. It uses the source &
-// destination address and 32-bit number to generate the hash.
-func hashRoute(r *stack.Route, hashIV uint32) uint32 {
-	// The FNV-1a was chosen because it is a fast hashing algorithm, and
-	// cryptographic properties are not needed here.
-	h := fnv.New32a()
-	localAddr := r.LocalAddress()
-	if _, err := h.Write(localAddr.AsSlice()); err != nil {
-		panic(fmt.Sprintf("Hash.Write: %s, but Hash' implementation of Write is not expected to ever return an error", err))
+// getFragmentID returns a random uint32 number (other than zero) to be used as
+// fragment ID in the IPv6 header.
+func (e *endpoint) getFragmentID() uint32 {
+	rng := e.protocol.stack.SecureRNG()
+	id := rng.Uint32()
+	for id == 0 {
+		id = rng.Uint32()
 	}
-	remoteAddr := r.RemoteAddress()
-	if _, err := h.Write(remoteAddr.AsSlice()); err != nil {
-		panic(fmt.Sprintf("Hash.Write: %s, but Hash' implementation of Write is not expected to ever return an error", err))
-	}
-
-	s := make([]byte, 4)
-	binary.LittleEndian.PutUint32(s, hashIV)
-	if _, err := h.Write(s); err != nil {
-		panic(fmt.Sprintf("Hash.Write: %s, but Hash' implementation of Write is not expected ever to return an error", err))
-	}
-
-	return h.Sum32()
+	return id
 }
 
 func buildNextFragment(pf *fragmentation.PacketFragmenter, originalIPHeaders header.IPv6, transportProto tcpip.TransportProtocolNumber, id uint32) (stack.PacketBufferPtr, bool) {

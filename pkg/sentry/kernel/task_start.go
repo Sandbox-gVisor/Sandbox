@@ -81,9 +81,6 @@ type TaskConfig struct {
 	// IPCNamespace is the IPCNamespace of the new task.
 	IPCNamespace *IPCNamespace
 
-	// AbstractSocketNamespace is the AbstractSocketNamespace of the new task.
-	AbstractSocketNamespace *AbstractSocketNamespace
-
 	// MountNamespace is the MountNamespace of the new task.
 	MountNamespace *vfs.MountNamespace
 
@@ -101,7 +98,11 @@ type TaskConfig struct {
 	InitialCgroups map[Cgroup]struct{}
 
 	// UserCounters is user resource counters.
-	UserCounters *userCounters
+	UserCounters *UserCounters
+
+	// SessionKeyring is the session keyring associated with the parent task.
+	// It may be nil.
+	SessionKeyring *auth.Key
 }
 
 // NewTask creates a new task defined by cfg.
@@ -116,8 +117,9 @@ func (ts *TaskSet) NewTask(ctx context.Context, cfg *TaskConfig) (*Task, error) 
 		cfg.TaskImage.release(ctx)
 		cfg.FSContext.DecRef(ctx)
 		cfg.FDTable.DecRef(ctx)
+		cfg.UTSNamespace.DecRef(ctx)
 		cfg.IPCNamespace.DecRef(ctx)
-		cfg.NetworkNamespace.DecRef()
+		cfg.NetworkNamespace.DecRef(ctx)
 		if cfg.MountNamespace != nil {
 			cfg.MountNamespace.DecRef(ctx)
 		}
@@ -147,34 +149,35 @@ func (ts *TaskSet) newTask(ctx context.Context, cfg *TaskConfig) (*Task, error) 
 			parent:   cfg.Parent,
 			children: make(map[*Task]struct{}),
 		},
-		runState:        (*runApp)(nil),
-		interruptChan:   make(chan struct{}, 1),
-		signalMask:      atomicbitops.FromUint64(uint64(cfg.SignalMask)),
-		signalStack:     linux.SignalStack{Flags: linux.SS_DISABLE},
-		image:           *image,
-		fsContext:       cfg.FSContext,
-		fdTable:         cfg.FDTable,
-		k:               cfg.Kernel,
-		ptraceTracees:   make(map[*Task]struct{}),
-		allowedCPUMask:  cfg.AllowedCPUMask.Copy(),
-		ioUsage:         &usage.IO{},
-		niceness:        cfg.Niceness,
-		utsns:           cfg.UTSNamespace,
-		ipcns:           cfg.IPCNamespace,
-		abstractSockets: cfg.AbstractSocketNamespace,
-		mountNamespace:  cfg.MountNamespace,
-		rseqCPU:         -1,
-		rseqAddr:        cfg.RSeqAddr,
-		rseqSignature:   cfg.RSeqSignature,
-		futexWaiter:     futex.NewWaiter(),
-		containerID:     cfg.ContainerID,
-		cgroups:         make(map[Cgroup]struct{}),
-		userCounters:    cfg.UserCounters,
+		runState:       (*runApp)(nil),
+		interruptChan:  make(chan struct{}, 1),
+		signalMask:     atomicbitops.FromUint64(uint64(cfg.SignalMask)),
+		signalStack:    linux.SignalStack{Flags: linux.SS_DISABLE},
+		image:          *image,
+		fsContext:      cfg.FSContext,
+		fdTable:        cfg.FDTable,
+		k:              cfg.Kernel,
+		ptraceTracees:  make(map[*Task]struct{}),
+		allowedCPUMask: cfg.AllowedCPUMask.Copy(),
+		ioUsage:        &usage.IO{},
+		niceness:       cfg.Niceness,
+		utsns:          cfg.UTSNamespace,
+		ipcns:          cfg.IPCNamespace,
+		mountNamespace: cfg.MountNamespace,
+		rseqCPU:        -1,
+		rseqAddr:       cfg.RSeqAddr,
+		rseqSignature:  cfg.RSeqSignature,
+		futexWaiter:    futex.NewWaiter(),
+		containerID:    cfg.ContainerID,
+		cgroups:        make(map[Cgroup]struct{}),
+		userCounters:   cfg.UserCounters,
+		sessionKeyring: cfg.SessionKeyring,
 	}
-	t.netns.Store(cfg.NetworkNamespace)
+	t.netns = cfg.NetworkNamespace
 	t.creds.Store(cfg.Credentials)
 	t.endStopCond.L = &t.tg.signalHandlers.mu
 	t.ptraceTracer.Store((*Task)(nil))
+	t.seccomp.Store((*taskSeccomp)(nil))
 	// We don't construct t.blockingTimer until Task.run(); see that function
 	// for justification.
 
@@ -183,7 +186,7 @@ func (ts *TaskSet) newTask(ctx context.Context, cfg *TaskConfig) (*Task, error) 
 		charged, committed bool
 	)
 
-	// Reserve cgroup PIDs controller charge. This is either commited when the
+	// Reserve cgroup PIDs controller charge. This is either committed when the
 	// new task enters the cgroup below, or rolled back on failure.
 	//
 	// We may also get here from a non-task context (for example, when
@@ -258,6 +261,12 @@ func (ts *TaskSet) newTask(ctx context.Context, cfg *TaskConfig) (*Task, error) 
 			tg.processGroup = parentPG
 			tg.tty = t.parent.tg.tty
 		}
+
+		// If our parent is a child subreaper, or if it has a child
+		// subreaper, then this new thread group does as well.
+		if t.parent != nil {
+			tg.hasChildSubreaper = t.parent.tg.isChildSubreaper || t.parent.tg.hasChildSubreaper
+		}
 	}
 	tg.tasks.PushBack(t)
 	tg.tasksCount++
@@ -330,7 +339,7 @@ func (ns *PIDNamespace) allocateTID() (ThreadID, error) {
 		// Next.
 		tid++
 		if tid > TasksLimit {
-			tid = InitTID + 1
+			tid = initTID + 1
 		}
 
 		// Is it available?

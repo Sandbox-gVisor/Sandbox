@@ -46,11 +46,11 @@ func (tid ThreadID) String() string {
 	return fmt.Sprintf("%d", tid)
 }
 
-// InitTID is the TID given to the first task added to each PID namespace. The
-// thread group led by InitTID is called the namespace's init process. The
+// initTID is the TID given to the first task added to each PID namespace. The
+// thread group led by initTID is called the namespace's init process. The
 // death of a PID namespace's init process causes all tasks visible in that
 // namespace to be killed.
-const InitTID ThreadID = 1
+const initTID ThreadID = 1
 
 // A TaskSet comprises all tasks in a system.
 //
@@ -302,6 +302,20 @@ func (ns *PIDNamespace) NumTasks() int {
 	return len(ns.tids)
 }
 
+// NumTasksPerContainer returns the number of tasks in ns that belongs to given container.
+func (ns *PIDNamespace) NumTasksPerContainer(cid string) int {
+	ns.owner.mu.RLock()
+	defer ns.owner.mu.RUnlock()
+
+	tasks := 0
+	for t := range ns.tids {
+		if t.ContainerID() == cid {
+			tasks++
+		}
+	}
+	return tasks
+}
+
 // ThreadGroups returns a snapshot of the thread groups in ns.
 func (ns *PIDNamespace) ThreadGroups() []*ThreadGroup {
 	return ns.ThreadGroupsAppend(nil)
@@ -530,4 +544,17 @@ func (t *Task) ThreadID() ThreadID {
 // TGIDInRoot returns t's TGID in the root PID namespace.
 func (t *Task) TGIDInRoot() ThreadID {
 	return t.tg.pidns.owner.Root.IDOfThreadGroup(t.tg)
+}
+
+// Children returns children of this task.
+func (t *Task) Children() map[*Task]struct{} {
+	t.tg.pidns.owner.mu.RLock()
+	defer t.tg.pidns.owner.mu.RUnlock()
+
+	children := make(map[*Task]struct{}, len(t.children))
+	for child, val := range t.children {
+		children[child] = val
+	}
+
+	return children
 }

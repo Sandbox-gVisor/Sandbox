@@ -121,7 +121,7 @@ type MemoryFile struct {
 	// file blocks expected. This is used to elide the scan when this
 	// matches the underlying file blocks.
 	//
-	// To track swapped pages, usageSwapped tracks the discrepency between
+	// To track swapped pages, usageSwapped tracks the discrepancy between
 	// what is observed in core and what is reported by the file. When
 	// usageSwapped is non-zero, a sweep will be performed at least every
 	// second. The start of the last sweep is recorded in usageLast.
@@ -257,6 +257,9 @@ type usageInfo struct {
 	knownCommitted bool
 
 	refs uint64
+
+	// memCgID is the memory cgroup id to which this page is committed.
+	memCgID uint32
 }
 
 // canCommit returns true if the tracked region can be committed.
@@ -417,10 +420,53 @@ func (f *MemoryFile) Destroy() {
 	f.reclaimCond.Signal()
 }
 
+// AllocationMode provides a way to inform the pgalloc API how to allocate
+// memory and pages on the host.
+// A page will exist in one of the following incremental states:
+//  1. Allocated: A page is allocated if it was returned by Allocate() and its
+//     reference count hasn't dropped to 0 since then.
+//  2. Committed: As described in MemoryFile documentation above, a page is
+//     committed if the host kernel is spending resources to store its
+//     contents. A committed page is implicitly allocated.
+//  3. Populated: A page is populated for reading/writing in a page table
+//     hierarchy if it has a page table entry that permits reading/writing
+//     respectively. A populated page is implicitly committed, since the page
+//     table entry needs a physical page to point to, but not vice versa.
+type AllocationMode int
+
+const (
+	// AllocateOnly indicates that pages need to only be allocated.
+	AllocateOnly AllocationMode = iota
+	// AllocateAndCommit indicates that pages need to be committed, in addition
+	// to being allocated.
+	AllocateAndCommit
+	// AllocateAndWritePopulate indicates that writable pages should ideally be
+	// populated in the page table, in addition to being allocated. This is a
+	// suggestion, not a requirement.
+	AllocateAndWritePopulate
+)
+
 // AllocOpts are options used in MemoryFile.Allocate.
 type AllocOpts struct {
+	// Kind is the memory kind to be used for accounting.
 	Kind usage.MemoryKind
-	Dir  Direction
+	// Dir indicates the direction in which offsets are allocated.
+	Dir Direction
+	// MemCgID is the memory cgroup ID and the zero value indicates that
+	// the memory will not be accounted to any cgroup.
+	MemCgID uint32
+	// Mode allows the callers to select how the pages are allocated in the
+	// MemoryFile. Callers that will fill the allocated memory by writing to it
+	// should pass AllocateAndWritePopulate to avoid faulting page-by-page. Callers
+	// that will fill the allocated memory by invoking host system calls should
+	// pass AllocateOnly.
+	Mode AllocationMode
+	// If Reader is provided, the allocated memory is filled by calling
+	// ReadToBlocks() repeatedly until either length bytes are read or a non-nil
+	// error is returned. It returns the allocated memory, truncated down to the
+	// nearest page. If this is shorter than length bytes due to an error
+	// returned by ReadToBlocks(), it returns the partially filled fr and error.
+	Reader safemem.Reader
 }
 
 // Allocate returns a range of initially-zeroed pages of the given length with
@@ -431,6 +477,63 @@ type AllocOpts struct {
 //
 // Preconditions: length must be page-aligned and non-zero.
 func (f *MemoryFile) Allocate(length uint64, opts AllocOpts) (memmap.FileRange, error) {
+	fr, err := f.allocate(length, &opts)
+	if err != nil {
+		return memmap.FileRange{}, err
+	}
+	var dsts safemem.BlockSeq
+	switch opts.Mode {
+	case AllocateOnly: // Allocation is handled above. Nothing more to do.
+	case AllocateAndCommit:
+		if err := f.commitFile(fr); err != nil {
+			f.DecRef(fr)
+			return memmap.FileRange{}, err
+		}
+	case AllocateAndWritePopulate:
+		dsts, err = f.MapInternal(fr, hostarch.Write)
+		if err != nil {
+			f.DecRef(fr)
+			return memmap.FileRange{}, err
+		}
+		if canPopulate() {
+			rem := dsts
+			for {
+				if !tryPopulate(rem.Head()) {
+					break
+				}
+				rem = rem.Tail()
+				if rem.IsEmpty() {
+					break
+				}
+			}
+		}
+	default:
+		panic(fmt.Sprintf("unknown allocation mode: %d", opts.Mode))
+	}
+	if opts.Reader != nil {
+		if dsts.IsEmpty() {
+			dsts, err = f.MapInternal(fr, hostarch.Write)
+			if err != nil {
+				f.DecRef(fr)
+				return memmap.FileRange{}, err
+			}
+		}
+		n, err := safemem.ReadFullToBlocks(opts.Reader, dsts)
+		un := uint64(hostarch.Addr(n).RoundDown())
+		if un < length {
+			// Free unused memory and update fr to contain only the memory that is
+			// still allocated.
+			f.DecRef(memmap.FileRange{fr.Start + un, fr.End})
+			fr.End = fr.Start + un
+		}
+		if err != nil {
+			return fr, err
+		}
+	}
+	return fr, nil
+}
+
+func (f *MemoryFile) allocate(length uint64, opts *AllocOpts) (memmap.FileRange, error) {
 	if length == 0 || length%hostarch.PageSize != 0 {
 		panic(fmt.Sprintf("invalid allocation length: %#x", length))
 	}
@@ -473,12 +576,11 @@ func (f *MemoryFile) Allocate(length uint64, opts AllocOpts) (memmap.FileRange, 
 		}
 	}
 	// Mark selected pages as in use.
-	if !f.usage.Add(fr, usageInfo{
-		kind: opts.Kind,
-		refs: 1,
-	}) {
-		panic(fmt.Sprintf("allocating %v: failed to insert into usage set:\n%v", fr, &f.usage))
-	}
+	f.usage.InsertRange(fr, usageInfo{
+		kind:    opts.Kind,
+		refs:    1,
+		memCgID: opts.MemCgID,
+	})
 
 	return fr, nil
 }
@@ -489,7 +591,7 @@ func (f *MemoryFile) Allocate(length uint64, opts AllocOpts) (memmap.FileRange, 
 // then forwards. This heuristic has important consequence for how sequential
 // mappings can be merged in the host VMAs, given that addresses for both
 // application and sentry mappings are allocated top-down (from higher to
-// lower addresses). The file is also grown expoentially in order to create
+// lower addresses). The file is also grown exponentially in order to create
 // space for mappings to be allocated downwards.
 //
 // Precondition: alignment must be a power of 2.
@@ -581,104 +683,6 @@ func findAvailableRangeBottomUp(usage *usageSet, length, alignment uint64) (memm
 
 	// NextLargeEnoughGap should have returned a gap at the end.
 	panic(fmt.Sprintf("NextLargeEnoughGap didn't return a gap at the end, length: %d", length))
-}
-
-// AllocationMode provides a way to inform the pgalloc API how to allocate
-// memory and pages on the host.
-// A page will exist in one of the following incremental states:
-//  1. Allocated: A page is allocated if it was returned by Allocate() and its
-//     reference count hasn't dropped to 0 since then.
-//  2. Committed: As described in MemoryFile documentation above, a page is
-//     committed if the host kernel is spending resources to store its
-//     contents. A committed page is implicitly allocated.
-//  3. Populated: A page is populated for reading/writing in a page table
-//     hierarchy if it has a page table entry that permits reading/writing
-//     respectively. A populated page is implicitly committed, since the page
-//     table entry needs a physical page to point to, but not vice versa.
-type AllocationMode int
-
-const (
-	// AllocateOnly indicates that pages need to only be allocated.
-	AllocateOnly AllocationMode = iota
-	// AllocateAndCommit indicates that pages need to be committed, in addition
-	// to being allocated.
-	AllocateAndCommit
-	// AllocateAndWritePopulate indicates that writable pages should ideally be
-	// populated in the page table, in addition to being allocated. This is a
-	// suggestion, not a requirement.
-	AllocateAndWritePopulate
-)
-
-// AllocateAndFill allocates memory of the given kind and fills it by calling
-// r.ReadToBlocks() repeatedly until either length bytes are read or a non-nil
-// error is returned. It returns the memory filled by r, truncated down to the
-// nearest page. If this is shorter than length bytes due to an error returned
-// by r.ReadToBlocks(), it returns that error.
-//
-// allocMode allows the callers to select how the pages are allocated in the
-// MemoryFile. Callers that will fill the allocated memory by writing to it
-// should pass AllocateAndWritePopulate to avoid faulting page-by-page. Callers
-// that will fill the allocated memory by invoking host system calls should
-// pass AllocateOnly. Note that the mode may be upgraded in certain scenarios
-// for performance. See implementation for more details.
-//
-// Preconditions:
-//   - length > 0.
-//   - length must be page-aligned.
-func (f *MemoryFile) AllocateAndFill(length uint64, kind usage.MemoryKind, allocMode AllocationMode, r safemem.Reader) (memmap.FileRange, error) {
-	if !f.opts.DiskBackedFile && allocMode == AllocateAndCommit {
-		// Upgrade to AllocateAndWritePopulate for memory(shmem)-backed files. We
-		// take a more aggressive approach in populating pages for memory-backed
-		// MemoryFiles. shmem pages are subject to swap rather than disk writeback.
-		// They are not likely to be swapped before they are written to. Hence it
-		// is beneficial to populate (in addition to commit) shmem pages to avoid
-		// faulting page-by-page when these pages are written to in the future.
-		allocMode = AllocateAndWritePopulate
-	} else if f.opts.DiskBackedFile && allocMode == AllocateAndWritePopulate {
-		// Don't populate pages for disk-backed files.
-		// Benchmarking showed that prepopulated pages are likely to be written
-		// back to disk before the application can write to them. The pages will
-		// fault again on write anyways. In total, prepopulating disk-backed pages
-		// deteriorates performance as it fails to eliminate future page faults
-		// and we also additionally incur useless disk writebacks.
-		allocMode = AllocateOnly
-	}
-	fr, err := f.Allocate(length, AllocOpts{Kind: kind})
-	if err != nil {
-		return memmap.FileRange{}, err
-	}
-	if allocMode == AllocateAndCommit {
-		if err := f.commitFile(fr); err != nil {
-			f.DecRef(fr)
-			return memmap.FileRange{}, err
-		}
-	}
-	dsts, err := f.MapInternal(fr, hostarch.Write)
-	if err != nil {
-		f.DecRef(fr)
-		return memmap.FileRange{}, err
-	}
-	if allocMode == AllocateAndWritePopulate && canPopulate() {
-		rem := dsts
-		for {
-			if !tryPopulate(rem.Head()) {
-				break
-			}
-			rem = rem.Tail()
-			if rem.IsEmpty() {
-				break
-			}
-		}
-	}
-	n, err := safemem.ReadFullToBlocks(r, dsts)
-	un := uint64(hostarch.Addr(n).RoundDown())
-	if un < length {
-		// Free unused memory and update fr to contain only the memory that is
-		// still allocated.
-		f.DecRef(memmap.FileRange{fr.Start + un, fr.End})
-		fr.End = fr.Start + un
-	}
-	return fr, err
 }
 
 var mlockDisabled atomicbitops.Uint32
@@ -811,9 +815,7 @@ func (f *MemoryFile) Decommit(fr memmap.FileRange) error {
 
 func (f *MemoryFile) manuallyZero(fr memmap.FileRange) error {
 	return f.forEachMappingSlice(fr, func(bs []byte) {
-		for i := range bs {
-			bs[i] = 0
-		}
+		clear(bs)
 	})
 }
 
@@ -843,24 +845,42 @@ func (f *MemoryFile) markDecommitted(fr memmap.FileRange) {
 	defer f.mu.Unlock()
 	// Since we're changing the knownCommitted attribute, we need to merge
 	// across the entire range to ensure that the usage tree is minimal.
-	gap := f.usage.ApplyContiguous(fr, func(seg usageIterator) {
+	f.usage.MutateFullRange(fr, func(seg usageIterator) bool {
 		val := seg.ValuePtr()
 		if val.knownCommitted {
 			// Drop the usageExpected appropriately.
 			amount := seg.Range().Length()
-			usage.MemoryAccounting.Dec(amount, val.kind)
+			usage.MemoryAccounting.Dec(amount, val.kind, val.memCgID)
 			f.usageExpected -= amount
 			val.knownCommitted = false
 		}
+		val.memCgID = 0
+		return true
 	})
-	if gap.Ok() {
-		panic(fmt.Sprintf("Decommit(%v): attempted to decommit unallocated pages %v:\n%v", fr, gap.Range(), &f.usage))
-	}
-	f.usage.MergeRange(fr)
+}
+
+// HasUniqueRef returns true if all pages in the given range have exactly one
+// reference. A return value of false is inherently racy, but if the caller
+// holds a reference on the given range and is preventing other goroutines from
+// copying it, then a return value of true is not racy.
+//
+// Preconditions: At least one reference must be held on all pages in fr.
+func (f *MemoryFile) HasUniqueRef(fr memmap.FileRange) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	hasUniqueRef := true
+	f.usage.VisitFullRange(fr, func(seg usageIterator) bool {
+		if seg.ValuePtr().refs != 1 {
+			hasUniqueRef = false
+			return false
+		}
+		return true
+	})
+	return hasUniqueRef
 }
 
 // IncRef implements memmap.File.IncRef.
-func (f *MemoryFile) IncRef(fr memmap.FileRange) {
+func (f *MemoryFile) IncRef(fr memmap.FileRange, memCgID uint32) {
 	if !fr.WellFormed() || fr.Length() == 0 || fr.Start%hostarch.PageSize != 0 || fr.End%hostarch.PageSize != 0 {
 		panic(fmt.Sprintf("invalid range: %v", fr))
 	}
@@ -868,14 +888,10 @@ func (f *MemoryFile) IncRef(fr memmap.FileRange) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	gap := f.usage.ApplyContiguous(fr, func(seg usageIterator) {
+	f.usage.MutateFullRange(fr, func(seg usageIterator) bool {
 		seg.ValuePtr().refs++
+		return true
 	})
-	if gap.Ok() {
-		panic(fmt.Sprintf("IncRef(%v): attempted to IncRef on unallocated pages %v:\n%v", fr, gap.Range(), &f.usage))
-	}
-
-	f.usage.MergeAdjacent(fr)
 }
 
 // DecRef implements memmap.File.DecRef.
@@ -889,25 +905,24 @@ func (f *MemoryFile) DecRef(fr memmap.FileRange) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	for seg := f.usage.FindSegment(fr.Start); seg.Ok() && seg.Start() < fr.End; seg = seg.NextSegment() {
-		seg = f.usage.Isolate(seg, fr)
+	f.usage.MutateFullRange(fr, func(seg usageIterator) bool {
 		val := seg.ValuePtr()
 		if val.refs == 0 {
 			panic(fmt.Sprintf("DecRef(%v): 0 existing references on %v:\n%v", fr, seg.Range(), &f.usage))
 		}
 		val.refs--
 		if val.refs == 0 {
-			f.reclaim.Add(seg.Range(), reclaimSetValue{})
+			f.reclaim.InsertRange(seg.Range(), reclaimSetValue{})
 			freed = true
 			// Reclassify memory as System, until it's freed by the reclaim
 			// goroutine.
 			if val.knownCommitted {
-				usage.MemoryAccounting.Move(seg.Range().Length(), usage.System, val.kind)
+				usage.MemoryAccounting.Move(seg.Range().Length(), usage.System, val.kind, val.memCgID)
 			}
 			val.kind = usage.System
 		}
-	}
-	f.usage.MergeAdjacent(fr)
+		return true
+	})
 
 	if freed {
 		f.reclaimable = true
@@ -1081,8 +1096,10 @@ func (f *MemoryFile) ShouldCacheEvictable() bool {
 }
 
 // UpdateUsage ensures that the memory usage statistics in
-// usage.MemoryAccounting are up to date.
-func (f *MemoryFile) UpdateUsage() error {
+// usage.MemoryAccounting are up to date. If memCgIDs is nil, all the pages
+// will be scanned. Else only the pages which belong to the memory cgroup ids
+// in memCgIDs will be scanned and the memory usage will be updated.
+func (f *MemoryFile) UpdateUsage(memCgIDs map[uint32]struct{}) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -1104,14 +1121,17 @@ func (f *MemoryFile) UpdateUsage() error {
 		log.Debugf("UpdateUsage: skipped with usageSwapped!=0.")
 		return nil
 	}
+
 	// Linux updates usage values at CONFIG_HZ.
 	if scanningAfter := time.Now().Sub(f.usageLast).Milliseconds(); scanningAfter < time.Second.Milliseconds()/linux.CLOCKS_PER_SEC {
 		log.Debugf("UpdateUsage: skipped because previous scan happened %d ms back", scanningAfter)
 		return nil
 	}
 
-	f.usageLast = time.Now()
-	err = f.updateUsageLocked(currentUsage, mincore)
+	if memCgIDs == nil {
+		f.usageLast = time.Now()
+	}
+	err = f.updateUsageLocked(currentUsage, memCgIDs, mincore)
 	log.Debugf("UpdateUsage: currentUsage=%d, usageExpected=%d, usageSwapped=%d.",
 		currentUsage, f.usageExpected, f.usageSwapped)
 	log.Debugf("UpdateUsage: took %v.", time.Since(f.usageLast))
@@ -1124,7 +1144,7 @@ func (f *MemoryFile) UpdateUsage() error {
 //
 // Precondition: f.mu must be held; it may be unlocked and reacquired.
 // +checklocks:f.mu
-func (f *MemoryFile) updateUsageLocked(currentUsage uint64, checkCommitted func(bs []byte, committed []byte) error) error {
+func (f *MemoryFile) updateUsageLocked(currentUsage uint64, memCgIDs map[uint32]struct{}, checkCommitted func(bs []byte, committed []byte) error) error {
 	// Track if anything changed to elide the merge. In the common case, we
 	// expect all segments to be committed and no merge to occur.
 	changedAny := false
@@ -1142,9 +1162,9 @@ func (f *MemoryFile) updateUsageLocked(currentUsage uint64, checkCommitted func(
 			// that have been swapped.
 			newUsageSwapped := currentUsage - f.usageExpected
 			if f.usageSwapped < newUsageSwapped {
-				usage.MemoryAccounting.Inc(newUsageSwapped-f.usageSwapped, usage.System)
+				usage.MemoryAccounting.Inc(newUsageSwapped-f.usageSwapped, usage.System, 0)
 			} else {
-				usage.MemoryAccounting.Dec(f.usageSwapped-newUsageSwapped, usage.System)
+				usage.MemoryAccounting.Dec(f.usageSwapped-newUsageSwapped, usage.System, 0)
 			}
 			f.usageSwapped = newUsageSwapped
 		} else if f.usageSwapped != 0 {
@@ -1152,7 +1172,7 @@ func (f *MemoryFile) updateUsageLocked(currentUsage uint64, checkCommitted func(
 			// That's fine, we probably caught a race where pages were
 			// being committed while the below loop was running. Just
 			// report the higher number that we found and ignore swap.
-			usage.MemoryAccounting.Dec(f.usageSwapped, usage.System)
+			usage.MemoryAccounting.Dec(f.usageSwapped, usage.System, 0)
 			f.usageSwapped = 0
 		}
 	}()
@@ -1166,6 +1186,17 @@ func (f *MemoryFile) updateUsageLocked(currentUsage uint64, checkCommitted func(
 		if !seg.ValuePtr().canCommit() {
 			seg = seg.NextSegment()
 			continue
+		}
+
+		// Scan the pages of the given memCgID only. This will avoid scanning the
+		// whole memory file when the memory usage is required only for a specific
+		// cgroup. The total memory usage of all cgroups can be obtained when the
+		// memCgIDs is nil.
+		if memCgIDs != nil {
+			if _, ok := memCgIDs[seg.ValuePtr().memCgID]; !ok {
+				seg = seg.NextSegment()
+				continue
+			}
 		}
 
 		// Get the range for this segment. As we touch slices, the
@@ -1227,7 +1258,7 @@ func (f *MemoryFile) updateUsageLocked(currentUsage uint64, checkCommitted func(
 							seg = f.usage.Isolate(seg, committedFR)
 							seg.ValuePtr().knownCommitted = true
 							amount := seg.Range().Length()
-							usage.MemoryAccounting.Inc(amount, seg.ValuePtr().kind)
+							usage.MemoryAccounting.Inc(amount, seg.ValuePtr().kind, seg.ValuePtr().memCgID)
 							f.usageExpected += amount
 							changedAny = true
 						}
@@ -1285,6 +1316,11 @@ func (f *MemoryFile) File() *os.File {
 // FD implements memmap.File.FD.
 func (f *MemoryFile) FD() int {
 	return int(f.file.Fd())
+}
+
+// IsDiskBacked returns true if f is backed by a file on disk.
+func (f *MemoryFile) IsDiskBacked() bool {
+	return f.opts.DiskBackedFile
 }
 
 // String implements fmt.Stringer.String.
@@ -1426,6 +1462,7 @@ func (f *MemoryFile) markReclaimed(fr memmap.FileRange) {
 		kind:           usage.System,
 		knownCommitted: false,
 		refs:           0,
+		memCgID:        0,
 	}); got != want {
 		panic(fmt.Sprintf("reclaimed pages %v in segment %v has incorrect state %v, wanted %v:\n%v", fr, seg.Range(), got, want, &f.usage))
 	}

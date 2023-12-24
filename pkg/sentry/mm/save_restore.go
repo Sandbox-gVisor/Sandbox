@@ -37,9 +37,8 @@ func (mm *MemoryManager) InvalidateUnsavable(ctx context.Context) error {
 
 // beforeSave is invoked by stateify.
 func (mm *MemoryManager) beforeSave() {
-	mf := mm.mfp.MemoryFile()
 	for pseg := mm.pmas.FirstSegment(); pseg.Ok(); pseg = pseg.NextSegment() {
-		if pma := pseg.ValuePtr(); pma.file != mf {
+		if pma := pseg.ValuePtr(); pma.file != mm.mf {
 			// InvalidateUnsavable should have caused all such pmas to be
 			// invalidated.
 			panic(fmt.Sprintf("Can't save pma %#v with non-MemoryFile of type %T:\n%s", pseg.Range(), pma.file, mm))
@@ -49,9 +48,97 @@ func (mm *MemoryManager) beforeSave() {
 
 // afterLoad is invoked by stateify.
 func (mm *MemoryManager) afterLoad() {
+	mm.mf = mm.mfp.MemoryFile()
 	mm.haveASIO = mm.p.SupportsAddressSpaceIO()
-	mf := mm.mfp.MemoryFile()
 	for pseg := mm.pmas.FirstSegment(); pseg.Ok(); pseg = pseg.NextSegment() {
-		pseg.ValuePtr().file = mf
+		pseg.ValuePtr().file = mm.mf
+	}
+}
+
+const (
+	vmaRealPermsRead = 1 << iota
+	vmaRealPermsWrite
+	vmaRealPermsExecute
+	vmaEffectivePermsRead
+	vmaEffectivePermsWrite
+	vmaEffectivePermsExecute
+	vmaMaxPermsRead
+	vmaMaxPermsWrite
+	vmaMaxPermsExecute
+	vmaPrivate
+	vmaGrowsDown
+)
+
+func (v *vma) saveRealPerms() int {
+	var b int
+	if v.realPerms.Read {
+		b |= vmaRealPermsRead
+	}
+	if v.realPerms.Write {
+		b |= vmaRealPermsWrite
+	}
+	if v.realPerms.Execute {
+		b |= vmaRealPermsExecute
+	}
+	if v.effectivePerms.Read {
+		b |= vmaEffectivePermsRead
+	}
+	if v.effectivePerms.Write {
+		b |= vmaEffectivePermsWrite
+	}
+	if v.effectivePerms.Execute {
+		b |= vmaEffectivePermsExecute
+	}
+	if v.maxPerms.Read {
+		b |= vmaMaxPermsRead
+	}
+	if v.maxPerms.Write {
+		b |= vmaMaxPermsWrite
+	}
+	if v.maxPerms.Execute {
+		b |= vmaMaxPermsExecute
+	}
+	if v.private {
+		b |= vmaPrivate
+	}
+	if v.growsDown {
+		b |= vmaGrowsDown
+	}
+	return b
+}
+
+func (v *vma) loadRealPerms(b int) {
+	if b&vmaRealPermsRead > 0 {
+		v.realPerms.Read = true
+	}
+	if b&vmaRealPermsWrite > 0 {
+		v.realPerms.Write = true
+	}
+	if b&vmaRealPermsExecute > 0 {
+		v.realPerms.Execute = true
+	}
+	if b&vmaEffectivePermsRead > 0 {
+		v.effectivePerms.Read = true
+	}
+	if b&vmaEffectivePermsWrite > 0 {
+		v.effectivePerms.Write = true
+	}
+	if b&vmaEffectivePermsExecute > 0 {
+		v.effectivePerms.Execute = true
+	}
+	if b&vmaMaxPermsRead > 0 {
+		v.maxPerms.Read = true
+	}
+	if b&vmaMaxPermsWrite > 0 {
+		v.maxPerms.Write = true
+	}
+	if b&vmaMaxPermsExecute > 0 {
+		v.maxPerms.Execute = true
+	}
+	if b&vmaPrivate > 0 {
+		v.private = true
+	}
+	if b&vmaGrowsDown > 0 {
+		v.growsDown = true
 	}
 }

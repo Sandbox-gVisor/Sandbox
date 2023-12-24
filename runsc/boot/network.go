@@ -16,6 +16,7 @@ package boot
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"runtime"
@@ -25,6 +26,8 @@ import (
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/hostos"
 	"gvisor.dev/gvisor/pkg/log"
+	"gvisor.dev/gvisor/pkg/sentry/kernel"
+	"gvisor.dev/gvisor/pkg/sentry/socket/netfilter"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/link/ethernet"
 	"gvisor.dev/gvisor/pkg/tcpip/link/fdbased"
@@ -68,7 +71,8 @@ var (
 
 // Network exposes methods that can be used to configure a network stack.
 type Network struct {
-	Stack *stack.Stack
+	Stack  *stack.Stack
+	Kernel *kernel.Kernel
 }
 
 // Route represents a route in the network stack.
@@ -109,6 +113,18 @@ type FDBasedLink struct {
 	NumChannels int
 }
 
+// BindOpt indicates whether the sentry or runsc process is responsible for
+// binding the AF_XDP socket.
+type BindOpt int
+
+const (
+	// BindSentry indicates the sentry process must call bind.
+	BindSentry BindOpt = iota
+
+	// BindRunsc indicates the runsc process must call bind.
+	BindRunsc
+)
+
 // XDPLink configures an XDP link.
 type XDPLink struct {
 	Name              string
@@ -122,6 +138,7 @@ type XDPLink struct {
 	QDisc             config.QueueingDiscipline
 	Neighbors         []Neighbor
 	GvisorGROTimeout  time.Duration
+	Bind              BindOpt
 
 	// NumChannels controls how many underlying FDs are to be used to
 	// create this endpoint.
@@ -152,6 +169,10 @@ type CreateLinksAndRoutesArgs struct {
 
 	// PCAP indicates that FilePayload also contains a PCAP log file.
 	PCAP bool
+
+	// NATBlob indicates whether FilePayload also contains an iptables NAT
+	// ruleset.
+	NATBlob bool
 }
 
 // IPWithPrefix is an address with its subnet prefix length.
@@ -194,10 +215,23 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 	for _, l := range args.FDBasedLinks {
 		wantFDs += l.NumChannels
 	}
-	if len(args.XDPLinks) > 0 {
-		wantFDs += 4
+	for _, link := range args.XDPLinks {
+		// We have to keep several FDs alive when the sentry is
+		// responsible for binding, but when runsc binds we only expect
+		// the AF_XDP socket itself.
+		switch v := link.Bind; v {
+		case BindSentry:
+			wantFDs += 4
+		case BindRunsc:
+			wantFDs++
+		default:
+			return fmt.Errorf("unknown bind value: %d", v)
+		}
 	}
 	if args.PCAP {
+		wantFDs++
+	}
+	if args.NATBlob {
 		wantFDs++
 	}
 	if got := len(args.FilePayload.Files); got != wantFDs {
@@ -237,6 +271,7 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 	}
 
 	// Setup fdbased or XDP links.
+	fdOffset := 0
 	if len(args.FDBasedLinks) > 0 {
 		// Choose a dispatch mode.
 		dispatchMode := fdbased.RecvMMsg
@@ -250,7 +285,6 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 			log.Infof("Host kernel version < 5.6, falling back to RecvMMsg dispatch")
 		}
 
-		fdOffset := 0
 		for _, link := range args.FDBasedLinks {
 			nicID++
 			nicids[link.Name] = nicID
@@ -329,7 +363,6 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 		nicids[link.Name] = nicID
 
 		// Get the AF_XDP socket.
-		fdOffset := 0
 		oldFD := args.FilePayload.Files[fdOffset].Fd()
 		fd, err := unix.Dup(int(oldFD))
 		if err != nil {
@@ -337,16 +370,18 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 		}
 		fdOffset++
 
-		// The parent process sends several other FDs in order
-		// to keep them open and alive. These are for BPF
-		// programs and maps that, if closed, will break the
-		// dispatcher.
-		for _, fdName := range []string{"program-fd", "sockmap-fd", "link-fd"} {
-			oldFD := args.FilePayload.Files[fdOffset].Fd()
-			if _, err := unix.Dup(int(oldFD)); err != nil {
-				return fmt.Errorf("failed to dup %s with FD %d: %v", fdName, oldFD, err)
+		// When the sentry is responsible for binding, the runsc
+		// process sends several other FDs in order to keep them open
+		// and alive. These are for BPF programs and maps that, if
+		// closed, will break the dispatcher.
+		if link.Bind == BindSentry {
+			for _, fdName := range []string{"program-fd", "sockmap-fd", "link-fd"} {
+				oldFD := args.FilePayload.Files[fdOffset].Fd()
+				if _, err := unix.Dup(int(oldFD)); err != nil {
+					return fmt.Errorf("failed to dup %s with FD %d: %v", fdName, oldFD, err)
+				}
+				fdOffset++
 			}
-			fdOffset++
 		}
 
 		mac := tcpip.LinkAddress(link.LinkAddress)
@@ -356,6 +391,7 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 			TXChecksumOffload: link.TXChecksumOffload,
 			RXChecksumOffload: link.RXChecksumOffload,
 			InterfaceIndex:    link.InterfaceIndex,
+			Bind:              link.Bind == BindSentry,
 		})
 		if err != nil {
 			return err
@@ -437,6 +473,20 @@ func (n *Network) CreateLinksAndRoutes(args *CreateLinksAndRoutesArgs, _ *struct
 
 	log.Infof("Setting routes %+v", routes)
 	n.Stack.SetRouteTable(routes)
+
+	// Set NAT table rules if necessary.
+	if args.NATBlob {
+		log.Infof("Replacing NAT table")
+		iptReplaceBlob, err := io.ReadAll(args.FilePayload.Files[fdOffset])
+		if err != nil {
+			return fmt.Errorf("failed to read iptables blob: %v", err)
+		}
+		fdOffset++
+		if err := netfilter.SetEntries(n.Kernel.RootUserNamespace(), n.Stack, iptReplaceBlob, false); err != nil {
+			return fmt.Errorf("failed to SetEntries: %v", err)
+		}
+	}
+
 	return nil
 }
 

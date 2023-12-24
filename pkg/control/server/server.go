@@ -21,10 +21,13 @@ implementations of the control interface.
 package server
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
-	"gvisor.dev/gvisor/pkg/log"
+	"golang.org/x/sys/unix"
+	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/unet"
 	"gvisor.dev/gvisor/pkg/urpc"
@@ -103,21 +106,6 @@ func (s *Server) serve() {
 			return
 		}
 
-		ucred, err := conn.GetPeerCred()
-		if err != nil {
-			log.Warningf("Control couldn't get credentials: %s", err.Error())
-			conn.Close()
-			continue
-		}
-
-		// Only allow this user and root.
-		if int(ucred.Uid) != curUID && ucred.Uid != 0 {
-			// Authentication failed.
-			log.Warningf("Control auth failure: other UID = %d, current UID = %d", ucred.Uid, curUID)
-			conn.Close()
-			continue
-		}
-
 		// Handle the connection non-blockingly.
 		s.server.StartHandling(conn)
 	}
@@ -143,17 +131,33 @@ func CreateFromFD(fd int) (*Server, error) {
 // with the given address, which must must be unique and a valid
 // abstract socket name.
 func Create(addr string) (*Server, error) {
-	socket, err := unet.Bind(addr, false)
+	socket, err := CreateSocket(addr)
 	if err != nil {
 		return nil, err
 	}
-	return New(socket), nil
+	return CreateFromFD(socket)
 }
 
 // CreateSocket creates a socket that can be used with control server,
 // but doesn't start control server.  'addr' must be a valid and unique
 // abstract socket name.  Returns socket's FD, -1 in case of error.
 func CreateSocket(addr string) (int, error) {
+	if addr[0] != 0 && len(addr) >= linux.UnixPathMax {
+		// This is not an abstract socket path. It is a filesystem path.
+		// UDS bind fails when the len(socket path) >= UNIX_PATH_MAX. Instead
+		// try opening the parent and attempt to shorten the path via procfs.
+		dirFD, err := unix.Open(filepath.Dir(addr), unix.O_RDONLY|unix.O_DIRECTORY, 0)
+		if err != nil {
+			return -1, fmt.Errorf("failed to open parent directory of %q", addr)
+		}
+		defer unix.Close(dirFD)
+		name := filepath.Base(addr)
+		addr = fmt.Sprintf("/proc/self/fd/%d/%s", dirFD, name)
+		if len(addr) >= linux.UnixPathMax {
+			// Urgh... This is just doomed to fail. Ask caller to use a shorter name.
+			return -1, fmt.Errorf("socket name %q is too long, use a shorter name", name)
+		}
+	}
 	socket, err := unet.Bind(addr, false)
 	if err != nil {
 		return -1, err

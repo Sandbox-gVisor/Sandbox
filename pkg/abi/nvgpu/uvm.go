@@ -40,10 +40,12 @@ const (
 	UVM_REGISTER_GPU                   = 37
 	UVM_UNREGISTER_GPU                 = 38
 	UVM_PAGEABLE_MEM_ACCESS            = 39
+	UVM_DISABLE_READ_DUPLICATION       = 45
 	UVM_MAP_DYNAMIC_PARALLELISM_REGION = 65
 	UVM_ALLOC_SEMAPHORE_POOL           = 68
 	UVM_VALIDATE_VA_RANGE              = 72
 	UVM_CREATE_EXTERNAL_RANGE          = 73
+	UVM_MM_INITIALIZE                  = 75
 )
 
 // +marshal
@@ -187,6 +189,14 @@ type UVM_PAGEABLE_MEM_ACCESS_PARAMS struct {
 }
 
 // +marshal
+type UVM_DISABLE_READ_DUPLICATION_PARAMS struct {
+	RequestedBase uint64
+	Length        uint64
+	RMStatus      uint32
+	Pad0          [4]byte
+}
+
+// +marshal
 type UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS struct {
 	Base     uint64
 	Length   uint64
@@ -219,6 +229,12 @@ type UVM_CREATE_EXTERNAL_RANGE_PARAMS struct {
 	Length   uint64
 	RMStatus uint32
 	Pad0     [4]byte
+}
+
+// +marshal
+type UVM_MM_INITIALIZE_PARAMS struct {
+	UvmFD  int32
+	Status uint32
 }
 
 // From kernel-open/nvidia-uvm/uvm_types.h:

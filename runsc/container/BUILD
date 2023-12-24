@@ -22,8 +22,11 @@ go_library(
         "//pkg/cleanup",
         "//pkg/log",
         "//pkg/sentry/control",
+        "//pkg/sentry/fsimpl/erofs",
+        "//pkg/sentry/fsimpl/tmpfs",
         "//pkg/sentry/pgalloc",
         "//pkg/sighandling",
+        "//pkg/state/statefile",
         "//pkg/sync",
         "//runsc/boot",
         "//runsc/cgroup",
@@ -73,6 +76,7 @@ go_test(
         "//pkg/cleanup",
         "//pkg/log",
         "//pkg/sentry/control",
+        "//pkg/sentry/fsimpl/erofs",
         "//pkg/sentry/kernel",
         "//pkg/sentry/kernel/auth",
         "//pkg/sentry/limits",
@@ -80,6 +84,7 @@ go_test(
         "//pkg/sentry/seccheck",
         "//pkg/sentry/seccheck/points:points_go_proto",
         "//pkg/sentry/seccheck/sinks/remote/test",
+        "//pkg/state/statefile",
         "//pkg/sync",
         "//pkg/test/testutil",
         "//pkg/unet",
@@ -96,5 +101,15 @@ go_test(
         "@org_golang_google_grpc//:go_default_library",
         "@org_golang_google_protobuf//proto:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
+    ],
+)
+
+go_test(
+    name = "serialization_test",
+    srcs = ["serialization_test.go"],
+    deps = [
+        ":container",
+        "//runsc/sandbox",
+        "@org_golang_google_protobuf//proto:go_default_library",
     ],
 )

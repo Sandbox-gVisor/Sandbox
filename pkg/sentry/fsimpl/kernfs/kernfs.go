@@ -30,7 +30,7 @@
 // Reference Model:
 //
 // Kernfs dentries represents named pointers to inodes. Kernfs is solely
-// reponsible for maintaining and modifying its dentry tree; inode
+// responsible for maintaining and modifying its dentry tree; inode
 // implementations can not access the tree. Dentries and inodes have
 // independent lifetimes and reference counts. A child dentry unconditionally
 // holds a reference on its parent directory's dentry. A dentry also holds a
@@ -60,6 +60,7 @@ package kernfs
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/atomicbitops"
@@ -226,8 +227,9 @@ type Dentry struct {
 	// dflags* consts above.
 	flags atomicbitops.Uint32
 
-	parent *Dentry
-	name   string
+	parent atomic.Pointer[Dentry] `state:".(*Dentry)"`
+
+	name string
 
 	// If cached is true, dentryEntry links dentry into
 	// Filesystem.cachedDentries. cached and dentryEntry are protected by
@@ -283,9 +285,17 @@ func (d *Dentry) DecRef(ctx context.Context) {
 		refs.LogDecRef(d, r)
 	}
 	if r == 0 {
+		if d.inode.Anonymous() {
+			// Nothing to cache. Skip right to destroy. This avoids
+			// taking fs.mu in the DecRef() path for anonymous
+			// inodes.
+			d.destroy(ctx)
+			return
+		}
+
 		d.fs.mu.Lock()
+		defer d.fs.mu.Unlock()
 		d.cacheLocked(ctx)
-		d.fs.mu.Unlock()
 	} else if r < 0 {
 		panic("kernfs.Dentry.DecRef() called without holding a reference")
 	}
@@ -334,7 +344,7 @@ func (d *Dentry) cacheLocked(ctx context.Context) {
 	// because it has zero references.
 	// Note that a dentry may not always have a parent; for example magic links
 	// as described in Inode.Getlink.
-	if isDead := d.VFSDentry().IsDead(); isDead || d.parent == nil {
+	if isDead, parent := d.VFSDentry().IsDead(), d.parent.Load(); isDead || parent == nil {
 		if !isDead {
 			rcs := d.fs.vfsfs.VirtualFilesystem().InvalidateDentry(ctx, d.VFSDentry())
 			for _, rc := range rcs {
@@ -349,7 +359,10 @@ func (d *Dentry) cacheLocked(ctx context.Context) {
 		if d.isDeleted() {
 			d.inode.Watches().HandleDeletion(ctx)
 		}
-		d.destroyLocked(ctx)
+		d.destroy(ctx)
+		if parent != nil {
+			parent.decRefLocked(ctx)
+		}
 		return
 	}
 	if d.VFSDentry().IsEvictable() {
@@ -398,44 +411,43 @@ func (d *Dentry) evictLocked(ctx context.Context) {
 	// after it was inserted into fs.cachedDentries.
 	if d.refs.Load() == 0 {
 		if !d.vfsd.IsDead() {
-			d.parent.dirMu.Lock()
+			parent := d.parent.Load()
+			parent.dirMu.Lock()
 			// Note that victim can't be a mount point (in any mount
 			// namespace), since VFS holds references on mount points.
 			rcs := d.fs.vfsfs.VirtualFilesystem().InvalidateDentry(ctx, d.VFSDentry())
 			for _, rc := range rcs {
 				d.fs.deferDecRef(rc)
 			}
-			delete(d.parent.children, d.name)
-			d.parent.dirMu.Unlock()
+			delete(parent.children, d.name)
+			parent.dirMu.Unlock()
 		}
-		d.destroyLocked(ctx)
+		d.destroy(ctx)
+		if parent := d.parent.Load(); parent != nil {
+			parent.decRefLocked(ctx)
+		}
 	}
 }
 
-// destroyLocked destroys the dentry.
+// destroy destroys the dentry.
 //
 // Preconditions:
-//   - d.fs.mu must be locked for writing.
 //   - d.refs == 0.
 //   - d should have been removed from d.parent.children, i.e. d is not reachable
 //     by path traversal.
 //   - d.vfsd.IsDead() is true.
-func (d *Dentry) destroyLocked(ctx context.Context) {
+func (d *Dentry) destroy(ctx context.Context) {
 	switch refs := d.refs.Load(); refs {
 	case 0:
 		// Mark the dentry destroyed.
 		d.refs.Store(-1)
 	case -1:
-		panic("dentry.destroyLocked() called on already destroyed dentry")
+		panic("dentry.destroy() called on already destroyed dentry")
 	default:
-		panic("dentry.destroyLocked() called with references on the dentry")
+		panic("dentry.destroy() called with references on the dentry")
 	}
 
 	d.inode.DecRef(ctx) // IncRef from Init.
-
-	if d.parent != nil {
-		d.parent.decRefLocked(ctx)
-	}
 
 	refs.Unregister(d)
 }
@@ -526,8 +538,8 @@ func (d *Dentry) InotifyWithParent(ctx context.Context, events, cookie uint32, e
 	// won't have one.
 	if !d.inode.Anonymous() {
 		d.fs.mu.RLock()
-		if d.parent != nil {
-			d.parent.inode.Watches().Notify(ctx, d.name, events, cookie, et, d.isDeleted())
+		if parent := d.parent.Load(); parent != nil {
+			parent.inode.Watches().Notify(ctx, d.name, events, cookie, et, d.isDeleted())
 		}
 		d.fs.mu.RUnlock()
 	}
@@ -568,7 +580,7 @@ func (d *Dentry) insertChildLocked(name string, child *Dentry) {
 		panic(fmt.Sprintf("insertChildLocked called on non-directory Dentry: %+v.", d))
 	}
 	d.IncRef() // DecRef in child's Dentry.destroy.
-	child.parent = d
+	child.parent.Store(d)
 	child.name = name
 	if d.children == nil {
 		d.children = make(map[string]*Dentry)
@@ -623,7 +635,7 @@ func (d *Dentry) WalkDentryTree(ctx context.Context, vfsObj *vfs.VirtualFilesyst
 				// Don't let .. traverse above the start point of the walk.
 				continue
 			}
-			target = target.parent
+			target = target.parent.Load()
 			// Parent doesn't need revalidation since we revalidated it on the
 			// way to the child, and we're still holding fs.mu.
 		default:
@@ -651,7 +663,7 @@ func (d *Dentry) WalkDentryTree(ctx context.Context, vfsObj *vfs.VirtualFilesyst
 // filesystem may concurrently move d elsewhere. The caller is responsible for
 // ensuring the returned result remains valid while it is used.
 func (d *Dentry) Parent() *Dentry {
-	return d.parent
+	return d.parent.Load()
 }
 
 // The Inode interface maps filesystem-level operations that operate on paths to

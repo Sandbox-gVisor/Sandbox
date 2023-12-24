@@ -17,7 +17,11 @@
 // https://www.freebsd.org/cgi/man.cgi?bpf(4)
 package bpf
 
-import "gvisor.dev/gvisor/pkg/abi/linux"
+import (
+	"fmt"
+
+	"gvisor.dev/gvisor/pkg/abi/linux"
+)
 
 const (
 	// MaxInstructions is the maximum number of instructions in a BPF program,
@@ -74,6 +78,7 @@ const (
 	K             = 0x00 // still mode 4
 	X             = 0x08 // mode 0
 	A             = 0x10 // mode 9
+	operandMask   = K | X | A
 	srcAluJmpMask = 0x08
 	srcRetMask    = 0x18
 
@@ -110,20 +115,155 @@ const (
 	retUnusedBitsMask   = 0xe0   // returns only use instruction class and source operand
 )
 
-// Stmt returns a linux.BPFInstruction representing a BPF non-jump instruction.
-func Stmt(code uint16, k uint32) linux.BPFInstruction {
-	return linux.BPFInstruction{
+// Instruction is a type alias for linux.BPFInstruction.
+// It adds a human-readable stringification and other helper functions.
+//
+// +marshal slice:InstructionSlice
+// +stateify savable
+// +stateify identtype
+type Instruction linux.BPFInstruction
+
+// String returns a human-readable version of the instruction.
+func (ins *Instruction) String() string {
+	s, err := Decode(*ins)
+	if err != nil {
+		return fmt.Sprintf("[invalid %v: %v]", (*linux.BPFInstruction)(ins), err)
+	}
+	return s
+}
+
+// Stmt returns an Instruction representing a BPF non-jump instruction.
+func Stmt(code uint16, k uint32) Instruction {
+	return Instruction{
 		OpCode: code,
 		K:      k,
 	}
 }
 
-// Jump returns a linux.BPFInstruction representing a BPF jump instruction.
-func Jump(code uint16, k uint32, jt, jf uint8) linux.BPFInstruction {
-	return linux.BPFInstruction{
+// Jump returns an Instruction representing a BPF jump instruction.
+func Jump(code uint16, k uint32, jt, jf uint8) Instruction {
+	return Instruction{
 		OpCode:      code,
 		JumpIfTrue:  jt,
 		JumpIfFalse: jf,
 		K:           k,
+	}
+}
+
+// Equal returns whether this instruction is equivalent to `other`.
+func (ins Instruction) Equal(other Instruction) bool {
+	if ins.OpCode != other.OpCode {
+		// If instructions don't have the same opcode, they are not equal.
+		return false
+	}
+	switch ins.OpCode & instructionClassMask {
+	case Ld, Ldx:
+		if ins.OpCode&loadModeMask == Len {
+			// Length instructions are independent of the K register.
+			return true
+		}
+		// Two load instructions are the same if they load from the same offset.
+		return ins.K == other.K
+	case St, Stx:
+		// Two store instructions are the same if they store at the same offset.
+		return ins.K == other.K
+	case Alu:
+		if ins.OpCode == Alu|Neg {
+			return true // The negation instruction has no operands.
+		}
+		if ins.OpCode&operandMask == X {
+			// If we use X, no need to check anything.
+			return true
+		}
+		if ins.OpCode&operandMask == K {
+			// If use K, check that it's the same.
+			return ins.K == other.K
+		}
+		// Otherwise, we use the whole instruction.
+	case Ret:
+		switch ins.OpCode {
+		case Ret | A:
+			// All instructions that return the A register are equivalent.
+			return true
+		case Ret | K:
+			// All instructions that return the same value are equivalent.
+			return ins.K == other.K
+		}
+	case Jmp:
+		if ins.IsUnconditionalJump() {
+			// Unconditional jumps to the same offset are equivalent.
+			return ins.K == other.K
+		}
+		if ins.OpCode&operandMask == X {
+			// If we use X as the operand, check the conditional jump targets only.
+			return ins.JumpIfTrue == other.JumpIfTrue && ins.JumpIfFalse == other.JumpIfFalse
+		}
+		// Otherwise, we use the whole instruction.
+	case Misc:
+		if ins.OpCode == Misc|Tax || ins.OpCode == Misc|Txa {
+			// Swapping X and A, we don't care about the other fields.
+			return true
+		}
+	}
+	// All other instructions need full bit-for-bit comparison.
+	return ins == other
+}
+
+// IsReturn returns true if `ins` is a return instruction.
+func (ins Instruction) IsReturn() bool {
+	return ins.OpCode&instructionClassMask == Ret
+}
+
+// IsJump returns true if `ins` is a jump instruction.
+func (ins Instruction) IsJump() bool {
+	return ins.OpCode&instructionClassMask == Jmp
+}
+
+// IsConditionalJump returns true if `ins` is a conditional jump instruction.
+func (ins Instruction) IsConditionalJump() bool {
+	return ins.IsJump() && ins.OpCode&jmpMask != Ja
+}
+
+// IsUnconditionalJump returns true if `ins` is a conditional jump instruction.
+func (ins Instruction) IsUnconditionalJump() bool {
+	return ins.IsJump() && ins.OpCode&jmpMask == Ja
+}
+
+// JumpOffset is a possible jump offset that an instruction may jump to.
+type JumpOffset struct {
+	// Type is the type of jump that an instruction may execute.
+	Type JumpType
+
+	// Offset is the number of instructions that the jump skips over.
+	Offset uint32
+}
+
+// JumpOffsets returns the set of instruction offsets that this instruction
+// may jump to. Returns a nil slice if this is not a jump instruction.
+func (ins Instruction) JumpOffsets() []JumpOffset {
+	if !ins.IsJump() {
+		return nil
+	}
+	if ins.IsConditionalJump() {
+		return []JumpOffset{
+			{JumpTrue, uint32(ins.JumpIfTrue)},
+			{JumpFalse, uint32(ins.JumpIfFalse)},
+		}
+	}
+	return []JumpOffset{{JumpDirect, ins.K}}
+}
+
+// ModifiesRegisterA returns true iff this instruction modifies the value
+// of the "A" register.
+func (ins Instruction) ModifiesRegisterA() bool {
+	switch ins.OpCode & instructionClassMask {
+	case Ld:
+		return true
+	case Alu:
+		return true
+	case Misc:
+		return ins.OpCode == Misc|Tax
+	default:
+		return false
 	}
 }

@@ -116,7 +116,7 @@ func (s *LisafsServer) Mount(c *lisafs.Connection, mountNode *lisafs.Node) (*lis
 		return nil, linux.Statx{}, -1, err
 	}
 
-	if err := checkSupportedFileType(uint32(stat.Mode), &s.config); err != nil {
+	if err := checkSupportedFileType(uint32(stat.Mode)); err != nil {
 		log.Warningf("Mount: checkSupportedFileType() failed for file %q with mode %o: %v", mountPath, stat.Mode, err)
 		return nil, linux.Statx{}, -1, err
 	}
@@ -408,7 +408,7 @@ func (fd *controlFDLisa) Walk(name string) (*lisafs.ControlFD, linux.Statx, erro
 		return nil, linux.Statx{}, err
 	}
 
-	if err := checkSupportedFileType(uint32(stat.Mode), &fd.Conn().ServerImpl().(*LisafsServer).config); err != nil {
+	if err := checkSupportedFileType(uint32(stat.Mode)); err != nil {
 		_ = unix.Close(childHostFD)
 		log.Warningf("Walk: checkSupportedFileType() failed for %q with mode %o: %v", name, stat.Mode, err)
 		return nil, linux.Statx{}, err
@@ -445,7 +445,6 @@ func (fd *controlFDLisa) WalkStat(path lisafs.StringArray, recordStat func(linux
 	if fd.IsSymlink() {
 		return nil
 	}
-	server := fd.Conn().ServerImpl().(*LisafsServer)
 	for _, name := range path {
 		curFD, err := unix.Openat(curDirFD, name, unix.O_PATH|openFlags, 0)
 		if err == unix.ENOENT {
@@ -463,7 +462,7 @@ func (fd *controlFDLisa) WalkStat(path lisafs.StringArray, recordStat func(linux
 		if err != nil {
 			return err
 		}
-		if err := checkSupportedFileType(uint32(stat.Mode), &server.config); err != nil {
+		if err := checkSupportedFileType(uint32(stat.Mode)); err != nil {
 			log.Warningf("WalkStat: checkSupportedFileType() failed for file %q with mode %o while walking path %+v: %v", name, stat.Mode, path, err)
 			return err
 		}
@@ -481,6 +480,18 @@ func (fd *controlFDLisa) WalkStat(path lisafs.StringArray, recordStat func(linux
 
 // Open implements lisafs.ControlFDImpl.Open.
 func (fd *controlFDLisa) Open(flags uint32) (*lisafs.OpenFD, int, error) {
+	ftype := fd.FileType()
+	server := fd.Conn().ServerImpl().(*LisafsServer)
+	switch ftype {
+	case unix.S_IFIFO:
+		if !server.config.HostFifo.AllowOpen() {
+			return nil, -1, unix.EPERM
+		}
+	case unix.S_IFSOCK:
+		if !server.config.HostUDS.AllowOpen() {
+			return nil, -1, unix.EPERM
+		}
+	}
 	flags |= openFlags
 	openHostFD, err := unix.Openat(int(procSelfFD.FD()), strconv.Itoa(fd.hostFD), int(flags)&^unix.O_NOFOLLOW, 0)
 	if err != nil {
@@ -488,7 +499,6 @@ func (fd *controlFDLisa) Open(flags uint32) (*lisafs.OpenFD, int, error) {
 	}
 
 	hostFDToDonate := -1
-	ftype := fd.FileType()
 	switch {
 	case ftype == unix.S_IFREG:
 		// Best effort to donate file to the Sentry (for performance only).
@@ -1010,7 +1020,7 @@ func (fd *openFDLisa) Getdent64(count uint32, seek0 bool, recordDirent func(lisa
 			break
 		}
 
-		fsutil.ParseDirents(direntsBuf[:n], func(ino uint64, off int64, ftype uint8, name string, reclen uint16) bool {
+		fsutil.ParseDirents(direntsBuf[:n], func(ino uint64, off int64, ftype uint8, name string, reclen uint16) {
 			dirent := lisafs.Dirent64{
 				Ino:  primitive.Uint64(ino),
 				Off:  primitive.Uint64(off),
@@ -1024,13 +1034,12 @@ func (fd *openFDLisa) Getdent64(count uint32, seek0 bool, recordDirent func(lisa
 			stat, err := fsutil.StatAt(fd.hostFD, name)
 			if err != nil {
 				log.Warningf("Getdent64: skipping file %q with failed stat, err: %v", path.Join(fd.ControlFD().FD().Node().FilePath(), name), err)
-				return true
+				return
 			}
 			dirent.DevMinor = primitive.Uint32(unix.Minor(stat.Dev))
 			dirent.DevMajor = primitive.Uint32(unix.Major(stat.Dev))
 			recordDirent(dirent)
 			bytesRead += int(reclen)
-			return true
 		})
 	}
 	return nil
@@ -1140,21 +1149,9 @@ func fstatTo(hostFD int) (linux.Statx, error) {
 	}, nil
 }
 
-func checkSupportedFileType(mode uint32, config *Config) error {
+func checkSupportedFileType(mode uint32) error {
 	switch mode & unix.S_IFMT {
-	case unix.S_IFREG, unix.S_IFDIR, unix.S_IFLNK, unix.S_IFCHR:
-		return nil
-
-	case unix.S_IFSOCK:
-		if !config.HostUDS.AllowOpen() {
-			return unix.EPERM
-		}
-		return nil
-
-	case unix.S_IFIFO:
-		if !config.HostFifo.AllowOpen() {
-			return unix.EPERM
-		}
+	case unix.S_IFREG, unix.S_IFDIR, unix.S_IFLNK, unix.S_IFCHR, unix.S_IFSOCK, unix.S_IFIFO:
 		return nil
 
 	default:

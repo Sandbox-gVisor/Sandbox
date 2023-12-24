@@ -15,17 +15,14 @@
 package sandbox
 
 import (
-	"bytes"
-	_ "embed"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -123,6 +120,13 @@ func isRootNS() (bool, error) {
 // net namespace with the given path, creates them in the sandbox, and removes
 // them from the host.
 func createInterfacesAndRoutesFromNS(conn *urpc.Client, nsPath string, conf *config.Config) error {
+	if conf.AFXDPRedirectHost != "" {
+		if err := createRedirectInterfacesAndRoutes(conn, conf); err != nil {
+			return fmt.Errorf("failed to create XDP redirect interface: %w", err)
+		}
+		return nil
+	}
+
 	// Join the network namespace that we will be copying.
 	restore, err := joinNetNS(nsPath)
 	if err != nil {
@@ -319,6 +323,23 @@ func createInterfacesAndRoutesFromNS(conn *urpc.Client, nsPath string, conf *con
 		args.FilePayload.Files = append(args.FilePayload.Files, pcap)
 	}
 
+	// Pass the host's NAT table if requested.
+	if conf.ReproduceNftables || conf.ReproduceNAT {
+		var f *os.File
+		if conf.ReproduceNftables {
+			log.Infof("reproing nftables")
+			f, err = checkNftables()
+		} else if conf.ReproduceNAT {
+			log.Infof("reproing legacy tables")
+			f, err = writeNATBlob()
+		}
+		if err != nil {
+			return fmt.Errorf("failed to write NAT blob: %v", err)
+		}
+		args.NATBlob = true
+		args.FilePayload.Files = append(args.FilePayload.Files, f)
+	}
+
 	log.Debugf("Setting up network, config: %+v", args)
 	if err := conn.Call(boot.NetworkCreateLinksAndRoutes, &args, nil); err != nil {
 		return fmt.Errorf("creating links and routes: %w", err)
@@ -359,8 +380,8 @@ type socketEntry struct {
 // fd.
 func createSocket(iface net.Interface, ifaceLink netlink.Link, enableGSO bool) (*socketEntry, error) {
 	// Create the socket.
-	const protocol = 0x0300 // htons(ETH_P_ALL)
-	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, protocol)
+	const protocol = 0x0300                                  // htons(ETH_P_ALL)
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, 0) // pass protocol 0 to avoid slow bind()
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw socket: %v", err)
 	}
@@ -415,82 +436,6 @@ func createSocket(iface net.Interface, ifaceLink netlink.Link, enableGSO bool) (
 	}
 
 	return &socketEntry{deviceFile, gsoMaxSize}, nil
-}
-
-// program is the BPF program to attach to the socket.
-//
-//go:embed bpf/af_xdp_ebpf.o
-var program []byte
-
-func createSocketXDP(iface net.Interface) ([]*os.File, error) {
-	// Create an XDP socket. The sentry will mmap memory for the various
-	// rings and bind to the device.
-	fd, err := unix.Socket(unix.AF_XDP, unix.SOCK_RAW, 0)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create AF_XDP socket: %v", err)
-	}
-
-	// We also need to, before dropping privileges, attach a program to the
-	// device and insert our socket into its map.
-
-	// Load into the kernel.
-	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(program))
-	if err != nil {
-		return nil, fmt.Errorf("failed to load spec: %v", err)
-	}
-
-	var objects struct {
-		Program *ebpf.Program `ebpf:"xdp_prog"`
-		SockMap *ebpf.Map     `ebpf:"sock_map"`
-	}
-	if err := spec.LoadAndAssign(&objects, nil); err != nil {
-		return nil, fmt.Errorf("failed to load program: %v", err)
-	}
-
-	rawLink, err := link.AttachRawLink(link.RawLinkOptions{
-		Program: objects.Program,
-		Attach:  ebpf.AttachXDP,
-		Target:  iface.Index,
-		// By not setting the Flag field, the kernel will choose the
-		// fastest mode. In order those are:
-		// - Offloaded onto the NIC.
-		// - Running directly in the driver.
-		// - Generic mode, which works with any NIC/driver but lacks
-		//   much of the XDP performance boost.
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to attach BPF program: %v", err)
-	}
-
-	// Insert our AF_XDP socket into the BPF map that dictates where
-	// packets are redirected to.
-	key := uint32(0)
-	val := uint32(fd)
-	if err := objects.SockMap.Update(&key, &val, 0 /* flags */); err != nil {
-		return nil, fmt.Errorf("failed to insert socket into BPF map: %v", err)
-	}
-
-	// We need to keep the Program, SockMap, and link FDs open until they
-	// can be passed to the sandbox process.
-	progFD, err := unix.Dup(objects.Program.FD())
-	if err != nil {
-		return nil, fmt.Errorf("failed to dup BPF program: %v", err)
-	}
-	sockMapFD, err := unix.Dup(objects.SockMap.FD())
-	if err != nil {
-		return nil, fmt.Errorf("failed to dup BPF map: %v", err)
-	}
-	linkFD, err := unix.Dup(rawLink.FD())
-	if err != nil {
-		return nil, fmt.Errorf("failed to dup BPF link: %v", err)
-	}
-
-	return []*os.File{
-		os.NewFile(uintptr(fd), "xdp-fd"),            // The socket.
-		os.NewFile(uintptr(progFD), "program-fd"),    // The XDP program.
-		os.NewFile(uintptr(sockMapFD), "sockmap-fd"), // The XDP map.
-		os.NewFile(uintptr(linkFD), "link-fd"),       // The XDP link.
-	}, nil
 }
 
 // loopbackLink returns the link with addresses and routes for a loopback
@@ -591,4 +536,96 @@ func removeAddress(source netlink.Link, ipAndMask string) error {
 		return err
 	}
 	return netlink.AddrDel(source, addr)
+}
+
+// The below is a work around to generate iptables-legacy rules on machines
+// that use iptables-nftables. The logic goes something like this:
+//
+//             start
+//               |
+//               v               no
+//     are legacy tables empty? -----> scrape rules -----> done <----+
+//               |                                          ^        |
+//               | yes                                      |        |
+//               v                        yes               |        |
+//     are nft tables empty? -------------------------------+        |
+//               |                                                   |
+//               | no                                                |
+//               v                                                   |
+//     pipe iptables-nft-save -t nat to iptables-legacy-restore      |
+//     scrape rules                                                  |
+//     delete iptables-legacy rules                                  |
+//               |                                                   |
+//               +---------------------------------------------------+
+//
+// If we fail at some point (e.g. to find a binary), we just try to scrape the
+// legacy rules.
+
+const emptyNatRules = `-P PREROUTING ACCEPT
+-P INPUT ACCEPT
+-P OUTPUT ACCEPT
+-P POSTROUTING ACCEPT
+`
+
+func checkNftables() (*os.File, error) {
+	// Use iptables (not iptables-save) to test table emptiness because it
+	// gives predictable results: no counters and no comments.
+
+	// Is the legacy table empty?
+	if out, err := exec.Command("iptables-legacy", "-t", "nat", "-S").Output(); err != nil || string(out) != emptyNatRules {
+		return writeNATBlob()
+	}
+
+	// Is the nftables table empty?
+	if out, err := exec.Command("iptables-nft", "-t", "nat", "-S").Output(); err != nil || string(out) == emptyNatRules {
+		return nil, fmt.Errorf("no rules to scrape: %v", err)
+	}
+
+	// Get the current (empty) legacy rules.
+	currLegacy, err := exec.Command("iptables-legacy-save", "-t", "nat").Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to save existing rules with error (%v) and output: %s", err, currLegacy)
+	}
+
+	// Restore empty legacy rules.
+	defer func() {
+		cmd := exec.Command("iptables-legacy-restore")
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			log.Warningf("failed to get stdin pipe: %v", err)
+			return
+		}
+
+		go func() {
+			defer stdin.Close()
+			stdin.Write(currLegacy)
+		}()
+
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Warningf("failed to restore iptables error (%v) with output: %s", err, out)
+		}
+	}()
+
+	// Pipe the output of iptables-nft-save to iptables-legacy-restore.
+	nftOut, err := exec.Command("iptables-nft-save", "-t", "nat").Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run iptables-nft-save: %v", err)
+	}
+
+	cmd := exec.Command("iptables-legacy-restore")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stdin pipe: %v", err)
+	}
+
+	go func() {
+		defer stdin.Close()
+		stdin.Write(nftOut)
+	}()
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("failed to restore iptables error (%v) with output: %s", err, out)
+	}
+
+	return writeNATBlob()
 }

@@ -12,65 +12,51 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package filter defines all syscalls the sandbox is allowed to make
-// to the host, and installs seccomp filters to prevent prohibited
-// syscalls in case it's compromised.
+// Package filter installs seccomp filters to prevent prohibited syscalls
+// in case it's compromised.
 package filter
 
 import (
+	"fmt"
+
+	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/seccomp"
-	"gvisor.dev/gvisor/pkg/sentry/devices/nvproxy"
-	"gvisor.dev/gvisor/pkg/sentry/platform"
+	"gvisor.dev/gvisor/runsc/boot/filter/config"
 )
 
-// Options are seccomp filter related options.
-type Options struct {
-	Platform              platform.Platform
-	HostNetwork           bool
-	HostNetworkRawSockets bool
-	HostFilesystem        bool
-	ProfileEnable         bool
-	NVProxy               bool
-	ControllerFD          int
-}
+// ***   DEBUG TIP   ***
+// If you suspect the Sentry is getting killed due to a seccomp violation,
+// change this to `true` to get a panic stack trace when there is a
+// violation.
+const debugFilter = false
+
+// Options is a re-export of the config Options type under this package.
+type Options = config.Options
 
 // Install seccomp filters based on the given platform.
 func Install(opt Options) error {
-	s := allowedSyscalls
-	s.Merge(controlServerFilters(opt.ControllerFD))
-
-	// Set of additional filters used by -race and -msan. Returns empty
-	// when not enabled.
-	s.Merge(instrumentationFilters())
-
-	if opt.HostNetwork {
-		if opt.HostNetworkRawSockets {
-			Report("host networking (with raw sockets) enabled: syscall filters less restrictive!")
-		} else {
-			Report("host networking enabled: syscall filters less restrictive!")
+	for _, warning := range config.Warnings(opt) {
+		log.Warningf("*** SECCOMP WARNING: %s", warning)
+	}
+	key := opt.ConfigKey()
+	precompiled, usePrecompiled := GetPrecompiled(key)
+	if usePrecompiled && !debugFilter {
+		vars := opt.Vars()
+		log.Debugf("Loaded precompiled seccomp instructions for options %v, using variables: %v", key, vars)
+		insns, err := precompiled.RenderInstructions(vars)
+		if err != nil {
+			return fmt.Errorf("cannot render precompiled program for options %v / vars %v: %w", key, vars, err)
 		}
-		s.Merge(hostInetFilters(opt.HostNetworkRawSockets))
+		return seccomp.SetFilter(insns)
 	}
-	if opt.ProfileEnable {
-		Report("profile enabled: syscall filters less restrictive!")
-		s.Merge(profileFilters())
+	seccompOpts := config.SeccompOptions(opt)
+	if debugFilter {
+		log.Infof("Seccomp filter debugging is enabled; seccomp failures will result in a panic stack trace.")
+		seccompOpts.DefaultAction = linux.SECCOMP_RET_TRAP
+	} else {
+		log.Infof("No precompiled program found for config options %v, building seccomp program from scratch. This may slow down container startup.", key)
 	}
-	if opt.HostFilesystem {
-		Report("host filesystem enabled: syscall filters less restrictive!")
-		s.Merge(hostFilesystemFilters())
-	}
-	if opt.NVProxy {
-		Report("Nvidia GPU driver proxy enabled: syscall filters less restrictive!")
-		s.Merge(nvproxy.Filters())
-	}
-
-	s.Merge(opt.Platform.SyscallFilters())
-
-	return seccomp.Install(s, seccomp.DenyNewExecMappings)
-}
-
-// Report writes a warning message to the log.
-func Report(msg string) {
-	log.Warningf("*** SECCOMP WARNING: %s", msg)
+	rules, denyRules := config.Rules(opt)
+	return seccomp.Install(rules, denyRules, seccompOpts)
 }

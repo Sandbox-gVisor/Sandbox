@@ -18,7 +18,7 @@
 //
 //	EpollInstance.interestMu
 //		FileDescription.epollMu
-//		  Locks acquired by FilesystemImpl/FileDescriptionImpl methods
+//		  Locks acquired by FilesystemImpl/FileDescriptionImpl methods (except IsDescendant)
 //		    VirtualFilesystem.mountMu
 //		      Dentry.mu
 //		        Locks acquired by FilesystemImpls between Prepare{Delete,Rename}Dentry and Commit{Delete,Rename*}Dentry
@@ -33,6 +33,11 @@
 // Locking Dentry.mu in multiple Dentries requires holding
 // VirtualFilesystem.mountMu. Locking EpollInstance.interestMu in multiple
 // EpollInstances requires holding epollCycleMu.
+//
+// FilesystemImpl locks are not held during calls to FilesystemImpl.IsDescendant
+// since it's called under mountMu. It's possible for concurrent mutation
+// to dentry ancestors during calls IsDescendant. Callers should take
+// appropriate caution when using this method.
 package vfs
 
 import (
@@ -47,7 +52,7 @@ import (
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/eventchannel"
 	"gvisor.dev/gvisor/pkg/fspath"
-	"gvisor.dev/gvisor/pkg/log"
+	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sentry/fsmetric"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/socket/unix/transport"
@@ -58,7 +63,7 @@ import (
 
 // How long to wait for a mount promise before proceeding with the VFS
 // operation. This should be configurable by the user eventually.
-const mountPromiseTimeout = 10 * time.Second
+const mountPromiseTimeout = 30 * time.Second
 
 // A VirtualFilesystem (VFS for short) combines Filesystems in trees of Mounts.
 //
@@ -145,6 +150,13 @@ type VirtualFilesystem struct {
 	// mountPromises contains all unresolved mount promises.
 	mountPromisesMu sync.RWMutex `state:"nosave"`
 	mountPromises   map[VirtualDentry]*waiter.Queue
+
+	// toDecRef contains all the reference counted objects that needed to be
+	// DecRefd while mountMu was held. It is cleared every time unlockMounts is
+	// called and protected by mountMu.
+	//
+	// +checklocks:mountMu
+	toDecRef map[refs.RefCounter]int
 }
 
 // Init initializes a new VirtualFilesystem with no mounts or FilesystemTypes.
@@ -162,6 +174,9 @@ func (vfs *VirtualFilesystem) Init(ctx context.Context) error {
 	vfs.mounts.Init()
 	vfs.groupIDBitmap = bitmap.New(1024)
 	vfs.mountPromises = make(map[VirtualDentry]*waiter.Queue)
+	vfs.mountMu.Lock()
+	vfs.toDecRef = make(map[refs.RefCounter]int)
+	vfs.mountMu.Unlock()
 
 	// Construct vfs.anonMount.
 	anonfsDevMinor, err := vfs.GetAnonBlockDevMinor()
@@ -462,7 +477,7 @@ func (vfs *VirtualFilesystem) OpenAt(ctx context.Context, creds *auth.Credential
 			rp.Release(ctx)
 
 			if opts.FileExec {
-				if fd.Mount().Flags.NoExec {
+				if fd.Mount().Options().Flags.NoExec {
 					fd.DecRef(ctx)
 					return nil, linuxerr.EACCES
 				}
@@ -648,6 +663,7 @@ func (vfs *VirtualFilesystem) StatFSAt(ctx context.Context, creds *auth.Credenti
 		vfs.maybeBlockOnMountPromise(ctx, rp)
 		statfs, err := rp.mount.fs.impl.StatFSAt(ctx, rp)
 		if err == nil {
+			statfs.Flags |= rp.mount.MountFlags()
 			rp.Release(ctx)
 			return statfs, nil
 		}
@@ -931,7 +947,9 @@ func (vfs *VirtualFilesystem) maybeBlockOnMountPromise(ctx context.Context, rp *
 		return
 	}
 
-	path, err := vfs.PathnameReachable(ctx, rp.root, vd)
+	root := RootFromContext(ctx)
+	defer root.DecRef(ctx)
+	path, err := vfs.PathnameReachable(ctx, root, vd)
 	if err != nil {
 		panic(fmt.Sprintf("could not reach %v from root", rp.Component()))
 	}
@@ -947,7 +965,7 @@ func (vfs *VirtualFilesystem) maybeBlockOnMountPromise(ctx context.Context, rp *
 		rp.start = newMnt.root
 		rp.flags = rp.flags&^rpflagsHaveStartRef | rpflagsHaveMountRef
 	case <-time.After(mountPromiseTimeout):
-		log.Warningf("mount promise for %s timed out, proceeding with VFS operation", path)
+		panic(fmt.Sprintf("mount promise for %s timed out, unable to proceed", path))
 	}
 }
 
@@ -960,6 +978,59 @@ func (vfs *VirtualFilesystem) maybeResolveMountPromise(vd VirtualDentry) {
 	}
 	wq.Notify(waiter.EventOut)
 	delete(vfs.mountPromises, vd)
+}
+
+// PopDelayedDecRefs transfers the ownership of vfs.toDecRef to the caller via
+// the returned list. It is the caller's responsibility to DecRef these object
+// later. They must be DecRef'd outside of mountMu.
+//
+// +checklocks:vfs.mountMu
+func (vfs *VirtualFilesystem) PopDelayedDecRefs() []refs.RefCounter {
+	var rcs []refs.RefCounter
+	for rc, refs := range vfs.toDecRef {
+		for i := 0; i < refs; i++ {
+			rcs = append(rcs, rc)
+		}
+	}
+	clear(vfs.toDecRef)
+	return rcs
+}
+
+// delayDecRef saves a reference counted object so that it can be DecRef'd
+// outside of vfs.mountMu. This is necessary because filesystem locks possibly
+// taken by DentryImpl.DecRef() may precede vfs.mountMu in the lock order, and
+// Mount.DecRef() may lock vfs.mountMu.
+//
+// +checklocks:vfs.mountMu
+func (vfs *VirtualFilesystem) delayDecRef(rc refs.RefCounter) {
+	vfs.toDecRef[rc]++
+}
+
+// Use this instead of vfs.mountMu.Lock().
+//
+// +checklocksacquire:vfs.mountMu
+func (vfs *VirtualFilesystem) lockMounts() {
+	vfs.mountMu.Lock()
+}
+
+// Use this instead of vfs.mountMu.Unlock(). This method DecRefs any reference
+// counted objects that were collected while mountMu was held.
+//
+// +checklocksrelease:vfs.mountMu
+func (vfs *VirtualFilesystem) unlockMounts(ctx context.Context) {
+	if len(vfs.toDecRef) == 0 {
+		vfs.mountMu.Unlock()
+		return
+	}
+	toDecRef := vfs.toDecRef
+	// Can't use `clear` here as this would reference the same map as `toDecRef`.
+	vfs.toDecRef = map[refs.RefCounter]int{}
+	vfs.mountMu.Unlock()
+	for rc, refs := range toDecRef {
+		for i := 0; i < refs; i++ {
+			rc.DecRef(ctx)
+		}
+	}
 }
 
 // A VirtualDentry represents a node in a VFS tree, by combining a Dentry

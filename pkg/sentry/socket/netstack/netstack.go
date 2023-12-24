@@ -35,10 +35,12 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+	"google.golang.org/protobuf/proto"
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/abi/linux/errno"
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
+	"gvisor.dev/gvisor/pkg/eventchannel"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/marshal"
@@ -52,6 +54,7 @@ import (
 	ktime "gvisor.dev/gvisor/pkg/sentry/kernel/time"
 	"gvisor.dev/gvisor/pkg/sentry/socket"
 	"gvisor.dev/gvisor/pkg/sentry/socket/netfilter"
+	epb "gvisor.dev/gvisor/pkg/sentry/socket/netstack/events_go_proto"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/syserr"
@@ -287,6 +290,7 @@ var Metrics = tcpip.Stats{
 		SegmentsAckedWithDSACK:             mustCreateMetric("/netstack/tcp/segments_acked_with_dsack", "Number of segments for which DSACK was received."),
 		SpuriousRecovery:                   mustCreateMetric("/netstack/tcp/spurious_recovery", "Number of times the connection entered loss recovery spuriously."),
 		SpuriousRTORecovery:                mustCreateMetric("/netstack/tcp/spurious_rto_recovery", "Number of times the connection entered RTO spuriously."),
+		ForwardMaxInFlightDrop:             mustCreateMetric("/netstack/tcp/forward_max_in_flight_drop", "Number of connection requests dropped due to exceeding in-flight limit."),
 	},
 	UDP: tcpip.UDPStats{
 		PacketsReceived:          mustCreateMetric("/netstack/udp/packets_received", "Number of UDP datagrams received via HandlePacket."),
@@ -441,7 +445,7 @@ func (s *sock) Release(ctx context.Context) {
 			_ = t.BlockWithDeadline(ch, true, deadline)
 		}
 	}
-	s.namespace.DecRef()
+	s.namespace.DecRef(ctx)
 }
 
 // Epollable implements FileDescriptionImpl.Epollable.
@@ -793,7 +797,22 @@ func (s *sock) Bind(_ *kernel.Task, sockaddr []byte) *syserr.Error {
 // Listen implements the linux syscall listen(2) for sockets backed by
 // tcpip.Endpoint.
 func (s *sock) Listen(_ *kernel.Task, backlog int) *syserr.Error {
-	return syserr.TranslateNetstackError(s.Endpoint.Listen(backlog))
+	if err := s.Endpoint.Listen(backlog); err != nil {
+		return syserr.TranslateNetstackError(err)
+	}
+	if !socket.IsTCP(s) {
+		return nil
+	}
+
+	// Emit SentryTCPListenEvent with the bound port for tcp sockets.
+	addr, err := s.Endpoint.GetLocalAddress()
+	if err != nil {
+		panic(fmt.Sprintf("GetLocalAddress failed for tcp socket: %s", err))
+	}
+	eventchannel.Emit(&epb.SentryTcpListenEvent{
+		Port: proto.Int32(int32(addr.Port)),
+	})
+	return nil
 }
 
 // blockingAccept implements a blocking version of accept(2), that is, if no
@@ -1057,13 +1076,8 @@ func getSockOptSocket(t *kernel.Task, s socket.Socket, ep commonEndpoint, family
 			return nil, syserr.ErrInvalidArgument
 		}
 
-		// This option is only viable for TCP endpoints.
-		var v bool
-		if socket.IsTCP(s) {
-			v = tcp.EndpointState(ep.State()) == tcp.StateListen
-		}
-		vP := primitive.Int32(boolToInt32(v))
-		return &vP, nil
+		v := primitive.Int32(boolToInt32(ep.SocketOptions().GetAcceptConn()))
+		return &v, nil
 
 	case linux.SO_RCVLOWAT:
 		if outLen < sizeOfInt32 {
@@ -2297,7 +2311,7 @@ func setSockOptIPv6(t *kernel.Task, s socket.Socket, ep commonEndpoint, name int
 			return syserr.ErrNoDevice
 		}
 		// Stack must be a netstack stack.
-		return netfilter.SetEntries(t, stk.(*Stack).Stack, optVal, true)
+		return netfilter.SetEntries(t.Credentials().UserNamespace, stk.(*Stack).Stack, optVal, true)
 
 	case linux.IP6T_SO_SET_ADD_COUNTERS:
 		log.Infof("IP6T_SO_SET_ADD_COUNTERS is not supported")
@@ -2544,7 +2558,7 @@ func setSockOptIP(t *kernel.Task, s socket.Socket, ep commonEndpoint, name int, 
 			return syserr.ErrNoDevice
 		}
 		// Stack must be a netstack stack.
-		return netfilter.SetEntries(t, stk.(*Stack).Stack, optVal, false)
+		return netfilter.SetEntries(t.Credentials().UserNamespace, stk.(*Stack).Stack, optVal, false)
 
 	case linux.IPT_SO_SET_ADD_COUNTERS:
 		log.Infof("IPT_SO_SET_ADD_COUNTERS is not supported")

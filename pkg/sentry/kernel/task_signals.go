@@ -173,7 +173,7 @@ func (t *Task) deliverSignal(info *linux.SignalInfo, act linux.SigAction) taskRu
 				case sre == linuxerr.ERESTART_RESTARTBLOCK:
 					fallthrough
 				case (sre == linuxerr.ERESTARTSYS && act.Flags&linux.SA_RESTART == 0):
-					t.Debugf("Not restarting syscall %d after errno %d: interrupted by signal %d", t.Arch().SyscallNo(), sre, info.Signo)
+					t.Debugf("Not restarting syscall %d after error %v: interrupted by signal %d", t.Arch().SyscallNo(), sre, info.Signo)
 					t.Arch().SetReturn(uintptr(-ExtractErrno(linuxerr.EINTR, -1)))
 				default:
 					t.Debugf("Restarting syscall %d: interrupted by signal %d", t.Arch().SyscallNo(), info.Signo)
@@ -201,7 +201,7 @@ func (t *Task) deliverSignal(info *linux.SignalInfo, act linux.SigAction) taskRu
 			ucs.FaultAddr = info.Addr()
 		}
 
-		t.Debugf("Signal %d, PID: %d, TID: %d, fault addr: %#x: terminating thread group", ucs.Pid, ucs.Tid, ucs.FaultAddr, info.Signo)
+		t.Debugf("Signal %d, PID: %d, TID: %d, fault addr: %#x: terminating thread group", info.Signo, ucs.Pid, ucs.Tid, ucs.FaultAddr)
 		eventchannel.Emit(ucs)
 
 		t.PrepareGroupExit(linux.WaitStatusTerminationSignal(sig))

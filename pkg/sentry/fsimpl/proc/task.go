@@ -72,9 +72,12 @@ func (fs *filesystem) newTaskInode(ctx context.Context, task *kernel.Task, pidns
 		"mounts":    fs.newTaskOwnedInode(ctx, task, fs.NextIno(), 0444, &mountsData{fs: fs, task: task}),
 		"net":       fs.newTaskNetDir(ctx, task),
 		"ns": fs.newTaskOwnedDir(ctx, task, fs.NextIno(), 0511, map[string]kernfs.Inode{
-			"net":  fs.newFakeNamespaceSymlink(ctx, task, fs.NextIno(), "net"),
+			"net":  fs.newNamespaceSymlink(ctx, task, fs.NextIno(), linux.CLONE_NEWNET),
+			"mnt":  fs.newNamespaceSymlink(ctx, task, fs.NextIno(), linux.CLONE_NEWNS),
 			"pid":  fs.newPIDNamespaceSymlink(ctx, task, fs.NextIno()),
 			"user": fs.newFakeNamespaceSymlink(ctx, task, fs.NextIno(), "user"),
+			"ipc":  fs.newNamespaceSymlink(ctx, task, fs.NextIno(), linux.CLONE_NEWIPC),
+			"uts":  fs.newNamespaceSymlink(ctx, task, fs.NextIno(), linux.CLONE_NEWUTS),
 		}),
 		"oom_score":     fs.newTaskOwnedInode(ctx, task, fs.NextIno(), 0444, newStaticFile("0\n")),
 		"oom_score_adj": fs.newTaskOwnedInode(ctx, task, fs.NextIno(), 0644, &oomScoreAdj{task: task}),
@@ -87,6 +90,8 @@ func (fs *filesystem) newTaskInode(ctx context.Context, task *kernel.Task, pidns
 	}
 	if isThreadGroup {
 		contents["task"] = fs.newSubtasks(ctx, task, pidns, fakeCgroupControllers)
+	} else {
+		contents["children"] = fs.newTaskOwnedInode(ctx, task, fs.NextIno(), 0644, &childrenData{task: task, pidns: pidns})
 	}
 	if len(fakeCgroupControllers) > 0 {
 		contents["cgroup"] = fs.newTaskOwnedInode(ctx, task, fs.NextIno(), 0444, newFakeCgroupData(fakeCgroupControllers))

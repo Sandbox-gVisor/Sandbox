@@ -16,8 +16,6 @@ package specutils
 
 import (
 	"fmt"
-	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -28,21 +26,44 @@ import (
 
 const nvdEnvVar = "NVIDIA_VISIBLE_DEVICES"
 
-// GPUFunctionalityRequested returns true if the user intends for the sandbox
-// to have access to GPU functionality (e.g. access to /dev/nvidiactl),
-// irrespective of whether or not they want access to any specific GPU.
+// annotationNVProxy enables nvproxy.
+const annotationNVProxy = "dev.gvisor.internal.nvproxy"
+
+// NVProxyEnabled checks both the nvproxy annotation and conf.NVProxy to see if nvproxy is enabled.
+func NVProxyEnabled(spec *specs.Spec, conf *config.Config) bool {
+	if conf.NVProxy {
+		return true
+	}
+	val, ok := spec.Annotations[annotationNVProxy]
+	if !ok {
+		return false
+	}
+	ret, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warningf("nvproxy annotation set to invalid value %q: %w. Skipping.", val, err)
+	}
+	return ret
+}
+
+// GPUFunctionalityRequested returns true if the container should have access
+// to GPU functionality.
 func GPUFunctionalityRequested(spec *specs.Spec, conf *config.Config) bool {
-	if !conf.NVProxy {
+	if !NVProxyEnabled(spec, conf) {
 		// nvproxy disabled.
 		return false
 	}
-	if !conf.NVProxyDocker {
-		// nvproxy enabled in non-Docker mode.
-		return true
+	if spec.Linux != nil {
+		for _, dev := range spec.Linux.Devices {
+			if dev.Path == "/dev/nvidiactl" {
+				return true
+			}
+		}
 	}
-	// nvproxy enabled in Docker mode.
-	// GPU access is only requested if NVIDIA_VISIBLE_DEVICES is non-empty
-	// and set to a value that doesn't mean "no GPU".
+	if !conf.NVProxyDocker {
+		return false
+	}
+	// In Docker mode, GPU access is only requested if NVIDIA_VISIBLE_DEVICES is
+	// non-empty and set to a value that doesn't mean "no GPU".
 	if spec.Process == nil {
 		return false
 	}
@@ -52,74 +73,33 @@ func GPUFunctionalityRequested(spec *specs.Spec, conf *config.Config) bool {
 	return nvd != "" && nvd != "void"
 }
 
-// CanAccessAtLeastOneGPU returns true if the sandbox and container should
-// be able to access at least one Nvidia GPU. This is a function of the
-// sandbox configuration and the container spec's NVIDIA_VISIBLE_DEVICES
-// environment variable.
-func CanAccessAtLeastOneGPU(spec *specs.Spec, conf *config.Config) bool {
-	gpus, err := NvidiaDeviceNumbers(spec, conf)
-	if err != nil {
-		log.Warningf("Cannot determine if the container should have access to GPUs: %v", err)
-		return false
-	}
-	return len(gpus) > 0
-}
-
-// nvidiaDeviceRegex matches Nvidia GPU device paths.
-var nvidiaDeviceRegex = regexp.MustCompile(`^/dev/nvidia(\d+)$`)
-
-// findAllGPUDevices returns the Nvidia GPU device minor numbers of all GPUs
-// on the machine.
-func findAllGPUDevices() ([]uint32, error) {
-	paths, err := filepath.Glob("/dev/nvidia*")
-	if err != nil {
-		return nil, fmt.Errorf("enumerating Nvidia device files: %w", err)
-	}
-	var devMinors []uint32
-	for _, path := range paths {
-		if ms := nvidiaDeviceRegex.FindStringSubmatch(path); ms != nil {
-			index, err := strconv.ParseUint(ms[1], 10, 32)
-			if err != nil {
-				return nil, fmt.Errorf("invalid host device file %q: %w", path, err)
-			}
-			devMinors = append(devMinors, uint32(index))
-		}
-	}
-	return devMinors, nil
-}
-
-// NvidiaDeviceNumbers returns the Nvidia GPU device minor numbers that
-// should be visible to the specified container.
-// In Docker mode, this is the set of devices specified in
-// NVIDIA_VISIBLE_DEVICES.
-// In non-Docker mode, this is all Nvidia devices, as we cannot know the set
-// of usable GPUs until subcontainer creation.
-func NvidiaDeviceNumbers(spec *specs.Spec, conf *config.Config) ([]uint32, error) {
-	if !GPUFunctionalityRequested(spec, conf) {
-		return nil, nil
-	}
-	if !conf.NVProxyDocker {
-		// nvproxy enabled in non-Docker mode.
-		// Return all GPUs on the machine.
-		return findAllGPUDevices()
-	}
-	// nvproxy is enabled in Docker mode.
+// ParseNvidiaVisibleDevices parses NVIDIA_VISIBLE_DEVICES env var and returns
+// the devices specified in it. This can be passed to nvidia-container-cli.
+//
+// Precondition: conf.NVProxyDocker && GPUFunctionalityRequested(spec, conf).
+func ParseNvidiaVisibleDevices(spec *specs.Spec) (string, error) {
 	nvd, _ := EnvVar(spec.Process.Env, nvdEnvVar)
 	if nvd == "none" {
-		return nil, nil
+		return "", nil
 	}
 	if nvd == "all" {
-		return findAllGPUDevices()
+		return "all", nil
 	}
-	var devMinors []uint32
 	// Expect nvd to be a list of indices; UUIDs aren't supported
 	// yet.
-	for _, indexStr := range strings.Split(nvd, ",") {
-		index, err := strconv.ParseUint(indexStr, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("invalid %q in NVIDIA_VISIBLE_DEVICES %q: %w", indexStr, nvd, err)
+	for _, gpuDev := range strings.Split(nvd, ",") {
+		// Validate gpuDev. We only support the following formats for now:
+		// * GPU indices (e.g. 0,1,2)
+		// * GPU UUIDs (e.g. GPU-fef8089b)
+		//
+		// We do not support MIG devices yet.
+		if strings.HasPrefix(gpuDev, "GPU-") {
+			continue
 		}
-		devMinors = append(devMinors, uint32(index))
+		_, err := strconv.ParseUint(gpuDev, 10, 32)
+		if err != nil {
+			return "", fmt.Errorf("invalid %q in NVIDIA_VISIBLE_DEVICES %q: %w", gpuDev, nvd, err)
+		}
 	}
-	return devMinors, nil
+	return nvd, nil
 }

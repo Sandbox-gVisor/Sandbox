@@ -236,7 +236,7 @@ const (
 	IP6T_F_PROTO = 0x01
 	// Whether to match the TOS field.
 	IP6T_F_TOS = 0x02
-	// Indicates that the jump target is an aboslute GOTO, not an offset.
+	// Indicates that the jump target is an absolute GOTO, not an offset.
 	IP6T_F_GOTO = 0x04
 	// Enables all flags.
 	IP6T_F_MASK = 0x07
@@ -275,3 +275,20 @@ type NFNATRange struct {
 
 // SizeOfNFNATRange is the size of NFNATRange.
 const SizeOfNFNATRange = 40
+
+// NFNATRange2 corresponds to struct nf_nat_range2 in
+// include/uapi/linux/netfilter/nf_nat.h.
+//
+// +marshal
+type NFNATRange2 struct {
+	Flags     uint32
+	MinAddr   Inet6Addr
+	MaxAddr   Inet6Addr
+	MinProto  uint16 // Network byte order.
+	MaxProto  uint16 // Network byte order.
+	BaseProto uint16 // Network byte order.
+	_         [6]byte
+}
+
+// SizeOfNFNATRange2 is the size of NFNATRange2.
+const SizeOfNFNATRange2 = 48

@@ -43,6 +43,7 @@ import (
 const (
 	annotationFlagPrefix            = "dev.gvisor.flag."
 	annotationSeccomp               = "dev.gvisor.internal.seccomp."
+	annotationTPU                   = "dev.gvisor.internal.tpuproxy"
 	annotationSeccompRuntimeDefault = "RuntimeDefault"
 
 	annotationContainerName = "io.kubernetes.cri.container-name"
@@ -285,6 +286,27 @@ func ReadMounts(f *os.File) ([]specs.Mount, error) {
 		return nil, fmt.Errorf("error unmarshaling mounts: %v\nJSON bytes:\n%s", err, string(bytes))
 	}
 	return mounts, nil
+}
+
+// ChangeMountType changes m.Type to the specified type. It may do necessary
+// amends to m.Options.
+func ChangeMountType(m *specs.Mount, newType string) {
+	m.Type = newType
+
+	// OCI spec allows bind mounts to be specified in options only. So if new type
+	// is not bind, remove bind/rbind from options.
+	//
+	// "For bind mounts (when options include either bind or rbind), the type is
+	// a dummy, often "none" (not listed in /proc/filesystems)."
+	if newType != "bind" {
+		newOpts := make([]string, 0, len(m.Options))
+		for _, opt := range m.Options {
+			if opt != "rbind" && opt != "bind" {
+				newOpts = append(newOpts, opt)
+			}
+		}
+		m.Options = newOpts
+	}
 }
 
 // Capabilities takes in spec and returns a TaskCapabilities corresponding to
@@ -547,6 +569,38 @@ func IsDebugCommand(conf *config.Config, command string) bool {
 	return !rv
 }
 
+// TPUProxyIsEnabled checks if tpuproxy is enabled in the config or annotations.
+func TPUProxyIsEnabled(spec *specs.Spec, conf *config.Config) bool {
+	if conf.TPUProxy {
+		return true
+	}
+	val, ok := spec.Annotations[annotationTPU]
+	if !ok {
+		return false
+	}
+	ret, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warningf("tpuproxy annotation set to invalid value %q: %w. Skipping.", val, err)
+	}
+	return ret
+}
+
+// TPUFunctionalityRequested returns true if the container should have access
+// to TPU functionality.
+func TPUFunctionalityRequested(spec *specs.Spec, conf *config.Config) bool {
+	if !TPUProxyIsEnabled(spec, conf) {
+		return false
+	}
+	if spec.Linux != nil {
+		for _, dev := range spec.Linux.Devices {
+			if strings.HasPrefix(dev.Path, "/dev/accel") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SafeSetupAndMount creates the mount point and calls Mount with the given
 // flags. procPath is the path to procfs. If it is "", procfs is assumed to be
 // mounted at /proc.
@@ -657,9 +711,15 @@ func GetOOMScoreAdj(pid int) (int, error) {
 	return strconv.Atoi(strings.TrimSpace(string(data)))
 }
 
-// EnvVar looks for a varible value in the env slice assuming the following
-// format: "NAME=VALUE".
+// EnvVar looks for a variable value in the env slice assuming the following
+// format: "NAME=VALUE". If a variable is defined multiple times, the last
+// value is used.
 func EnvVar(env []string, name string) (string, bool) {
+	var err error
+	env, err = ResolveEnvs(env)
+	if err != nil {
+		return "", false
+	}
 	prefix := name + "="
 	for _, e := range env {
 		if strings.HasPrefix(e, prefix) {

@@ -50,7 +50,7 @@ func (f *MemoryFile) SaveTo(ctx context.Context, w wire.Writer) error {
 	// Ensure that all pages that contain data have knownCommitted set, since
 	// we only store knownCommitted pages below.
 	zeroPage := make([]byte, hostarch.PageSize)
-	err := f.updateUsageLocked(0, func(bs []byte, committed []byte) error {
+	err := f.updateUsageLocked(0, nil, func(bs []byte, committed []byte) error {
 		for pgoff := 0; pgoff < len(bs); pgoff += hostarch.PageSize {
 			i := pgoff / hostarch.PageSize
 			pg := bs[pgoff : pgoff+hostarch.PageSize]
@@ -189,7 +189,7 @@ func (f *MemoryFile) LoadFrom(ctx context.Context, r wire.Reader) error {
 		// Update accounting for restored pages. We need to do this here since
 		// these segments are marked as "known committed", and will be skipped
 		// over on accounting scans.
-		usage.MemoryAccounting.Inc(seg.End()-seg.Start(), seg.Value().kind)
+		usage.MemoryAccounting.Inc(seg.End()-seg.Start(), seg.Value().kind, seg.Value().memCgID)
 	}
 
 	return nil

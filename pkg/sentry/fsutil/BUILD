@@ -50,7 +50,7 @@ go_template_instance(
     types = {
         "Key": "uint64",
         "Range": "memmap.FileRange",
-        "Value": "uint64",
+        "Value": "FrameRefSegInfo",
         "Functions": "FrameRefSetFunctions",
     },
 )
@@ -100,7 +100,6 @@ go_library(
         "//pkg/sentry/kernel/time",
         "//pkg/sentry/memmap",
         "//pkg/sentry/pgalloc",
-        "//pkg/sentry/socket/unix/transport",
         "//pkg/sentry/usage",
         "//pkg/state",
         "//pkg/sync",

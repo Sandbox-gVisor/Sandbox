@@ -31,13 +31,15 @@ import (
 // +stateify savable
 type memoryController struct {
 	controllerCommon
-	controllerStateless
 	controllerNoResource
 
 	limitBytes            atomicbitops.Int64
 	softLimitBytes        atomicbitops.Int64
 	moveChargeAtImmigrate atomicbitops.Int64
 	pressureLevel         int64
+
+	// memCg is the memory cgroup for this controller.
+	memCg *memoryCgroup
 }
 
 var _ controller = (*memoryController)(nil)
@@ -45,7 +47,7 @@ var _ controller = (*memoryController)(nil)
 func newMemoryController(fs *filesystem, defaults map[string]int64) *memoryController {
 	c := &memoryController{
 		// Linux sets these limits to (PAGE_COUNTER_MAX * PAGE_SIZE) by default,
-		// which is ~ 2**63 on a 64-bit system. So essentially, inifinity. The
+		// which is ~ 2**63 on a 64-bit system. So essentially, infinity. The
 		// exact value isn't very important.
 
 		limitBytes:     atomicbitops.FromInt64(math.MaxInt64),
@@ -79,26 +81,80 @@ func (c *memoryController) Clone() controller {
 }
 
 // AddControlFiles implements controller.AddControlFiles.
-func (c *memoryController) AddControlFiles(ctx context.Context, creds *auth.Credentials, _ *cgroupInode, contents map[string]kernfs.Inode) {
-	contents["memory.usage_in_bytes"] = c.fs.newControllerFile(ctx, creds, &memoryUsageInBytesData{}, true)
+func (c *memoryController) AddControlFiles(ctx context.Context, creds *auth.Credentials, cg *cgroupInode, contents map[string]kernfs.Inode) {
+	c.memCg = &memoryCgroup{cg}
+	contents["memory.usage_in_bytes"] = c.fs.newControllerFile(ctx, creds, &memoryUsageInBytesData{memCg: &memoryCgroup{cg}}, true)
 	contents["memory.limit_in_bytes"] = c.fs.newStubControllerFile(ctx, creds, &c.limitBytes, true)
 	contents["memory.soft_limit_in_bytes"] = c.fs.newStubControllerFile(ctx, creds, &c.softLimitBytes, true)
 	contents["memory.move_charge_at_immigrate"] = c.fs.newStubControllerFile(ctx, creds, &c.moveChargeAtImmigrate, true)
 	contents["memory.pressure_level"] = c.fs.newStaticControllerFile(ctx, creds, linux.FileMode(0644), fmt.Sprintf("%d\n", c.pressureLevel))
 }
 
+// Enter implements controller.Enter.
+func (c *memoryController) Enter(t *kernel.Task) {
+	// Update the new cgroup id for the task.
+	t.SetMemCgID(c.memCg.ID())
+}
+
+// Leave implements controller.Leave.
+func (c *memoryController) Leave(t *kernel.Task) {
+	// Update the cgroup id for the task to zero.
+	t.SetMemCgID(0)
+}
+
+// PrepareMigrate implements controller.PrepareMigrate.
+func (c *memoryController) PrepareMigrate(t *kernel.Task, src controller) error {
+	return nil
+}
+
+// CommitMigrate implements controller.CommitMigrate.
+func (c *memoryController) CommitMigrate(t *kernel.Task, src controller) {
+	// Start tracking t at dst by updating the memCgID.
+	t.SetMemCgID(c.memCg.ID())
+}
+
+// AbortMigrate implements controller.AbortMigrate.
+func (c *memoryController) AbortMigrate(t *kernel.Task, src controller) {}
+
 // +stateify savable
-type memoryUsageInBytesData struct{}
+type memoryCgroup struct {
+	*cgroupInode
+}
+
+// Collects all the memory cgroup ids for the cgroup.
+func (memCg *memoryCgroup) collectMemCgIDs(memCgIDs map[uint32]struct{}) {
+	// Add ourselves.
+	memCgIDs[memCg.ID()] = struct{}{}
+	// Add our children.
+	memCg.forEachChildDir(func(d *dir) {
+		cg := memoryCgroup{d.cgi}
+		cg.collectMemCgIDs(memCgIDs)
+	})
+}
+
+// Returns the memory usage for all cgroup ids in memCgIDs.
+func getUsage(k *kernel.Kernel, memCgIDs map[uint32]struct{}) uint64 {
+	k.MemoryFile().UpdateUsage(memCgIDs)
+	var totalBytes uint64
+	for id := range memCgIDs {
+		_, bytes := usage.MemoryAccounting.CopyPerCg(id)
+		totalBytes += bytes
+	}
+	return totalBytes
+}
+
+// +stateify savable
+type memoryUsageInBytesData struct {
+	memCg *memoryCgroup
+}
 
 // Generate implements vfs.DynamicBytesSource.Generate.
 func (d *memoryUsageInBytesData) Generate(ctx context.Context, buf *bytes.Buffer) error {
-	// TODO(b/183151557): This is a giant hack, we're using system-wide
-	// accounting since we know there is only one cgroup.
 	k := kernel.KernelFromContext(ctx)
-	mf := k.MemoryFile()
-	mf.UpdateUsage()
-	_, totalBytes := usage.MemoryAccounting.Copy()
 
+	memCgIDs := make(map[uint32]struct{})
+	d.memCg.collectMemCgIDs(memCgIDs)
+	totalBytes := getUsage(k, memCgIDs)
 	fmt.Fprintf(buf, "%d\n", totalBytes)
 	return nil
 }

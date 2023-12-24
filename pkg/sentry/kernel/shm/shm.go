@@ -65,7 +65,7 @@ type Registry struct {
 
 	// reg defines basic fields and operations needed for all SysV registries.
 	//
-	// Withing reg, there are two maps, Objects and KeysToIDs.
+	// Within reg, there are two maps, Objects and KeysToIDs.
 	//
 	// reg.objects holds all referenced segments, which are removed on the last
 	// DecRef. Thus, it cannot itself hold a reference on the Shm.
@@ -211,7 +211,7 @@ func (r *Registry) newShmLocked(ctx context.Context, pid int32, key ipc.Key, cre
 	}
 
 	effectiveSize := uint64(hostarch.Addr(size).MustRoundUp())
-	fr, err := mfp.MemoryFile().Allocate(effectiveSize, pgalloc.AllocOpts{Kind: usage.Anonymous})
+	fr, err := mfp.MemoryFile().Allocate(effectiveSize, pgalloc.AllocOpts{Kind: usage.Anonymous, MemCgID: pgalloc.MemoryCgroupIDFromContext(ctx)})
 	if err != nil {
 		return nil, err
 	}

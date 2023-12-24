@@ -27,6 +27,7 @@ import (
 	"gvisor.dev/gvisor/pkg/safemem"
 	"gvisor.dev/gvisor/pkg/sentry/fsmetric"
 	"gvisor.dev/gvisor/pkg/sentry/fsutil"
+	"gvisor.dev/gvisor/pkg/sentry/hostfd"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/memmap"
 	"gvisor.dev/gvisor/pkg/sentry/pgalloc"
@@ -307,10 +308,7 @@ func (rf *regularFile) Translate(ctx context.Context, required, optional memmap.
 		}
 		optional = required
 	}
-	pagesAlloced, cerr := rf.data.Fill(ctx, required, optional, rf.size.RacyLoad(), rf.inode.fs.mf, rf.memoryUsageKind, pgalloc.AllocateOnly, func(_ context.Context, dsts safemem.BlockSeq, _ uint64) (uint64, error) {
-		// Newly-allocated pages are zeroed, so we don't need to do anything.
-		return dsts.NumBytes(), nil
-	})
+	pagesAlloced, cerr := rf.data.Fill(ctx, required, optional, rf.size.RacyLoad(), rf.inode.fs.mf, rf.memoryUsageKind, pgalloc.AllocateOnly, nil /* r */)
 	// rf.data.Fill() may fail mid-way. We still want to account any pages that
 	// were allocated, irrespective of an error.
 	rf.inode.fs.adjustPageAcct(pagesToFill, pagesAlloced)
@@ -362,11 +360,50 @@ func (fd *regularFileFD) Release(context.Context) {
 // Allocate implements vfs.FileDescriptionImpl.Allocate.
 func (fd *regularFileFD) Allocate(ctx context.Context, mode, offset, length uint64) error {
 	f := fd.inode().impl.(*regularFile)
-
+	// To be consistent with Linux, inode.mu must be locked throughout.
 	f.inode.mu.Lock()
 	defer f.inode.mu.Unlock()
-	f.dataMu.Lock()
-	defer f.dataMu.Unlock()
+	end := offset + length
+	pgEnd, ok := hostarch.PageRoundUp(end)
+	if !ok {
+		return linuxerr.EFBIG
+	}
+	// Allocate in chunks for the following reasons:
+	// 1. Size limit may permit really large fallocate, which can take a long
+	//    time to execute on the host. This can cause watchdog to timeout and
+	//    crash the system. Watchdog needs petting.
+	// 2. Linux allocates folios iteratively while checking for interrupts. In
+	//    gVisor, we need to manually check for interrupts between chunks.
+	const chunkSize = 4 << 30 // 4 GiB
+	for curPgStart := hostarch.PageRoundDown(offset); curPgStart < pgEnd; {
+		curPgEnd := pgEnd
+		newSize := end
+		if curPgEnd-curPgStart > chunkSize {
+			curPgEnd = curPgStart + chunkSize
+			newSize = curPgEnd
+		}
+		required := memmap.MappableRange{Start: curPgStart, End: curPgEnd}
+		if err := f.allocateLocked(ctx, mode, newSize, required); err != nil {
+			return err
+		}
+		// This loop can take a long time to process, so periodically check for
+		// interrupts. This also pets the watchdog.
+		if ctx.Interrupted() {
+			return linuxerr.EINTR
+		}
+		// Advance curPgStart.
+		curPgStart = curPgEnd
+	}
+	return nil
+}
+
+// Preconditions:
+// - rf.inode.mu is locked.
+// - required must be page-aligned.
+// - required.Start < newSize <= required.End.
+func (rf *regularFile) allocateLocked(ctx context.Context, mode, newSize uint64, required memmap.MappableRange) error {
+	rf.dataMu.Lock()
+	defer rf.dataMu.Unlock()
 
 	// We must allocate pages in the range specified by offset and length.
 	// Even if newSize <= oldSize, there might not be actual memory backing this
@@ -374,35 +411,35 @@ func (fd *regularFileFD) Allocate(ctx context.Context, mode, offset, length uint
 	// "After a successful call, subsequent writes into the range
 	// specified by offset and len are guaranteed not to fail because of
 	// lack of disk space."  - fallocate(2)
-	newSize := offset + length
-	pgstartaddr := hostarch.Addr(offset).RoundDown()
-	pgendaddr, ok := hostarch.Addr(newSize).RoundUp()
-	if !ok {
-		return linuxerr.EFBIG
-	}
-	required := memmap.MappableRange{Start: uint64(pgstartaddr), End: uint64(pgendaddr)}
-	pagesToFill := f.data.PagesToFill(required, required)
-	if !f.inode.fs.accountPages(pagesToFill) {
+	pagesToFill := rf.data.PagesToFill(required, required)
+	if !rf.inode.fs.accountPages(pagesToFill) {
 		return linuxerr.ENOSPC
 	}
 	// Given our definitions in pgalloc, fallocate(2) semantics imply that pages
 	// in the MemoryFile must be committed, in addition to being allocated.
-	pagesAlloced, err := f.data.Fill(ctx, required, required, newSize, f.inode.fs.mf, f.memoryUsageKind, pgalloc.AllocateAndCommit, func(_ context.Context, dsts safemem.BlockSeq, _ uint64) (uint64, error) {
-		// Newly-allocated pages are zeroed, so we don't need to do anything.
-		return dsts.NumBytes(), nil
-	})
+	allocMode := pgalloc.AllocateAndCommit
+	if !rf.inode.fs.mf.IsDiskBacked() {
+		// Upgrade to AllocateAndWritePopulate for memory(shmem)-backed files. We
+		// take a more aggressive approach in populating pages for memory-backed
+		// MemoryFiles. shmem pages are subject to swap rather than disk writeback.
+		// They are not likely to be swapped before they are written to. Hence it
+		// is beneficial to populate (in addition to commit) shmem pages to avoid
+		// faulting page-by-page when these pages are written to in the future.
+		allocMode = pgalloc.AllocateAndWritePopulate
+	}
+	pagesAlloced, err := rf.data.Fill(ctx, required, required, newSize, rf.inode.fs.mf, rf.memoryUsageKind, allocMode, nil /* r */)
 	// f.data.Fill() may fail mid-way. We still want to account any pages that
 	// were allocated, irrespective of an error.
-	f.inode.fs.adjustPageAcct(pagesToFill, pagesAlloced)
+	rf.inode.fs.adjustPageAcct(pagesToFill, pagesAlloced)
 	if err != nil && err != io.EOF {
 		return err
 	}
 
-	oldSize := f.size.Load()
+	oldSize := rf.size.Load()
 	if oldSize >= newSize {
 		return nil
 	}
-	return f.growLocked(newSize)
+	return rf.growLocked(newSize)
 }
 
 // PRead implements vfs.FileDescriptionImpl.PRead.
@@ -427,7 +464,7 @@ func (fd *regularFileFD) PRead(ctx context.Context, dst usermem.IOSequence, offs
 		return 0, nil
 	}
 	f := fd.inode().impl.(*regularFile)
-	rw := getRegularFileReadWriter(f, offset)
+	rw := getRegularFileReadWriter(f, offset, 0)
 	n, err := dst.CopyOutFrom(ctx, rw)
 	putRegularFileReadWriter(rw)
 	fd.inode().touchAtime(fd.vfsfd.Mount())
@@ -489,7 +526,7 @@ func (fd *regularFileFD) pwrite(ctx context.Context, src usermem.IOSequence, off
 	src = src.TakeFirst64(srclen)
 
 	// Perform the write.
-	rw := getRegularFileReadWriter(f, offset)
+	rw := getRegularFileReadWriter(f, offset, pgalloc.MemoryCgroupIDFromContext(ctx))
 	n, err := src.CopyInTo(ctx, rw)
 
 	f.inode.touchCMtimeLocked()
@@ -559,6 +596,10 @@ type regularFileReadWriter struct {
 	// Offset into the file to read/write at. Note that this may be
 	// different from the FD offset if PRead/PWrite is used.
 	off uint64
+
+	// memCgID is the memory cgroup ID used for accounting the allocated
+	// pages.
+	memCgID uint32
 }
 
 var regularFileReadWriterPool = sync.Pool{
@@ -567,10 +608,11 @@ var regularFileReadWriterPool = sync.Pool{
 	},
 }
 
-func getRegularFileReadWriter(file *regularFile, offset int64) *regularFileReadWriter {
+func getRegularFileReadWriter(file *regularFile, offset int64, memCgID uint32) *regularFileReadWriter {
 	rw := regularFileReadWriterPool.Get().(*regularFileReadWriter)
 	rw.file = file
 	rw.off = uint64(offset)
+	rw.memCgID = memCgID
 	return rw
 }
 
@@ -665,7 +707,7 @@ func (rw *regularFileReadWriter) WriteFromBlocks(srcs safemem.BlockSeq) (uint64,
 		// containing EOF fails, resulting in a partial write up to the start of
 		// that page.
 		//
-		// To emulate this behaviour, artifically truncate the write to the
+		// To emulate this behaviour, artificially truncate the write to the
 		// start of the page containing the current EOF.
 		//
 		// See Linux, mm/filemap.c:generic_perform_write() and
@@ -694,15 +736,7 @@ func (rw *regularFileReadWriter) WriteFromBlocks(srcs safemem.BlockSeq) (uint64,
 		mr := memmap.MappableRange{uint64(rw.off), uint64(end)}
 		switch {
 		case seg.Ok():
-			// Get internal mappings.
-			ims, err := rw.file.inode.fs.mf.MapInternal(seg.FileRangeOf(seg.Range().Intersect(mr)), hostarch.Write)
-			if err != nil {
-				retErr = err
-				goto exitLoop
-			}
-
-			// Copy to internal mappings.
-			n, err := safemem.CopySeq(ims, srcs)
+			n, err := rw.writeToMF(seg.FileRangeOf(seg.Range().Intersect(mr)), srcs)
 			done += n
 			rw.off += uint64(n)
 			srcs = srcs.DropFirst64(n)
@@ -728,10 +762,21 @@ func (rw *regularFileReadWriter) WriteFromBlocks(srcs safemem.BlockSeq) (uint64,
 				goto exitLoop
 			}
 			gapMR.End = gapMR.Start + (hostarch.PageSize * pagesReserved)
-			fr, err := rw.file.inode.fs.mf.AllocateAndFill(gapMR.Length(), rw.file.memoryUsageKind, pgalloc.AllocateAndWritePopulate, safemem.ReaderFunc(func(dsts safemem.BlockSeq) (uint64, error) {
-				// No-op here. The write to dsts will happen in the next iteration.
-				return dsts.NumBytes(), nil
-			}))
+			allocMode := pgalloc.AllocateAndWritePopulate
+			if rw.file.inode.fs.mf.IsDiskBacked() {
+				// Don't populate pages for disk-backed files. Benchmarking showed that
+				// disk-backed pages are likely to be written back to disk before we
+				// can write to them. The pages fault again on write anyways. In total,
+				// prepopulating disk-backed pages deteriorates performance as it fails
+				// to eliminate future page faults and we also additionally incur
+				// useless disk writebacks.
+				allocMode = pgalloc.AllocateOnly
+			}
+			fr, err := rw.file.inode.fs.mf.Allocate(gapMR.Length(), pgalloc.AllocOpts{
+				Kind:    rw.file.memoryUsageKind,
+				Mode:    allocMode,
+				MemCgID: rw.memCgID,
+			})
 			if err != nil {
 				retErr = err
 				rw.file.inode.fs.unaccountPages(pagesReserved)
@@ -752,6 +797,29 @@ exitLoop:
 	}
 
 	return done, retErr
+}
+
+func (rw *regularFileReadWriter) writeToMF(fr memmap.FileRange, srcs safemem.BlockSeq) (uint64, error) {
+	if rw.file.inode.fs.mf.IsDiskBacked() {
+		// Disk-backed files are not prepopulated. The safemem.CopySeq() approach
+		// used below incurs a lot of page faults without page prepopulation, which
+		// causes a lot of context switching. Use write(2) host syscall instead,
+		// which makes one context switch and faults all the pages that are touched
+		// during the write.
+		return hostfd.Pwritev2(
+			int32(rw.file.inode.fs.mf.FD()), // fd
+			srcs.TakeFirst64(fr.Length()),   // srcs
+			int64(fr.Start),                 // offset
+			0,                               // flags
+		)
+	}
+	// Get internal mappings.
+	ims, err := rw.file.inode.fs.mf.MapInternal(fr, hostarch.Write)
+	if err != nil {
+		return 0, err
+	}
+	// Copy to internal mappings.
+	return safemem.CopySeq(ims, srcs)
 }
 
 // GetSeals returns the current set of seals on a memfd inode.

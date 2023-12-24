@@ -422,20 +422,13 @@ func PivotRoot(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintp
 	}
 	defer putOldTpop.Release(t)
 
-	oldRootVd := t.FSContext().RootDirectory()
-	defer oldRootVd.DecRef(t)
-	newRootVd, err := t.Kernel().VFS().GetDentryAt(t, t.Credentials(), &newRootTpop.pop, &vfs.GetDentryOptions{
-		CheckSearchable: true,
-	})
+	newRoot, oldRoot, err := t.Kernel().VFS().PivotRoot(t, t.Credentials(), &newRootTpop.pop, &putOldTpop.pop)
 	if err != nil {
 		return 0, nil, err
 	}
-	defer newRootVd.DecRef(t)
-
-	if err := t.Kernel().VFS().PivotRoot(t, t.Credentials(), &newRootTpop.pop, &putOldTpop.pop); err != nil {
-		return 0, nil, err
-	}
-	t.Kernel().ReplaceFSContextRoots(t, oldRootVd, newRootVd)
+	defer newRoot.DecRef(t)
+	defer oldRoot.DecRef(t)
+	t.Kernel().ReplaceFSContextRoots(t, oldRoot, newRoot)
 	return 0, nil, nil
 }
 
@@ -569,11 +562,21 @@ func dup3(t *kernel.Task, oldfd, newfd int32, flags uint32) (uintptr, *kernel.Sy
 	}
 	defer file.DecRef(t)
 
-	err := t.NewFDAt(newfd, file, kernel.FDFlags{
+	df, err := t.NewFDAt(newfd, file, kernel.FDFlags{
 		CloseOnExec: flags&linux.O_CLOEXEC != 0,
 	})
+	if linuxerr.Equals(linuxerr.EMFILE, err) {
+		err = linuxerr.EBADF
+	}
 	if err != nil {
 		return 0, nil, err
+	}
+	if df != nil {
+		// "If the file descriptor newfd was previously open, it is closed
+		// before being reused; the close is performed silently (i.e., any
+		// errors during the close are not reported by dup2())." - dup(2)
+		_ = df.OnClose(t)
+		df.DecRef(t)
 	}
 	return uintptr(newfd), nil, nil
 }
@@ -1152,10 +1155,11 @@ func setstatat(t *kernel.Task, dirfd int32, path fspath.Path, shouldAllowEmptyPa
 			if dirfile == nil {
 				return linuxerr.EBADF
 			}
-			if !path.HasComponents() {
-				// Use FileDescription.SetStat() instead of
-				// VirtualFilesystem.SetStatAt(), since the former may be able
-				// to use opened file state to expedite the SetStat.
+			if !path.HasComponents() && dirfile.StatusFlags()&linux.O_PATH == 0 {
+				// For empty path, use FileDescription.SetStat() instead of
+				// VirtualFilesystem.SetStatAt(), since the former may be able to use
+				// opened file state to expedite the SetStat. Skip this optimization
+				// for FDs with O_PATH, since the FD impl always returns EBADF.
 				err := dirfile.SetStat(t, *opts)
 				dirfile.DecRef(t)
 				return err
@@ -1381,11 +1385,6 @@ func Utime(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, 
 	pathAddr := args[0].Pointer()
 	timesAddr := args[1].Pointer()
 
-	path, err := copyInPath(t, pathAddr)
-	if err != nil {
-		return 0, nil, err
-	}
-
 	opts := vfs.SetStatOptions{
 		Stat: linux.Statx{
 			Mask: linux.STATX_ATIME | linux.STATX_MTIME,
@@ -1403,7 +1402,7 @@ func Utime(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, 
 		opts.Stat.Mtime.Sec = times.Modtime
 	}
 
-	return 0, nil, setstatat(t, linux.AT_FDCWD, path, disallowEmptyPath, followFinalSymlink, &opts)
+	return 0, nil, utimes(t, linux.AT_FDCWD, pathAddr, followFinalSymlink, &opts)
 }
 
 // Utimes implements Linux syscall utimes(2).
@@ -1411,17 +1410,12 @@ func Utimes(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr,
 	pathAddr := args[0].Pointer()
 	timesAddr := args[1].Pointer()
 
-	path, err := copyInPath(t, pathAddr)
-	if err != nil {
-		return 0, nil, err
-	}
-
 	var opts vfs.SetStatOptions
 	if err := populateSetStatOptionsForUtimes(t, timesAddr, &opts); err != nil {
 		return 0, nil, err
 	}
 
-	return 0, nil, setstatat(t, linux.AT_FDCWD, path, disallowEmptyPath, followFinalSymlink, &opts)
+	return 0, nil, utimes(t, linux.AT_FDCWD, pathAddr, followFinalSymlink, &opts)
 }
 
 // Futimesat implements Linux syscall futimesat(2).
@@ -1430,26 +1424,12 @@ func Futimesat(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintp
 	pathAddr := args[1].Pointer()
 	timesAddr := args[2].Pointer()
 
-	// "If filename is NULL and dfd refers to an open file, then operate on the
-	// file. Otherwise look up filename, possibly using dfd as a starting
-	// point." - fs/utimes.c
-	var path fspath.Path
-	shouldAllowEmptyPath := allowEmptyPath
-	if dirfd == linux.AT_FDCWD || pathAddr != 0 {
-		var err error
-		path, err = copyInPath(t, pathAddr)
-		if err != nil {
-			return 0, nil, err
-		}
-		shouldAllowEmptyPath = disallowEmptyPath
-	}
-
 	var opts vfs.SetStatOptions
 	if err := populateSetStatOptionsForUtimes(t, timesAddr, &opts); err != nil {
 		return 0, nil, err
 	}
 
-	return 0, nil, setstatat(t, dirfd, path, shouldAllowEmptyPath, followFinalSymlink, &opts)
+	return 0, nil, utimes(t, dirfd, pathAddr, followFinalSymlink, &opts)
 }
 
 func populateSetStatOptionsForUtimes(t *kernel.Task, timesAddr hostarch.Addr, opts *vfs.SetStatOptions) error {
@@ -1485,8 +1465,7 @@ func Utimensat(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintp
 	timesAddr := args[2].Pointer()
 	flags := args[3].Int()
 
-	// Linux requires that the UTIME_OMIT check occur before checking path or
-	// flags.
+	// Linux requires that the UTIME_OMIT check occur before flags.
 	var opts vfs.SetStatOptions
 	if err := populateSetStatOptionsForUtimens(t, timesAddr, &opts); err != nil {
 		return 0, nil, err
@@ -1499,21 +1478,7 @@ func Utimensat(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintp
 		return 0, nil, linuxerr.EINVAL
 	}
 
-	// "If filename is NULL and dfd refers to an open file, then operate on the
-	// file. Otherwise look up filename, possibly using dfd as a starting
-	// point." - fs/utimes.c
-	var path fspath.Path
-	shouldAllowEmptyPath := allowEmptyPath
-	if dirfd == linux.AT_FDCWD || pathAddr != 0 {
-		var err error
-		path, err = copyInPath(t, pathAddr)
-		if err != nil {
-			return 0, nil, err
-		}
-		shouldAllowEmptyPath = disallowEmptyPath
-	}
-
-	return 0, nil, setstatat(t, dirfd, path, shouldAllowEmptyPath, shouldFollowFinalSymlink(flags&linux.AT_SYMLINK_NOFOLLOW == 0), &opts)
+	return 0, nil, utimes(t, dirfd, pathAddr, shouldFollowFinalSymlink(flags&linux.AT_SYMLINK_NOFOLLOW == 0), &opts)
 }
 
 func populateSetStatOptionsForUtimens(t *kernel.Task, timesAddr hostarch.Addr, opts *vfs.SetStatOptions) error {
@@ -1548,6 +1513,27 @@ func populateSetStatOptionsForUtimens(t *kernel.Task, timesAddr hostarch.Addr, o
 		}
 	}
 	return nil
+}
+
+// Analogous to fs/utimes.c:do_utimes().
+func utimes(t *kernel.Task, dirfd int32, pathAddr hostarch.Addr, shouldFollowFinalSymlink shouldFollowFinalSymlink, opts *vfs.SetStatOptions) error {
+	// "If filename is NULL and dfd refers to an open file, then operate on the
+	// file. Otherwise look up filename, possibly using dfd as a starting
+	// point." - fs/utimes.c:do_utimes()
+	if dirfd != linux.AT_FDCWD && pathAddr == 0 {
+		file := t.GetFile(dirfd)
+		if file == nil {
+			return linuxerr.EBADF
+		}
+		defer file.DecRef(t)
+		return file.SetStat(t, *opts)
+	}
+
+	path, err := copyInPath(t, pathAddr)
+	if err != nil {
+		return err
+	}
+	return setstatat(t, dirfd, path, disallowEmptyPath, shouldFollowFinalSymlink, opts)
 }
 
 // Rename implements Linux syscall rename(2).

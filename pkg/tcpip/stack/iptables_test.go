@@ -30,7 +30,7 @@ const (
 	dstPort    = 3
 
 	// The network protocol used for these tests doesn't matter as the tests are
-	// not targetting anything protocol specific.
+	// not targeting anything protocol specific.
 	ipv6     = true
 	netProto = header.IPv6ProtocolNumber
 )
@@ -82,7 +82,7 @@ func TestNATedConnectionReap(t *testing.T) {
 		Rules: []Rule{
 			// Prerouting
 			{
-				Target: &DNATTarget{NetworkProtocol: netProto, Addr: nattedAddr, Port: nattedPort},
+				Target: &DNATTarget{NetworkProtocol: netProto, Addr: nattedAddr, Port: nattedPort, ChangePort: true, ChangeAddress: true},
 			},
 			{
 				Target: &AcceptTarget{},
@@ -300,7 +300,7 @@ func TestNATAlwaysPerformed(t *testing.T) {
 			iptables := DefaultTables(clock, rand.New(rand.NewSource(0 /* seed */)))
 
 			// Just to make sure the iptables is not short circuited.
-			iptables.ReplaceTable(NATID, iptables.GetTable(NATID, ipv6), ipv6)
+			iptables.ForceReplaceTable(NATID, iptables.GetTable(NATID, ipv6), ipv6)
 
 			pkt := v6PacketBuffer()
 
@@ -381,7 +381,7 @@ func TestNATConflict(t *testing.T) {
 
 					// Input
 					{
-						Target: &SNATTarget{NetworkProtocol: header.IPv6ProtocolNumber, Addr: nattedAddr, Port: nattedPort},
+						Target: &SNATTarget{NetworkProtocol: header.IPv6ProtocolNumber, Addr: nattedAddr, Port: nattedPort, ChangeAddress: true, ChangePort: true},
 					},
 					{
 						Target: &AcceptTarget{},
@@ -399,7 +399,7 @@ func TestNATConflict(t *testing.T) {
 
 					// Postrouting
 					{
-						Target: &SNATTarget{NetworkProtocol: header.IPv6ProtocolNumber, Addr: nattedAddr, Port: nattedPort},
+						Target: &SNATTarget{NetworkProtocol: header.IPv6ProtocolNumber, Addr: nattedAddr, Port: nattedPort, ChangeAddress: true, ChangePort: true},
 					},
 					{
 						Target: &AcceptTarget{},

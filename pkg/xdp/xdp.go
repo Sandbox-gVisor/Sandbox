@@ -28,7 +28,7 @@
 //     that userspace may read the packet.
 //   - Trasmit: Userspace adds a descriptor to TX queue. The kernel
 //     sends the packet (stored in UMEM) pointed to by the descriptor.
-//     Upon completion, the kernel places a desciptor in the completion
+//     Upon completion, the kernel places a descriptor in the completion
 //     queue to notify userspace that the packet is sent and the UMEM
 //     area can be reused.
 //
@@ -63,18 +63,20 @@ type ControlBlock struct {
 	Completion CompletionQueue
 }
 
-// ReadOnlySocketOpts configure a read-only AF_XDP socket.
-type ReadOnlySocketOpts struct {
-	NFrames      uint32
-	FrameSize    uint32
-	NDescriptors uint32
+// Opts configure an AF_XDP socket.
+type Opts struct {
+	NFrames       uint32
+	FrameSize     uint32
+	NDescriptors  uint32
+	Bind          bool
+	UseNeedWakeup bool
 }
 
-// DefaultReadOnlyOpts provides recommended default options for initializing a
-// readonly AF_XDP socket. AF_XDP setup is extremely finnicky and can fail if
-// incorrect values are used.
-func DefaultReadOnlyOpts() ReadOnlySocketOpts {
-	return ReadOnlySocketOpts{
+// DefaultOpts provides recommended default options for initializing an AF_XDP
+// socket. AF_XDP setup is extremely finnicky and can fail if incorrect values
+// are used.
+func DefaultOpts() Opts {
+	return Opts{
 		NFrames: 4096,
 		// Frames must be 2048 or 4096 bytes, although not all drivers support
 		// both.
@@ -83,19 +85,19 @@ func DefaultReadOnlyOpts() ReadOnlySocketOpts {
 	}
 }
 
-// ReadOnlySocket returns an initialized read-only AF_XDP socket bound to a
-// particular interface and queue.
-func ReadOnlySocket(ifaceIdx, queueID uint32, opts ReadOnlySocketOpts) (*ControlBlock, error) {
+// New returns an initialized AF_XDP socket bound to a particular interface and
+// queue.
+func New(ifaceIdx, queueID uint32, opts Opts) (*ControlBlock, error) {
 	sockfd, err := unix.Socket(unix.AF_XDP, unix.SOCK_RAW, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AF_XDP socket: %v", err)
 	}
-	return ReadOnlyFromSocket(sockfd, ifaceIdx, queueID, opts)
+	return NewFromSocket(sockfd, ifaceIdx, queueID, opts)
 }
 
-// ReadOnlyFromSocket takes an AF_XDP socket, initializes it, and binds it to a
+// NewFromSocket takes an AF_XDP socket, initializes it, and binds it to a
 // particular interface and queue.
-func ReadOnlyFromSocket(sockfd int, ifaceIdx, queueID uint32, opts ReadOnlySocketOpts) (*ControlBlock, error) {
+func NewFromSocket(sockfd int, ifaceIdx, queueID uint32, opts Opts) (*ControlBlock, error) {
 	if opts.FrameSize != 2048 && opts.FrameSize != 4096 {
 		return nil, fmt.Errorf("invalid frame size %d: must be either 2048 or 4096", opts.FrameSize)
 	}
@@ -280,6 +282,25 @@ func ReadOnlyFromSocket(sockfd int, ifaceIdx, queueID uint32, opts ReadOnlySocke
 	}
 	cb.TX.init(off, opts)
 
+	// In some cases we don't call bind, as we're not in the netns with the
+	// device. In those cases, another process with the same socket will
+	// bind for us.
+	if opts.Bind {
+		if err := Bind(sockfd, ifaceIdx, queueID, opts.UseNeedWakeup); err != nil {
+			return nil, fmt.Errorf("failed to bind to interface %d: %v", ifaceIdx, err)
+		}
+	}
+
+	cleanup.Release()
+	return &cb, nil
+}
+
+// Bind binds a socket to a particular network interface and queue.
+func Bind(sockfd int, ifindex, queueID uint32, useNeedWakeup bool) error {
+	var flags uint16
+	if useNeedWakeup {
+		flags |= unix.XDP_USE_NEED_WAKEUP
+	}
 	addr := unix.SockaddrXDP{
 		// XDP_USE_NEED_WAKEUP lets the driver sleep if there is no
 		// work to do. It will need to be woken by poll. It is expected
@@ -289,8 +310,8 @@ func ReadOnlyFromSocket(sockfd int, ifaceIdx, queueID uint32, opts ReadOnlySocke
 		// By not setting either XDP_COPY or XDP_ZEROCOPY, we instruct
 		// the kernel to use zerocopy if available and then fallback to
 		// copy mode.
-		Flags:   unix.XDP_USE_NEED_WAKEUP,
-		Ifindex: ifaceIdx,
+		Flags:   flags,
+		Ifindex: ifindex,
 		// AF_XDP sockets are per device RX queue, although multiple
 		// sockets on multiple queues (or devices) can share a single
 		// UMEM.
@@ -298,10 +319,5 @@ func ReadOnlyFromSocket(sockfd int, ifaceIdx, queueID uint32, opts ReadOnlySocke
 		// We're not using shared mode, so the value here is irrelevant.
 		SharedUmemFD: 0,
 	}
-	if err := unix.Bind(sockfd, &addr); err != nil {
-		return nil, fmt.Errorf("failed to bind with addr %+v: %v", addr, err)
-	}
-
-	cleanup.Release()
-	return &cb, nil
+	return unix.Bind(sockfd, &addr)
 }

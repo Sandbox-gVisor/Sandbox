@@ -46,12 +46,13 @@ func main() {
 	subcommands.Register(new(fdReceiver), "")
 	subcommands.Register(new(fdSender), "")
 	subcommands.Register(new(forkBomb), "")
+	subcommands.Register(new(fsTreeCreator), "")
 	subcommands.Register(new(ptyRunner), "")
 	subcommands.Register(new(reaper), "")
 	subcommands.Register(new(syscall), "")
 	subcommands.Register(new(taskTree), "")
 	subcommands.Register(new(uds), "")
-	subcommands.Register(new(fsTreeCreator), "")
+	subcommands.Register(new(zombieTest), "")
 
 	flag.Parse()
 
@@ -63,6 +64,8 @@ type fsTreeCreator struct {
 	depth            uint
 	numFilesPerLevel uint
 	fileSize         uint
+	targetDir        string
+	createSymlink    bool
 }
 
 // Name implements subcommands.Command.Name.
@@ -72,7 +75,7 @@ func (*fsTreeCreator) Name() string {
 
 // Synopsis implements subcommands.Command.Synopsys.
 func (*fsTreeCreator) Synopsis() string {
-	return "creates a filesystem tree of a certain depth, with a certain number of files on each level and each file with a certain size. Some randomization is added on top of this"
+	return "creates a filesystem tree of a certain depth, with a certain number of files on each level and each file with a certain size and type, under a certain directory. Some randomization is added on top of this"
 }
 
 // Usage implements subcommands.Command.Usage.
@@ -85,6 +88,8 @@ func (c *fsTreeCreator) SetFlags(f *flag.FlagSet) {
 	f.UintVar(&c.depth, "depth", 10, "number of levels to create")
 	f.UintVar(&c.numFilesPerLevel, "file-per-level", 10, "number of files to create per level")
 	f.UintVar(&c.fileSize, "file-size", 4096, "size of each file")
+	f.StringVar(&c.targetDir, "target-dir", "/", "directory under which to create the filesystem tree")
+	f.BoolVar(&c.createSymlink, "create-symlink", false, "create symlinks other than the first file per level")
 }
 
 // Execute implements subcommands.Command.Execute.
@@ -92,15 +97,26 @@ func (c *fsTreeCreator) Execute(ctx context.Context, f *flag.FlagSet, args ...an
 	depth := c.depth + uint(rand.Uint32())%c.depth
 	numFilesPerLevel := c.numFilesPerLevel + uint(rand.Uint32())%c.numFilesPerLevel
 	fileSize := c.fileSize + uint(rand.Uint32())%c.fileSize
+	curDir := c.targetDir
+	if _, err := os.Stat(curDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(curDir, 0777); err != nil {
+			log.Fatalf("error creating directory %q: %v", curDir, err)
+		}
+	}
 
-	curDir := "/"
 	data := make([]byte, fileSize)
 	rand.Read(data)
 	for i := uint(0); i < depth; i++ {
 		for j := uint(0); j < numFilesPerLevel; j++ {
 			filePath := filepath.Join(curDir, fmt.Sprintf("file%d", j))
-			if err := os.WriteFile(filePath, data, 0666); err != nil {
-				log.Fatalf("error writing file %q: %v", filePath, err)
+			if c.createSymlink && j > 0 {
+				if err := os.Symlink("file0", filePath); err != nil {
+					log.Fatalf("error creating symlink %q: %v", filePath, err)
+				}
+			} else {
+				if err := os.WriteFile(filePath, data, 0666); err != nil {
+					log.Fatalf("error writing file %q: %v", filePath, err)
+				}
 			}
 		}
 		nextDir := filepath.Join(curDir, "dir")

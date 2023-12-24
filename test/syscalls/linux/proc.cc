@@ -137,13 +137,21 @@ static const char* required_fields[] = {
     "address sizes",
     "power management",
 };
-#elif __aarch64__
+#elif defined(__aarch64__)
 // This list of "required" fields is taken from reading the file
 // arch/arm64/kernel/cpuinfo.c and seeing which fields will be unconditionally
 // printed by the kernel.
 static const char* required_fields[] = {
     "processor",        "BogoMIPS",    "Features", "CPU implementer",
     "CPU architecture", "CPU variant", "CPU part", "CPU revision",
+};
+#elif defined(__riscv)
+// This list of "required" fields is taken from reading the file
+// arch/riscv/kernel/cpu.c and seeing which fields will be unconditionally
+// printed by the kernel.
+static const char* required_fields[] = {
+    "processor",
+    "hart",
 };
 #else
 #error "Unknown architecture"
@@ -2390,6 +2398,38 @@ TEST(ProcTask, VerifyTaskDir) {
       DirContains(absl::StrCat("/proc/self/task/", getpid()), {}, {"task"}));
 }
 
+TEST(ProcTask, VerifyTaskChildren) {
+  auto path = JoinPath("/proc", absl::StrCat(getpid()), "task",
+                       absl::StrCat(gettid()), "children");
+  EXPECT_THAT(access(path.c_str(), F_OK), SyscallSucceeds());
+
+  int pid1 = -1, status1 = -1;
+  auto cleanup1 =
+      ForkAndExec("/bin/sleep", {"sleep", "100"}, {}, nullptr, &pid1, &status1);
+  ASSERT_GT(pid1, 0);
+  ASSERT_EQ(status1, 0);
+
+  auto proc_children_file = ASSERT_NO_ERRNO_AND_VALUE(GetContents(path));
+  EXPECT_EQ(absl::StrCat(pid1, " "), proc_children_file);
+
+  int pid2 = -1, status2 = -1;
+  auto cleanup2 =
+      ForkAndExec("/bin/sleep", {"sleep", "100"}, {}, nullptr, &pid2, &status2);
+  ASSERT_GT(pid2, 0);
+  ASSERT_EQ(status2, 0);
+
+  proc_children_file = ASSERT_NO_ERRNO_AND_VALUE(GetContents(path));
+
+  // /children contains space-separated sorted list of thread Ids of children.
+  std::string expectedContent;
+  if (pid1 < pid2) {
+    expectedContent = absl::StrCat(pid1, " ", pid2, " ");
+  } else {
+    expectedContent = absl::StrCat(pid2, " ", pid1, " ");
+  }
+  EXPECT_EQ(expectedContent, proc_children_file);
+}
+
 TEST(ProcTask, TaskDirCannotBeDeleted) {
   // Drop capabilities that allow us to override file and directory permissions.
   AutoCapability cap(CAP_DAC_OVERRIDE, false);
@@ -2512,6 +2552,17 @@ TEST(ProcTask, CommCannotSetAnotherProcessThreadName) {
   };
 
   EXPECT_THAT(InForkedProcess(rest), IsPosixErrorOkAndHolds(0));
+}
+
+TEST(ProcTask, CommLenLimited) {
+  auto path = JoinPath("/proc", absl::StrCat(getpid()), "task",
+                       absl::StrCat(syscall(SYS_gettid)), "comm");
+  // comm is limited by 15 symbols (TASK_COMM_LEN).
+  constexpr char kThreadName[] = "0123456789abcde";
+  ASSERT_NO_ERRNO(SetContents(path, absl::StrCat(kThreadName, "XYZ")));
+
+  auto got_thread_name = ASSERT_NO_ERRNO_AND_VALUE(GetContents(path));
+  EXPECT_EQ(absl::StrCat(kThreadName, "\n"), got_thread_name);
 }
 
 TEST(ProcTaskNs, NsDirExistsAndHasCorrectMetadata) {
@@ -2859,6 +2910,29 @@ TEST(Proc, RegressionTestB236035339) {
   const auto path = JoinPath("/proc/self/fd/", absl::StrCat(efd.get()));
   EXPECT_THAT(open(path.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY),
               SyscallFailsWithErrno(ENOTDIR));
+}
+
+TEST(ProcFilesystems, ReadCapLastCap) {
+  std::string lastCapStr =
+      ASSERT_NO_ERRNO_AND_VALUE(GetContents("/proc/sys/kernel/cap_last_cap"));
+
+  uint64_t lastCap;
+  ASSERT_TRUE(absl::SimpleAtoi(lastCapStr, &lastCap));
+  EXPECT_TRUE(lastCap > 32 && lastCap < 64);
+}
+
+TEST(ProcFilesystems, OverflowID) {
+  std::string overflowGidStr =
+      ASSERT_NO_ERRNO_AND_VALUE(GetContents("/proc/sys/kernel/overflowgid"));
+  std::string overflowUidStr =
+      ASSERT_NO_ERRNO_AND_VALUE(GetContents("/proc/sys/kernel/overflowuid"));
+  uint64_t overflowGid, overflowUid;
+  ASSERT_TRUE(absl::SimpleAtoi(overflowGidStr, &overflowGid));
+  ASSERT_TRUE(absl::SimpleAtoi(overflowUidStr, &overflowUid));
+
+  const uint64_t defaultOverflowID = 65534;
+  EXPECT_EQ(overflowGid, defaultOverflowID);
+  EXPECT_EQ(overflowUid, defaultOverflowID);
 }
 
 }  // namespace

@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -35,9 +36,11 @@
 #include "test/util/capability_util.h"
 #include "test/util/file_descriptor.h"
 #include "test/util/fs_util.h"
+#include "test/util/linux_capability_util.h"
 #include "test/util/logging.h"
 #include "test/util/mount_util.h"
 #include "test/util/multiprocess_util.h"
+#include "test/util/posix_error.h"
 #include "test/util/temp_path.h"
 #include "test/util/test_util.h"
 
@@ -45,6 +48,8 @@ namespace gvisor {
 namespace testing {
 
 namespace {
+
+constexpr char kTmpfs[] = "tmpfs";
 
 TEST(PivotRootTest, Success) {
   SKIP_IF(!ASSERT_NO_ERRNO_AND_VALUE(HaveCapability(CAP_SYS_ADMIN)));
@@ -397,6 +402,18 @@ TEST(PivotRootTest, OnRootFS) {
   SKIP_IF(!ASSERT_NO_ERRNO_AND_VALUE(HaveCapability(CAP_SYS_ADMIN)));
   SKIP_IF(!ASSERT_NO_ERRNO_AND_VALUE(HaveCapability(CAP_SYS_CHROOT)));
 
+  std::vector<ProcMountInfoEntry> mounts =
+      ASSERT_NO_ERRNO_AND_VALUE(ProcSelfMountInfoEntries());
+  bool rootFSFound = false;
+  for (const auto& e : mounts) {
+    if (e.mount_point == "/" && e.id == e.parent_id) {
+      rootFSFound = true;
+      break;
+    }
+  }
+
+  SKIP_IF(!rootFSFound);
+
   auto new_root = ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir());
   const std::string new_root_path = new_root.path();
   EXPECT_THAT(mount("", new_root_path.c_str(), "tmpfs", 0, "mode=0700"),
@@ -497,6 +514,37 @@ TEST(PivotRootTest, OnSharedPutOldMountpoint) {
     TEST_CHECK_ERRNO(
         syscall(__NR_pivot_root, new_root_path.c_str(), put_old_path.c_str()),
         EINVAL);
+  };
+  EXPECT_THAT(InForkedProcess(rest), IsPosixErrorOkAndHolds(0));
+}
+
+TEST(PivotRootTest, UnreachableNewRootFails) {
+  SKIP_IF(!ASSERT_NO_ERRNO_AND_VALUE(HaveCapability(CAP_SYS_ADMIN)));
+  SKIP_IF(!ASSERT_NO_ERRNO_AND_VALUE(HaveCapability(CAP_SYS_CHROOT)));
+
+  TempPath outside_root = ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir());
+  ASSERT_THAT(mount("", outside_root.path().c_str(), kTmpfs, 0, ""),
+              SyscallSucceeds());
+  TempPath root =
+      ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDirIn(outside_root.path()));
+  ASSERT_THAT(mount("", root.path().c_str(), kTmpfs, 0, ""), SyscallSucceeds());
+  TempPath new_root =
+      ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDirIn(root.path()));
+  ASSERT_THAT(mount("", new_root.path().c_str(), kTmpfs, 0, ""),
+              SyscallSucceeds());
+  const std::string new_root_path =
+      absl::StrCat("/", Basename(new_root.path()));
+  TempPath put_old =
+      ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDirIn(new_root.path()));
+  const std::string put_old_path =
+      JoinPath(new_root_path, Basename(put_old.path()));
+  ASSERT_THAT(chdir(JoinPath(root.path(), "..").c_str()), SyscallSucceeds());
+
+  const std::function<void()> rest = [&] {
+    TEST_CHECK_SUCCESS(chroot(root.path().c_str()));
+    // "." references the directory outside the chroot.
+    TEST_CHECK_ERRNO(syscall(__NR_pivot_root, ".", put_old_path.c_str()),
+                     EINVAL);
   };
   EXPECT_THAT(InForkedProcess(rest), IsPosixErrorOkAndHolds(0));
 }

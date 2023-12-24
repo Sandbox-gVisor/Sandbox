@@ -63,7 +63,7 @@ func getHypercallID(addr uintptr) int {
 	return _KVM_HYPERCALL_MAX
 }
 
-// bluepillStopGuest is reponsible for injecting interrupt.
+// bluepillStopGuest is responsible for injecting interrupt.
 //
 //go:nosplit
 func bluepillStopGuest(c *vCPU) {
@@ -72,7 +72,7 @@ func bluepillStopGuest(c *vCPU) {
 	if _, _, errno := unix.RawSyscall(
 		unix.SYS_IOCTL,
 		uintptr(c.fd),
-		_KVM_INTERRUPT,
+		KVM_INTERRUPT,
 		uintptr(unsafe.Pointer(&bounce))); errno != 0 {
 		throw("interrupt injection failed")
 	}
@@ -80,19 +80,19 @@ func bluepillStopGuest(c *vCPU) {
 	c.runData.requestInterruptWindow = 0
 }
 
-// bluepillSigBus is reponsible for injecting NMI to trigger sigbus.
+// bluepillSigBus is responsible for injecting NMI to trigger sigbus.
 //
 //go:nosplit
 func bluepillSigBus(c *vCPU) {
 	if _, _, errno := unix.RawSyscall( // escapes: no.
 		unix.SYS_IOCTL,
 		uintptr(c.fd),
-		_KVM_NMI, 0); errno != 0 {
+		KVM_NMI, 0); errno != 0 {
 		throw("NMI injection failed")
 	}
 }
 
-// bluepillHandleEnosys is reponsible for handling enosys error.
+// bluepillHandleEnosys is responsible for handling enosys error.
 //
 //go:nosplit
 func bluepillHandleEnosys(c *vCPU) {

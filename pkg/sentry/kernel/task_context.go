@@ -20,6 +20,7 @@ import (
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/cpuid"
+	"gvisor.dev/gvisor/pkg/devutil"
 	"gvisor.dev/gvisor/pkg/sentry/inet"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/ipc"
@@ -73,7 +74,9 @@ func (t *Task) contextValue(key any, isTaskGoroutine bool) any {
 			t.mu.Lock()
 			defer t.mu.Unlock()
 		}
-		return t.utsns
+		utsns := t.utsns
+		utsns.IncRef()
+		return utsns
 	case ipc.CtxIPCNamespace:
 		if !isTaskGoroutine {
 			t.mu.Lock()
@@ -101,6 +104,8 @@ func (t *Task) contextValue(key any, isTaskGoroutine bool) any {
 		}
 		t.mountNamespace.IncRef()
 		return t.mountNamespace
+	case devutil.CtxDevGoferClient:
+		return t.k.getDevGoferClient(t.containerID)
 	case inet.CtxStack:
 		return t.NetworkContext()
 	case ktime.CtxRealtimeClock:
@@ -111,6 +116,8 @@ func (t *Task) contextValue(key any, isTaskGoroutine bool) any {
 		return func(sig linux.Signal) error {
 			return t.SendSignal(SignalInfoNoInfo(sig, t, t))
 		}
+	case pgalloc.CtxMemoryCgroupID:
+		return t.memCgID.Load()
 	case pgalloc.CtxMemoryFile:
 		return t.k.mf
 	case pgalloc.CtxMemoryFileProvider:

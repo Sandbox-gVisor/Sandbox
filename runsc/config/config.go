@@ -155,6 +155,21 @@ type Config struct {
 	// The value of this flag must also match across the two command lines.
 	MetricServer string `flag:"metric-server"`
 
+	// ProfilingMetrics is a comma separated list of metric names which are
+	// going to be written to the ProfilingMetricsLog file from within the
+	// sentry in CSV format. ProfilingMetrics will be snapshotted at a rate
+	// specified by ProfilingMetricsRate. Requires ProfilingMetricsLog to be
+	// set.
+	ProfilingMetrics string `flag:"profiling-metrics"`
+
+	// ProfilingMetricsLog is the file name to use for ProfilingMetrics
+	// output.
+	ProfilingMetricsLog string `flag:"profiling-metrics-log"`
+
+	// ProfilingMetricsRate is the target rate (in microseconds) at which
+	// profiling metrics will be snapshotted.
+	ProfilingMetricsRate int `flag:"profiling-metrics-rate-us"`
+
 	// Strace indicates that strace should be enabled.
 	Strace bool `flag:"strace"`
 
@@ -244,9 +259,6 @@ type Config struct {
 	// Enables seccomp inside the sandbox.
 	OCISeccomp bool `flag:"oci-seccomp"`
 
-	// Mounts the cgroup filesystem backed by the sentry's cgroupfs.
-	Cgroupfs bool `flag:"cgroupfs"`
-
 	// Don't configure cgroups.
 	IgnoreCgroups bool `flag:"ignore-cgroups"`
 
@@ -265,6 +277,18 @@ type Config struct {
 	// AFXDP defines whether to use an AF_XDP socket to receive packets
 	// (rather than AF_PACKET). Enabling it disables RX checksum offload.
 	AFXDP bool `flag:"EXPERIMENTAL-afxdp"`
+
+	// AFXDPRedirectHost is the name of a network interface. runsc will
+	// scrape the address, routes, and neighbors of that interface, and
+	// send packets via an AF_XDP socket on that interface.
+	//
+	// Requires use of `xdp_loader redirect` to setup the XDP program and
+	// eBPF map that runsc hooks into.
+	AFXDPRedirectHost string `flag:"EXPERIMENTAL-xdp-redirect-host"`
+
+	// AFXDPUseNeedWakeup determines whether XDP_USE_NEED_WAKEUP is set
+	// when using AF_XDP sockets.
+	AFXDPUseNeedWakeup bool `flag:"EXPERIMENTAL-xdp-need-wakeup"`
 
 	// FDLimit specifies a limit on the number of host file descriptors that can
 	// be open simultaneously by the sentry and gofer. It applies separately to
@@ -292,6 +316,9 @@ type Config struct {
 	// containers or set by `docker --gpus`.
 	NVProxyDocker bool `flag:"nvproxy-docker"`
 
+	// TPUProxy enables support for TPUs.
+	TPUProxy bool `flag:"tpuproxy"`
+
 	// TestOnlyAllowRunAsCurrentUserWithoutChroot should only be used in
 	// tests. It allows runsc to start the sandbox process as the current
 	// user, and without chrooting the sandbox process. This can be
@@ -314,6 +341,14 @@ type Config struct {
 	// explicitlySet contains whether a flag was explicitly set on the command-line from which this
 	// Config was constructed. Nil when the Config was not initialized from a FlagSet.
 	explicitlySet map[string]struct{}
+
+	// ReproduceNAT, when true, tells runsc to scrape the host network
+	// namespace's NAT iptables and reproduce it inside the sandbox.
+	ReproduceNAT bool `flag:"reproduce-nat"`
+
+	// ReproduceNftables attempts to scrape nftables routing rules if
+	// present, and reproduce them in the sandbox.
+	ReproduceNftables bool `flag:"reproduce-nftables"`
 }
 
 func (c *Config) validate() error {
@@ -345,6 +380,9 @@ func (c *Config) validate() error {
 	if c.FSGoferHostUDS && c.HostUDS != HostUDSNone {
 		// Deprecated flag was used together with flag that replaced it.
 		return fmt.Errorf("fsgofer-host-uds has been replaced with host-uds flag")
+	}
+	if len(c.ProfilingMetrics) > 0 && len(c.ProfilingMetricsLog) == 0 {
+		return fmt.Errorf("profiling-metrics flag requires defining a profiling-metrics-log for output")
 	}
 	return nil
 }
@@ -461,7 +499,7 @@ func fileAccessTypePtr(v FileAccessType) *FileAccessType {
 	return &v
 }
 
-// Set implements flag.Value.
+// Set implements flag.Value. Set(String()) should be idempotent.
 func (f *FileAccessType) Set(v string) error {
 	switch v {
 	case "shared":
@@ -508,7 +546,7 @@ func networkTypePtr(v NetworkType) *NetworkType {
 	return &v
 }
 
-// Set implements flag.Value.
+// Set implements flag.Value. Set(String()) should be idempotent.
 func (n *NetworkType) Set(v string) error {
 	switch v {
 	case "sandbox":
@@ -557,7 +595,7 @@ func queueingDisciplinePtr(v QueueingDiscipline) *QueueingDiscipline {
 	return &v
 }
 
-// Set implements flag.Value.
+// Set implements flag.Value. Set(String()) should be idempotent.
 func (q *QueueingDiscipline) Set(v string) error {
 	switch v {
 	case "none":
@@ -615,7 +653,7 @@ func hostUDSPtr(v HostUDS) *HostUDS {
 	return &v
 }
 
-// Set implements flag.Value.
+// Set implements flag.Value. Set(String()) should be idempotent.
 func (g *HostUDS) Set(v string) error {
 	switch v {
 	case "", "none":
@@ -639,20 +677,18 @@ func (g *HostUDS) Get() any {
 
 // String implements flag.Value.
 func (g HostUDS) String() string {
-	// Note: the order of operations is important given that HostUDS is a bitmap.
-	if g == HostUDSNone {
+	switch g {
+	case HostUDSNone:
 		return "none"
-	}
-	if g == HostUDSAll {
-		return "all"
-	}
-	if g == HostUDSOpen {
+	case HostUDSOpen:
 		return "open"
-	}
-	if g == HostUDSCreate {
+	case HostUDSCreate:
 		return "create"
+	case HostUDSAll:
+		return "all"
+	default:
+		panic(fmt.Sprintf("Invalid host UDS type %d", g))
 	}
-	panic(fmt.Sprintf("Invalid host UDS type %d", g))
 }
 
 // AllowOpen returns true if it can consume UDS from the host.
@@ -681,7 +717,7 @@ func hostFifoPtr(v HostFifo) *HostFifo {
 	return &v
 }
 
-// Set implements flag.Value.
+// Set implements flag.Value. Set(String()) should be idempotent.
 func (g *HostFifo) Set(v string) error {
 	switch v {
 	case "", "none":
@@ -701,13 +737,14 @@ func (g *HostFifo) Get() any {
 
 // String implements flag.Value.
 func (g HostFifo) String() string {
-	if g == HostFifoNone {
+	switch g {
+	case HostFifoNone:
 		return "none"
-	}
-	if g == HostFifoOpen {
+	case HostFifoOpen:
 		return "open"
+	default:
+		panic(fmt.Sprintf("Invalid host fifo type %d", g))
 	}
-	panic(fmt.Sprintf("Invalid host fifo type %d", g))
 }
 
 // AllowOpen returns true if it can consume FIFOs from the host.
@@ -715,25 +752,81 @@ func (g HostFifo) AllowOpen() bool {
 	return g&HostFifoOpen != 0
 }
 
+// OverlayMedium describes how overlay medium is configured.
+type OverlayMedium string
+
+const (
+	// NoOverlay indicates that no overlay will be applied.
+	NoOverlay = OverlayMedium("")
+
+	// MemoryOverlay indicates that the overlay is backed by app memory.
+	MemoryOverlay = OverlayMedium("memory")
+
+	// SelfOverlay indicates that the overlaid mount is backed by itself.
+	SelfOverlay = OverlayMedium("self")
+
+	// AnonOverlayPrefix is the prefix that users should specify in the
+	// config for the anonymous overlay.
+	AnonOverlayPrefix = "dir="
+)
+
+// String returns a human-readable string representing the overlay medium config.
+func (m OverlayMedium) String() string {
+	return string(m)
+}
+
+// Set sets the value. Set(String()) should be idempotent.
+func (m *OverlayMedium) Set(v string) error {
+	switch OverlayMedium(v) {
+	case NoOverlay, MemoryOverlay, SelfOverlay: // OK
+	default:
+		if !strings.HasPrefix(v, AnonOverlayPrefix) {
+			return fmt.Errorf("unexpected medium: %q", v)
+		}
+		if hostFileDir := strings.TrimPrefix(v, AnonOverlayPrefix); !filepath.IsAbs(hostFileDir) {
+			return fmt.Errorf("overlay host file directory should be an absolute path, got %q", hostFileDir)
+		}
+	}
+	*m = OverlayMedium(v)
+	return nil
+}
+
+// IsBackedByAnon indicates whether the overlaid mount is backed by a host file
+// in an anonymous directory.
+func (m OverlayMedium) IsBackedByAnon() bool {
+	return strings.HasPrefix(string(m), AnonOverlayPrefix)
+}
+
+// HostFileDir indicates the directory in which the overlay-backing host file
+// should be created.
+//
+// Precondition: m.IsBackedByAnon().
+func (m OverlayMedium) HostFileDir() string {
+	if !m.IsBackedByAnon() {
+		panic(fmt.Sprintf("anonymous overlay medium = %q does not have %v prefix", m, AnonOverlayPrefix))
+	}
+	return strings.TrimPrefix(string(m), AnonOverlayPrefix)
+}
+
 // Overlay2 holds the configuration for setting up overlay filesystems for the
 // container.
 type Overlay2 struct {
 	rootMount bool
 	subMounts bool
-	medium    string
+	medium    OverlayMedium
 }
 
 func defaultOverlay2() *Overlay2 {
 	// Rootfs overlay is enabled by default and backed by a file in rootfs itself.
-	return &Overlay2{rootMount: true, subMounts: false, medium: "self"}
+	return &Overlay2{rootMount: true, subMounts: false, medium: SelfOverlay}
 }
 
-// Set implements flag.Value.
+// Set implements flag.Value. Set(String()) should be idempotent.
 func (o *Overlay2) Set(v string) error {
 	if v == "none" {
 		o.rootMount = false
 		o.subMounts = false
-		o.medium = ""
+		o.medium = NoOverlay
 		return nil
 	}
 	vs := strings.Split(v, ":")
@@ -751,18 +844,7 @@ func (o *Overlay2) Set(v string) error {
 		return fmt.Errorf("unexpected mount specifier for --overlay2: %q", mount)
 	}
 
-	o.medium = vs[1]
-	switch o.medium {
-	case "memory", "self": // OK
-	default:
-		if !strings.HasPrefix(o.medium, "dir=") {
-			return fmt.Errorf("unexpected medium specifier for --overlay2: %q", o.medium)
-		}
-		if hostFileDir := strings.TrimPrefix(o.medium, "dir="); !filepath.IsAbs(hostFileDir) {
-			return fmt.Errorf("overlay host file directory should be an absolute path, got %q", hostFileDir)
-		}
-	}
-	return nil
+	return o.medium.Set(vs[1])
 }
 
 // Get implements flag.Value.
@@ -784,47 +866,26 @@ func (o Overlay2) String() string {
 	default:
 		panic("invalid state of subMounts = true and rootMount = false")
 	}
-
-	return res + ":" + o.medium
+	return res + ":" + o.medium.String()
 }
 
 // Enabled returns true if the overlay option is enabled for any mounts.
 func (o *Overlay2) Enabled() bool {
-	return o.rootMount || o.subMounts
+	return o.medium != NoOverlay
 }
 
-// RootEnabled returns true if the overlay is enabled for the root mount.
-func (o *Overlay2) RootEnabled() bool {
-	return o.rootMount
-}
-
-// SubMountEnabled returns true if the overlay is enabled for submounts.
-func (o *Overlay2) SubMountEnabled() bool {
-	return o.subMounts
-}
-
-// IsBackedByMemory indicates whether the overlay is backed by app memory.
-func (o *Overlay2) IsBackedByMemory() bool {
-	return o.Enabled() && o.medium == "memory"
-}
-
-// IsBackedBySelf indicates whether the overlaid mounts are backed by
-// themselves.
-func (o *Overlay2) IsBackedBySelf() bool {
-	return o.Enabled() && o.medium == "self"
-}
-
-// HostFileDir indicates the directory in which the overlay-backing host file
-// should be created.
-//
-// Precondition: o.IsBackedByHostFile() && !o.IsBackedBySelf().
-func (o *Overlay2) HostFileDir() string {
-	if !strings.HasPrefix(o.medium, "dir=") {
-		panic(fmt.Sprintf("Overlay2.Medium = %q does not have dir= prefix when overlay is backed by a host file", o.medium))
+// RootOverlayMedium returns the overlay medium config of the root mount.
+func (o *Overlay2) RootOverlayMedium() OverlayMedium {
+	if !o.rootMount {
+		return NoOverlay
 	}
-	hostFileDir := strings.TrimPrefix(o.medium, "dir=")
-	if !filepath.IsAbs(hostFileDir) {
-		panic(fmt.Sprintf("overlay host file directory should be an absolute path, got %q", hostFileDir))
+	return o.medium
+}
+
+// SubMountOverlayMedium returns the overlay medium config of submounts.
+func (o *Overlay2) SubMountOverlayMedium() OverlayMedium {
+	if !o.subMounts {
+		return NoOverlay
 	}
-	return hostFileDir
+	return o.medium
 }

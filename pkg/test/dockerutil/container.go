@@ -34,15 +34,15 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/client"
+	"github.com/moby/moby/pkg/stdcopy"
 	"gvisor.dev/gvisor/pkg/test/testutil"
 )
 
 // Container represents a Docker Container allowing
 // user to configure and control as one would with the 'docker'
-// client. Container is backed by the offical golang docker API.
+// client. Container is backed by the official golang docker API.
 // See: https://pkg.go.dev/github.com/docker/docker.
 type Container struct {
 	Name     string
@@ -86,6 +86,9 @@ type RunOpts struct {
 	// User is the user to use.
 	User string
 
+	// Optional argv to override the ENTRYPOINT specified in the image.
+	Entrypoint []string
+
 	// Privileged enables privileged mode.
 	Privileged bool
 
@@ -105,6 +108,11 @@ type RunOpts struct {
 
 	// Links is the list of containers to be connected to the container.
 	Links []string
+
+	// DeviceRequests are device requests on the container itself.
+	DeviceRequests []container.DeviceRequest
+
+	Devices []container.DeviceMapping
 }
 
 func makeContainer(ctx context.Context, logger testutil.Logger, runtime string) *Container {
@@ -236,7 +244,7 @@ func (c *Container) create(ctx context.Context, profileImage string, conf *conta
 		// unmodified "basic/alpine" image name. This should be easy to grok.
 		c.profileInit(profileImage)
 	}
-	cont, err := c.client.ContainerCreate(ctx, conf, hostconf, nil, c.Name)
+	cont, err := c.client.ContainerCreate(ctx, conf, hostconf, nil, nil, c.Name)
 	if err != nil {
 		return err
 	}
@@ -255,6 +263,7 @@ func (c *Container) config(r RunOpts, args []string) *container.Config {
 	return &container.Config{
 		Image:        testutil.ImageByName(r.Image),
 		Cmd:          args,
+		Entrypoint:   r.Entrypoint,
 		ExposedPorts: ports,
 		Env:          env,
 		WorkingDir:   r.WorkDir,
@@ -276,8 +285,10 @@ func (c *Container) hostConfig(r RunOpts) *container.HostConfig {
 		ReadonlyRootfs:  r.ReadOnly,
 		NetworkMode:     container.NetworkMode(r.NetworkMode),
 		Resources: container.Resources{
-			Memory:     int64(r.Memory), // In bytes.
-			CpusetCpus: r.CpusetCpus,
+			Memory:         int64(r.Memory), // In bytes.
+			CpusetCpus:     r.CpusetCpus,
+			DeviceRequests: r.DeviceRequests,
+			Devices:        r.Devices,
 		},
 	}
 }
@@ -299,10 +310,10 @@ func (c *Container) Start(ctx context.Context) error {
 
 // Stop is analogous to 'docker stop'.
 func (c *Container) Stop(ctx context.Context) error {
-	return c.client.ContainerStop(ctx, c.id, nil)
+	return c.client.ContainerStop(ctx, c.id, container.StopOptions{})
 }
 
-// Pause is analogous to'docker pause'.
+// Pause is analogous to 'docker pause'.
 func (c *Container) Pause(ctx context.Context) error {
 	return c.client.ContainerPause(ctx, c.id)
 }
@@ -317,7 +328,7 @@ func (c *Container) Checkpoint(ctx context.Context, name string) error {
 	return c.client.CheckpointCreate(ctx, c.Name, types.CheckpointCreateOptions{CheckpointID: name, Exit: true})
 }
 
-// Restore is analogous to 'docker start --checkname [name]'.
+// Restore is analogous to 'docker start --checkpoint [name]'.
 func (c *Container) Restore(ctx context.Context, name string) error {
 	return c.client.ContainerStart(ctx, c.id, types.ContainerStartOptions{CheckpointID: name})
 }

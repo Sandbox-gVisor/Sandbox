@@ -51,6 +51,33 @@ func (t *Task) EnterInitialCgroups(parent *Task, initCgroups map[Cgroup]struct{}
 		// Since t isn't in any cgroup yet, we can skip the check against
 		// existing cgroups.
 		c.Enter(t)
+		t.SetMemCgIDFromCgroup(c)
+	}
+}
+
+// SetMemCgID sets the given memory cgroup id to the task.
+func (t *Task) SetMemCgID(memCgID uint32) {
+	t.memCgID.Store(memCgID)
+}
+
+// SetMemCgIDFromCgroup sets the id of the given memory cgroup to the task.
+func (t *Task) SetMemCgIDFromCgroup(cg Cgroup) {
+	for _, ctl := range cg.Controllers() {
+		if ctl.Type() == CgroupControllerMemory {
+			t.SetMemCgID(cg.ID())
+			return
+		}
+	}
+}
+
+// ResetMemCgIDFromCgroup sets the memory cgroup id to zero, if the task has
+// a memory cgroup.
+func (t *Task) ResetMemCgIDFromCgroup(cg Cgroup) {
+	for _, ctl := range cg.Controllers() {
+		if ctl.Type() == CgroupControllerMemory {
+			t.SetMemCgID(0)
+			return
+		}
 	}
 }
 
@@ -82,6 +109,7 @@ func (t *Task) enterCgroupLocked(c Cgroup) {
 	c.IncRef()
 	t.cgroups[c] = struct{}{}
 	c.Enter(t)
+	t.SetMemCgIDFromCgroup(c)
 }
 
 // +checklocks:t.mu
@@ -101,6 +129,7 @@ func (t *Task) LeaveCgroups() {
 	for c := range cgs {
 		c.Leave(t)
 	}
+	t.SetMemCgID(0)
 	t.mu.Unlock()
 	t.tg.pidns.owner.mu.Unlock()
 
@@ -207,7 +236,7 @@ func (t *Task) GetCgroupEntries() []TaskCgroupEntry {
 		// We're guaranteed to have a valid name, a non-empty controller list,
 		// or both.
 
-		// Explicit hierachy name, if any.
+		// Explicit hierarchy name, if any.
 		if name := c.Name(); name != "" {
 			ctlNames = append(ctlNames, fmt.Sprintf("name=%s", name))
 		}

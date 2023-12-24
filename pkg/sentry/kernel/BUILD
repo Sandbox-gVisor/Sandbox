@@ -1,6 +1,6 @@
+load("//pkg/sync/locking:locking.bzl", "declare_mutex", "declare_rwmutex")
 load("//tools:defs.bzl", "go_library", "go_test", "proto_library")
 load("//tools/go_generics:defs.bzl", "go_template_instance")
-load("//pkg/sync/locking:locking.bzl", "declare_mutex", "declare_rwmutex")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -194,17 +194,6 @@ go_template_instance(
 )
 
 go_template_instance(
-    name = "ipc_namespace_refs",
-    out = "ipc_namespace_refs.go",
-    package = "kernel",
-    prefix = "IPCNamespace",
-    template = "//pkg/refs:refs_template",
-    types = {
-        "T": "IPCNamespace",
-    },
-)
-
-go_template_instance(
     name = "process_group_refs",
     out = "process_group_refs.go",
     package = "kernel",
@@ -236,7 +225,6 @@ proto_library(
 go_library(
     name = "kernel",
     srcs = [
-        "abstract_socket_namespace.go",
         "aio.go",
         "atomicptr_bucket_slice_unsafe.go",
         "atomicptr_bucket_unsafe.go",
@@ -252,7 +240,6 @@ go_library(
         "fs_context.go",
         "fs_context_refs.go",
         "ipc_namespace.go",
-        "ipc_namespace_refs.go",
         "kcov.go",
         "kcov_unsafe.go",
         "kernel.go",
@@ -292,6 +279,7 @@ go_library(
         "task_futex.go",
         "task_identity.go",
         "task_image.go",
+        "task_key.go",
         "task_list.go",
         "task_log.go",
         "task_mutex.go",
@@ -334,6 +322,7 @@ go_library(
         "//pkg/abi",
         "//pkg/abi/linux",
         "//pkg/abi/linux/errno",
+        "//pkg/abi/sentry",
         "//pkg/atomicbitops",
         "//pkg/bitmap",
         "//pkg/bits",
@@ -342,6 +331,7 @@ go_library(
         "//pkg/context",
         "//pkg/coverage",
         "//pkg/cpuid",
+        "//pkg/devutil",
         "//pkg/errors",
         "//pkg/errors/linuxerr",
         "//pkg/eventchannel",
@@ -359,6 +349,7 @@ go_library(
         "//pkg/sentry/fsimpl/kernfs",
         "//pkg/sentry/fsimpl/lock",
         "//pkg/sentry/fsimpl/mqfs",
+        "//pkg/sentry/fsimpl/nsfs",
         "//pkg/sentry/fsimpl/pipefs",
         "//pkg/sentry/fsimpl/sockfs",
         "//pkg/sentry/fsimpl/timerfd",

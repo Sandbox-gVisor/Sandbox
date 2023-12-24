@@ -47,9 +47,12 @@ var (
 
 var (
 	tasksStaticFiles = map[string]testutil.DirentType{
+		"bus":            linux.DT_DIR,
 		"cmdline":        linux.DT_REG,
 		"cpuinfo":        linux.DT_REG,
 		"filesystems":    linux.DT_REG,
+		"fs":             linux.DT_DIR,
+		"irq":            linux.DT_DIR,
 		"loadavg":        linux.DT_REG,
 		"meminfo":        linux.DT_REG,
 		"mounts":         linux.DT_LNK,
@@ -58,6 +61,7 @@ var (
 		"sentry-meminfo": linux.DT_REG,
 		"stat":           linux.DT_REG,
 		"sys":            linux.DT_DIR,
+		"sysrq-trigger":  linux.DT_REG,
 		"thread-self":    linux.DT_LNK,
 		"uptime":         linux.DT_REG,
 		"version":        linux.DT_REG,
@@ -110,12 +114,11 @@ func setup(t *testing.T) *testutil.System {
 		AllowUserMount: true,
 	})
 
-	mntns, err := k.VFS().NewMountNamespace(ctx, creds, "", tmpfs.Name, &vfs.MountOptions{})
+	mntns, err := k.VFS().NewMountNamespace(ctx, creds, "", tmpfs.Name, &vfs.MountOptions{}, k)
 	if err != nil {
 		t.Fatalf("NewMountNamespace(): %v", err)
 	}
-	root := mntns.Root()
-	root.IncRef()
+	root := mntns.Root(ctx)
 	defer root.DecRef(ctx)
 	pop := &vfs.PathOperation{
 		Root:  root,

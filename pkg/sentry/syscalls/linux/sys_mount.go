@@ -16,9 +16,7 @@ package linux
 
 import (
 	"gvisor.dev/gvisor/pkg/abi/linux"
-	"gvisor.dev/gvisor/pkg/bits"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
-	"gvisor.dev/gvisor/pkg/fspath"
 	"gvisor.dev/gvisor/pkg/hostarch"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
@@ -46,9 +44,7 @@ func Mount(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, 
 	}
 
 	// Silently allow MS_NOSUID, since we don't implement set-id bits anyway.
-	const unsupported = linux.MS_REMOUNT | linux.MS_SLAVE |
-		linux.MS_UNBINDABLE | linux.MS_MOVE | linux.MS_REC | linux.MS_NODIRATIME |
-		linux.MS_STRICTATIME
+	const unsupported = linux.MS_UNBINDABLE | linux.MS_MOVE | linux.MS_NODIRATIME
 
 	// Linux just allows passing any flags to mount(2) - it won't fail when
 	// unknown or unsupported flags are passed. Since we don't implement
@@ -63,59 +59,13 @@ func Mount(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, 
 	if err != nil {
 		return 0, nil, err
 	}
-	target, err := getTaskPathOperation(t, linux.AT_FDCWD, targetPath, disallowEmptyPath, nofollowFinalSymlink)
+	target, err := getTaskPathOperation(t, linux.AT_FDCWD, targetPath, disallowEmptyPath, followFinalSymlink)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer target.Release(t)
-
-	if flags&linux.MS_BIND == linux.MS_BIND {
-		var sourcePath fspath.Path
-		sourcePath, err = copyInPath(t, sourceAddr)
-		if err != nil {
-			return 0, nil, err
-		}
-		var sourceTpop taskPathOperation
-		sourceTpop, err = getTaskPathOperation(t, linux.AT_FDCWD, sourcePath, disallowEmptyPath, nofollowFinalSymlink)
-		if err != nil {
-			return 0, nil, err
-		}
-		defer sourceTpop.Release(t)
-		_, err = t.Kernel().VFS().BindAt(t, creds, &sourceTpop.pop, &target.pop)
-		return 0, nil, err
-	}
-	const propagationFlags = linux.MS_SHARED | linux.MS_PRIVATE | linux.MS_SLAVE | linux.MS_UNBINDABLE
-	if propFlag := flags & propagationFlags; propFlag != 0 {
-		// Check if flags is a power of 2. If not then more than one flag is set.
-		if !bits.IsPowerOfTwo64(propFlag) {
-			return 0, nil, linuxerr.EINVAL
-		}
-		propType := vfs.PropagationTypeFromLinux(propFlag)
-		return 0, nil, t.Kernel().VFS().SetMountPropagationAt(t, creds, &target.pop, propType)
-	}
-
-	// Only copy in source, fstype, and data if we are doing a normal mount.
-	source, err := t.CopyInString(sourceAddr, hostarch.PageSize)
-	if err != nil {
-		return 0, nil, err
-	}
-	fsType, err := t.CopyInString(typeAddr, hostarch.PageSize)
-	if err != nil {
-		return 0, nil, err
-	}
-	data := ""
-	if dataAddr != 0 {
-		// In Linux, a full page is always copied in regardless of null
-		// character placement, and the address is passed to each file system.
-		// Most file systems always treat this data as a string, though, and so
-		// do all of the ones we implement.
-		data, err = t.CopyInString(dataAddr, hostarch.PageSize)
-		if err != nil {
-			return 0, nil, err
-		}
-	}
 	var opts vfs.MountOptions
-	if flags&linux.MS_NOATIME == linux.MS_NOATIME {
+	if flags&(linux.MS_NOATIME|linux.MS_STRICTATIME) == linux.MS_NOATIME {
 		opts.Flags.NoATime = true
 	}
 	if flags&linux.MS_NOEXEC == linux.MS_NOEXEC {
@@ -130,7 +80,50 @@ func Mount(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, 
 	if flags&linux.MS_RDONLY == linux.MS_RDONLY {
 		opts.ReadOnly = true
 	}
+	data := ""
+	if dataAddr != 0 {
+		// In Linux, a full page is always copied in regardless of null
+		// character placement, and the address is passed to each file system.
+		// Most file systems always treat this data as a string, though, and so
+		// do all of the ones we implement.
+		data, err = t.CopyInString(dataAddr, hostarch.PageSize)
+		if err != nil {
+			return 0, nil, err
+		}
+	}
 	opts.GetFilesystemOptions.Data = data
+	switch {
+	case flags&linux.MS_REMOUNT != 0:
+		// When MS_REMOUNT is specified, the flags and data should match the values used in the original mount() call,
+		// except for those parameters that are being changed.
+		//
+		// The src and filesystem type are ignored for MS_REMOUNT.
+		return 0, nil, t.Kernel().VFS().RemountAt(t, creds, &target.pop, &opts)
+	case flags&linux.MS_BIND != 0:
+		sourcePath, err := copyInPath(t, sourceAddr)
+		if err != nil {
+			return 0, nil, err
+		}
+		var sourceTpop taskPathOperation
+		sourceTpop, err = getTaskPathOperation(t, linux.AT_FDCWD, sourcePath, disallowEmptyPath, followFinalSymlink)
+		if err != nil {
+			return 0, nil, err
+		}
+		defer sourceTpop.Release(t)
+		return 0, nil, t.Kernel().VFS().BindAt(t, creds, &sourceTpop.pop, &target.pop, flags&linux.MS_REC != 0)
+	case flags&(linux.MS_SHARED|linux.MS_PRIVATE|linux.MS_SLAVE|linux.MS_UNBINDABLE) != 0:
+		return 0, nil, t.Kernel().VFS().SetMountPropagationAt(t, creds, &target.pop, uint32(flags))
+	}
+
+	// Only copy in source, fstype, and data if we are doing a normal mount.
+	source, err := t.CopyInString(sourceAddr, hostarch.PageSize)
+	if err != nil {
+		return 0, nil, err
+	}
+	fsType, err := t.CopyInString(typeAddr, hostarch.PageSize)
+	if err != nil {
+		return 0, nil, err
+	}
 	_, err = t.Kernel().VFS().MountAt(t, creds, source, &target.pop, fsType, &opts)
 	return 0, nil, err
 }

@@ -21,6 +21,7 @@ import (
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/fspath"
+	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sentry/fsmetric"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/sentry/socket/unix/transport"
@@ -67,15 +68,15 @@ func stepLocked(ctx context.Context, rp *vfs.ResolvingPath, d *dentry) (*dentry,
 	if name == ".." {
 		if isRoot, err := rp.CheckRoot(ctx, &d.vfsd); err != nil {
 			return nil, false, err
-		} else if isRoot || d.parent == nil {
+		} else if isRoot || d.parent.Load() == nil {
 			rp.Advance()
 			return d, false, nil
 		}
-		if err := rp.CheckMount(ctx, &d.parent.vfsd); err != nil {
+		if err := rp.CheckMount(ctx, &d.parent.Load().vfsd); err != nil {
 			return nil, false, err
 		}
 		rp.Advance()
-		return d.parent, false, nil
+		return d.parent.Load(), false, nil
 	}
 	if len(name) > d.inode.fs.maxFilenameLen {
 		return nil, false, linuxerr.ENAMETOOLONG
@@ -526,6 +527,14 @@ func (fs *filesystem) ReadlinkAt(ctx context.Context, rp *vfs.ResolvingPath) (st
 func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldParentVD vfs.VirtualDentry, oldName string, opts vfs.RenameOptions) error {
 	// Resolve newParentDir first to verify that it's on this Mount.
 	fs.mu.Lock()
+	// We need to DecRef outside of fs.mu because forgetting a dead mountpoint
+	// could result in this filesystem being released which acquires fs.mu.
+	var toDecRef []refs.RefCounter
+	defer func() {
+		for _, ref := range toDecRef {
+			ref.DecRef(ctx)
+		}
+	}()
 	defer fs.mu.Unlock()
 	newParentDir, err := walkParentDirLocked(ctx, rp, rp.Start().Impl().(*dentry))
 	if err != nil {
@@ -649,7 +658,7 @@ func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldPa
 	}
 	oldParentDir.removeChildLocked(renamed)
 	newParentDir.insertChildLocked(renamed, newName)
-	vfsObj.CommitRenameReplaceDentry(ctx, &renamed.vfsd, replacedVFSD)
+	toDecRef = vfsObj.CommitRenameReplaceDentry(ctx, &renamed.vfsd, replacedVFSD)
 	oldParentDir.inode.touchCMtime()
 	if oldParentDir != newParentDir {
 		if renamed.inode.isDir() {
@@ -667,6 +676,14 @@ func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldPa
 // RmdirAt implements vfs.FilesystemImpl.RmdirAt.
 func (fs *filesystem) RmdirAt(ctx context.Context, rp *vfs.ResolvingPath) error {
 	fs.mu.Lock()
+	// We need to DecRef outside of fs.mu because forgetting a dead mountpoint
+	// could result in this filesystem being released which acquires fs.mu.
+	var toDecRef []refs.RefCounter
+	defer func() {
+		for _, ref := range toDecRef {
+			ref.DecRef(ctx)
+		}
+	}()
 	defer fs.mu.Unlock()
 	parentDir, err := walkParentDirLocked(ctx, rp, rp.Start().Impl().(*dentry))
 	if err != nil {
@@ -713,7 +730,7 @@ func (fs *filesystem) RmdirAt(ctx context.Context, rp *vfs.ResolvingPath) error 
 	child.inode.decLinksLocked(ctx)
 	child.inode.decLinksLocked(ctx)
 	parentDir.inode.decLinksLocked(ctx)
-	vfsObj.CommitDeleteDentry(ctx, &child.vfsd)
+	toDecRef = vfsObj.CommitDeleteDentry(ctx, &child.vfsd)
 	parentDir.inode.touchCMtime()
 	return nil
 }
@@ -782,6 +799,14 @@ func (fs *filesystem) SymlinkAt(ctx context.Context, rp *vfs.ResolvingPath, targ
 // UnlinkAt implements vfs.FilesystemImpl.UnlinkAt.
 func (fs *filesystem) UnlinkAt(ctx context.Context, rp *vfs.ResolvingPath) error {
 	fs.mu.Lock()
+	// We need to DecRef outside of fs.mu because forgetting a dead mountpoint
+	// could result in this filesystem being released which acquires fs.mu.
+	var toDecRef []refs.RefCounter
+	defer func() {
+		for _, ref := range toDecRef {
+			ref.DecRef(ctx)
+		}
+	}()
 	defer fs.mu.Unlock()
 	parentDir, err := walkParentDirLocked(ctx, rp, rp.Start().Impl().(*dentry))
 	if err != nil {
@@ -824,7 +849,7 @@ func (fs *filesystem) UnlinkAt(ctx context.Context, rp *vfs.ResolvingPath) error
 	vfs.InotifyRemoveChild(ctx, &child.inode.watches, &parentDir.inode.watches, name)
 	parentDir.removeChildLocked(child)
 	child.inode.decLinksLocked(ctx)
-	vfsObj.CommitDeleteDentry(ctx, &child.vfsd)
+	toDecRef = vfsObj.CommitDeleteDentry(ctx, &child.vfsd)
 	parentDir.inode.touchCMtime()
 	return nil
 }
@@ -922,7 +947,8 @@ func (fs *filesystem) PrependPath(ctx context.Context, vfsroot, vd vfs.VirtualDe
 		if mnt != nil && &d.vfsd == mnt.Root() {
 			return nil
 		}
-		if d.parent == nil {
+		parent := d.parent.Load()
+		if parent == nil {
 			if d.name != "" {
 				// This file must have been created by
 				// newUnlinkedRegularFileDescription(). In Linux,
@@ -939,7 +965,7 @@ func (fs *filesystem) PrependPath(ctx context.Context, vfsroot, vd vfs.VirtualDe
 			return vfs.PrependPathAtNonMountRootError{}
 		}
 		b.PrependComponent(d.name)
-		d = d.parent
+		d = parent
 	}
 }
 
@@ -948,8 +974,13 @@ func (fs *filesystem) MountOptions() string {
 	return fs.mopts
 }
 
+// IsDescendant implements vfs.FilesystemImpl.IsDescendant.
+func (fs *filesystem) IsDescendant(vfsroot, vd vfs.VirtualDentry) bool {
+	return genericIsDescendant(vfsroot.Dentry(), vd.Dentry().Impl().(*dentry))
+}
+
 // adjustPageAcct adjusts the accounting done against filesystem size limit in
-// case there is any discrepency between the number of pages reserved vs the
+// case there is any discrepancy between the number of pages reserved vs the
 // number of pages actually allocated.
 func (fs *filesystem) adjustPageAcct(reserved, alloced uint64) {
 	if reserved < alloced {

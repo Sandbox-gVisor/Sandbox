@@ -15,7 +15,6 @@
 package ipv6
 
 import (
-	"bytes"
 	"math/rand"
 	"strings"
 	"testing"
@@ -259,6 +258,7 @@ func TestNeighborSolicitationResponse(t *testing.T) {
 		naSrc                  tcpip.Address
 		naDst                  tcpip.Address
 		performsLinkResolution bool
+		forwardingEnabled      bool
 	}{
 		{
 			name:          "Unspecified source to solicited-node multicast destination",
@@ -391,6 +391,20 @@ func TestNeighborSolicitationResponse(t *testing.T) {
 			nsDst:     nicAddr,
 			nsInvalid: true,
 		},
+		{
+			name: "Specified source with 1 source ll to multicast destination with forwarding enabled",
+			nsOpts: header.NDPOptionsSerializer{
+				header.NDPSourceLinkLayerAddressOption(remoteLinkAddr0[:]),
+			},
+			nsSrc:             remoteAddr,
+			nsDst:             nicAddrSNMC,
+			nsInvalid:         false,
+			naDstLinkAddr:     remoteLinkAddr0,
+			naSolicited:       true,
+			naSrc:             nicAddr,
+			naDst:             remoteAddr,
+			forwardingEnabled: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -398,6 +412,10 @@ func TestNeighborSolicitationResponse(t *testing.T) {
 			c := newTestContext()
 			defer c.cleanup()
 			s := c.s
+
+			if err := s.SetForwardingDefaultAndAllNICs(header.IPv6ProtocolNumber, test.forwardingEnabled); err != nil {
+				t.Fatalf("SetForwardingDefaultAndAllNICs(%t): %s", test.forwardingEnabled, err)
+			}
 
 			e := channel.New(1, 1280, nicLinkAddr)
 			defer e.Close()
@@ -513,6 +531,7 @@ func TestNeighborSolicitationResponse(t *testing.T) {
 				na := header.NDPNeighborAdvert(pkt.MessageBody())
 				na.SetSolicitedFlag(true)
 				na.SetOverrideFlag(true)
+				na.SetRouterFlag(test.forwardingEnabled)
 				na.SetTargetAddress(test.nsSrc)
 				na.Options().Serialize(ser)
 				pkt.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
@@ -1266,21 +1285,9 @@ func TestCheckDuplicateAddress(t *testing.T) {
 		RetransmitTimer:        time.Second,
 	}
 
-	nonces := [...][]byte{
-		{1, 2, 3, 4, 5, 6},
-		{7, 8, 9, 10, 11, 12},
-	}
-
-	var secureRNGBytes []byte
-	for _, n := range nonces {
-		secureRNGBytes = append(secureRNGBytes, n...)
-	}
-	var secureRNG bytes.Reader
-	secureRNG.Reset(secureRNGBytes[:])
 	s := stack.New(stack.Options{
 		Clock:      clock,
 		RandSource: rand.NewSource(time.Now().UnixNano()),
-		SecureRNG:  &secureRNG,
 		NetworkProtocols: []stack.NetworkProtocolFactory{NewProtocolWithOptions(Options{
 			DADConfigs: dadConfigs,
 		})},
@@ -1326,7 +1333,6 @@ func TestCheckDuplicateAddress(t *testing.T) {
 			checker.TTL(header.NDPHopLimit),
 			checker.NDPNS(
 				checker.NDPNSTargetAddress(lladdr0),
-				checker.NDPNSOptions([]header.NDPOption{header.NDPNonceOption(nonces[dadPacketsSent])}),
 			))
 	}
 	protocolAddr := tcpip.ProtocolAddress{

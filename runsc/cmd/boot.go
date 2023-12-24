@@ -25,6 +25,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/subcommands"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -80,14 +81,17 @@ type Boot struct {
 	// ioFDs is the list of FDs used to connect to FS gofers.
 	ioFDs intFlags
 
-	// overlayFilestoreFDs are FDs to the regular files that will back the tmpfs
-	// upper mount in the overlay mounts.
-	overlayFilestoreFDs intFlags
+	// devIoFD is the FD to connect to dev gofer.
+	devIoFD int
 
-	// overlayMediums contains information about how the gofer mounts have been
-	// overlaid. The first entry is for rootfs and the following entries are for
-	// bind mounts in Spec.Mounts (in the same order).
-	overlayMediums boot.OverlayMediumFlags
+	// goferFilestoreFDs are FDs to the regular files that will back the tmpfs or
+	// overlayfs mount for certain gofer mounts.
+	goferFilestoreFDs intFlags
+
+	// goferMountConfs contains information about how the gofer mounts have been
+	// configured. The first entry is for rootfs and the following entries are
+	// for bind mounts in Spec.Mounts (in the same order).
+	goferMountConfs boot.GoferMountConfFlags
 
 	// stdioFDs are the fds for stdin, stdout, and stderr. They must be
 	// provided in that order.
@@ -113,6 +117,9 @@ type Boot struct {
 	// container.
 	totalMem uint64
 
+	// totalHostMem is the total memory reported by host /proc/meminfo.
+	totalHostMem uint64
+
 	// userLogFD is the file descriptor to write user logs to.
 	userLogFD int
 
@@ -121,7 +128,9 @@ type Boot struct {
 
 	// mountsFD is the file descriptor to read list of mounts after they have
 	// been resolved (direct paths, no symlinks). They are resolved outside the
-	// sandbox (e.g. gofer) and sent through this FD.
+	// sandbox (e.g. gofer) and sent through this FD. When mountsFD is not
+	// provided, there is no cleaning required for mounts and the mounts in
+	// the spec can be used as is.
 	mountsFD int
 
 	podInitConfigFD int
@@ -151,6 +160,9 @@ type Boot struct {
 	// boot process should invoke setuid/setgid for root user. This is mainly
 	// used to synchronize rootless user namespace initialization.
 	syncUsernsFD int
+
+	// nvidiaDriverVersion is the Nvidia driver version on the host.
+	nvidiaDriverVersion string
 
 	// FDs for callbacks and communication
 	SyscallCallbacksInitConfigFD int
@@ -182,22 +194,25 @@ func (b *Boot) SetFlags(f *flag.FlagSet) {
 	f.IntVar(&b.procMountSyncFD, "proc-mount-sync-fd", -1, "file descriptor that has to be written to when /proc isn't needed anymore and can be unmounted")
 	f.IntVar(&b.syncUsernsFD, "sync-userns-fd", -1, "file descriptor used to synchronize rootless user namespace initialization.")
 	f.Uint64Var(&b.totalMem, "total-memory", 0, "sets the initial amount of total memory to report back to the container")
+	f.Uint64Var(&b.totalHostMem, "total-host-memory", 0, "total memory reported by host /proc/meminfo")
 	f.BoolVar(&b.attached, "attached", false, "if attached is true, kills the sandbox process when the parent process terminates")
 	f.StringVar(&b.productName, "product-name", "", "value to show in /sys/devices/virtual/dmi/id/product_name")
+	f.StringVar(&b.nvidiaDriverVersion, "nvidia-driver-version", "", "Nvidia driver version on the host")
 
 	// Open FDs that are donated to the sandbox.
 	f.IntVar(&b.specFD, "spec-fd", -1, "required fd with the container spec")
 	f.IntVar(&b.controllerFD, "controller-fd", -1, "required FD of a stream socket for the control server that must be donated to this process")
 	f.IntVar(&b.deviceFD, "device-fd", -1, "FD for the platform device file")
-	f.Var(&b.ioFDs, "io-fds", "list of FDs to connect gofer clients. They must follow this order: root first, then mounts as defined in the spec")
+	f.Var(&b.ioFDs, "io-fds", "list of image FDs and/or socket FDs to connect gofer clients. They must follow this order: root first, then mounts as defined in the spec")
+	f.IntVar(&b.devIoFD, "dev-io-fd", -1, "FD to connect dev gofer client")
 	f.Var(&b.stdioFDs, "stdio-fds", "list of FDs containing sandbox stdin, stdout, and stderr in that order")
 	f.Var(&b.passFDs, "pass-fd", "mapping of host to guest FDs. They must be in M:N format. M is the host and N the guest descriptor.")
 	f.IntVar(&b.execFD, "exec-fd", -1, "host file descriptor used for program execution.")
-	f.Var(&b.overlayFilestoreFDs, "overlay-filestore-fds", "FDs to the regular files that will back the tmpfs upper mount in the overlay mounts.")
-	f.Var(&b.overlayMediums, "overlay-mediums", "information about how the gofer mounts have been overlaid.")
+	f.Var(&b.goferFilestoreFDs, "gofer-filestore-fds", "FDs to the regular files that will back the overlayfs or tmpfs mount if a gofer mount is to be overlaid.")
+	f.Var(&b.goferMountConfs, "gofer-mount-confs", "information about how the gofer mounts have been configured.")
 	f.IntVar(&b.userLogFD, "user-log-fd", 0, "file descriptor to write user logs to. 0 means no logging.")
 	f.IntVar(&b.startSyncFD, "start-sync-fd", -1, "required FD to used to synchronize sandbox startup")
-	f.IntVar(&b.mountsFD, "mounts-fd", -1, "mountsFD is the file descriptor to read list of mounts after they have been resolved (direct paths, no symlinks).")
+	f.IntVar(&b.mountsFD, "mounts-fd", -1, "mountsFD is an optional file descriptor to read list of mounts after they have been resolved (direct paths, no symlinks).")
 	f.IntVar(&b.podInitConfigFD, "pod-init-config-fd", -1, "file descriptor to the pod init configuration file.")
 	f.Var(&b.sinkFDs, "sink-fds", "ordered list of file descriptors to be used by the sinks defined in --pod-init-config.")
 
@@ -228,6 +243,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 	// Initialize ring0 library.
 	ring0.InitDefault()
 
+	argOverride := make(map[string]string)
 	if len(b.productName) == 0 {
 		// Do this before chroot takes effect, otherwise we can't read /sys.
 		if product, err := ioutil.ReadFile("/sys/devices/virtual/dmi/id/product_name"); err != nil {
@@ -235,6 +251,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		} else {
 			b.productName = strings.TrimSpace(string(product))
 			log.Infof("Setting product_name: %q", b.productName)
+			argOverride["product-name"] = b.productName
 		}
 	}
 
@@ -249,6 +266,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 
 	if b.syncUsernsFD >= 0 {
 		syncUsernsForRootless(b.syncUsernsFD)
+		argOverride["sync-userns-fd"] = "-1"
 	}
 
 	// Get the spec from the specFD. We *must* keep this os.File alive past
@@ -264,6 +282,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		if err := setUpChroot(b.pidns, spec, conf); err != nil {
 			util.Fatalf("error setting up chroot: %v", err)
 		}
+		argOverride["setup-root"] = "false"
 
 		if !conf.Rootless {
 			// /proc is umounted from a forked process, because the
@@ -276,6 +295,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 				panic("procMountSyncFD is set")
 			}
 			b.procMountSyncFD = int(w.Fd())
+			argOverride["proc-mount-sync-fd"] = strconv.Itoa(b.procMountSyncFD)
 
 			// Clear FD_CLOEXEC. Regardless of b.applyCaps, this process will be
 			// re-executed. procMountSyncFD should remain open.
@@ -285,13 +305,18 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 
 			if !b.applyCaps {
 				// Remove the args that have already been done before calling self.
-				args := b.prepareArgs("setup-root", "sync-userns-fd")
+				args := prepareArgs(b.Name(), f, argOverride)
 
 				// Note that we've already read the spec from the spec FD, and
 				// we will read it again after the exec call. This works
 				// because the ReadSpecFromFile function seeks to the beginning
 				// of the file before reading.
 				util.Fatalf("callSelfAsNobody(%v): %v", args, callSelfAsNobody(args))
+
+				// This prevents the specFile finalizer from running and closed
+				// the specFD, which we have passed to ourselves when
+				// re-execing.
+				runtime.KeepAlive(specFile)
 				panic("unreachable")
 			}
 		}
@@ -320,9 +345,10 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		if conf.DirectFS {
 			caps = specutils.MergeCapabilities(caps, directfsSandboxLinuxCaps)
 		}
+		argOverride["apply-caps"] = "false"
 
 		// Remove the args that have already been done before calling self.
-		args := b.prepareArgs("setup-root", "sync-userns-fd", "apply-caps")
+		args := prepareArgs(b.Name(), f, argOverride)
 
 		// Note that we've already read the spec from the spec FD, and
 		// we will read it again after the exec call. This works
@@ -338,7 +364,7 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 	}
 
 	if b.syncUsernsFD >= 0 {
-		// syncUsernsFD is set, but runsc hasn't been re-exeuted with a new UID and GID.
+		// syncUsernsFD is set, but runsc hasn't been re-executed with a new UID and GID.
 		// We expect that setCapsAndCallSelf has to be called in this case.
 		panic("unreachable")
 	}
@@ -365,15 +391,18 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		}
 	}
 
-	// Read resolved mount list and replace the original one from the spec.
-	mountsFile := os.NewFile(uintptr(b.mountsFD), "mounts file")
-	cleanMounts, err := specutils.ReadMounts(mountsFile)
-	if err != nil {
+	// When mountsFD is not provided, there is no cleaning required.
+	if b.mountsFD >= 0 {
+		// Read resolved mount list and replace the original one from the spec.
+		mountsFile := os.NewFile(uintptr(b.mountsFD), "mounts file")
+		cleanMounts, err := specutils.ReadMounts(mountsFile)
+		if err != nil {
+			mountsFile.Close()
+			util.Fatalf("Error reading mounts file: %v", err)
+		}
 		mountsFile.Close()
-		util.Fatalf("Error reading mounts file: %v", err)
+		spec.Mounts = cleanMounts
 	}
-	mountsFile.Close()
-	spec.Mounts = cleanMounts
 
 	if conf.DirectFS {
 		// sandbox should run with a umask of 0, because we want to preserve file
@@ -407,21 +436,27 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		ControllerFD:        b.controllerFD,
 		Device:              os.NewFile(uintptr(b.deviceFD), "platform device"),
 		GoferFDs:            b.ioFDs.GetArray(),
+		DevGoferFD:          b.devIoFD,
 		StdioFDs:            b.stdioFDs.GetArray(),
 		PassFDs:             b.passFDs.GetArray(),
 		ExecFD:              b.execFD,
-		OverlayFilestoreFDs: b.overlayFilestoreFDs.GetArray(),
-		OverlayMediums:      b.overlayMediums.GetArray(),
+		GoferFilestoreFDs:   b.goferFilestoreFDs.GetArray(),
+		GoferMountConfs:     b.goferMountConfs.GetArray(),
 		NumCPU:              b.cpuNum,
 		TotalMem:            b.totalMem,
+		TotalHostMem:        b.totalHostMem,
 		UserLogFD:           b.userLogFD,
 		ProductName:         b.productName,
 		PodInitConfigFD:     b.podInitConfigFD,
 		SinkFDs:             b.sinkFDs.GetArray(),
 		ProfileOpts:         b.profileFDs.ToOpts(),
+<<<<<<< HEAD
 		// our fds
 		SyscallCallbacksInitConfigFD: b.SyscallCallbacksInitConfigFD,
 		RuntimeSocketFD:              b.RuntimeSocketFD,
+=======
+		NvidiaDriverVersion: b.nvidiaDriverVersion,
+>>>>>>> gvisor/master
 	}
 
 	l, err := boot.New(bootArgs)
@@ -446,6 +481,13 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 	// but before the start-sync file is notified, as the parent process needs to query for
 	// registered metrics prior to sending the start signal.
 	metric.Initialize()
+	if metric.ProfilingMetricWriter != nil {
+		if err := metric.StartProfilingMetrics(conf.ProfilingMetrics, time.Duration(conf.ProfilingMetricsRate)*time.Microsecond); err != nil {
+			l.Destroy()
+			util.Fatalf("unable to start profiling metrics: %v", err)
+		}
+		defer metric.StopProfilingMetrics()
+	}
 
 	// Notify the parent process the sandbox has booted (and that the controller
 	// is up).
@@ -475,28 +517,38 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 	return subcommands.ExitSuccess
 }
 
-func (b *Boot) prepareArgs(exclude ...string) []string {
+// prepareArgs returns the args that can be used to re-execute the current
+// program. It manipulates the flags of the subcommands.Command identified by
+// subCmdName and fSet is the flag.FlagSet of this subcommand. It applies the
+// flags specified by override map. In case of conflict, flag is overriden.
+//
+// Postcondition: prepareArgs() takes ownership of override map.
+func prepareArgs(subCmdName string, fSet *flag.FlagSet, override map[string]string) []string {
 	var args []string
+	// Add all args up until (and including) the sub command.
 	for _, arg := range os.Args {
-		for _, excl := range exclude {
-			if strings.Contains(arg, excl) {
-				goto skip
-			}
-		}
 		args = append(args, arg)
-		// Some parameters are not already part of os.Args because they are
-		// solely configured by Boot.Execute(). Strategically add these parameters
-		// after the command and before the container ID at the end.
-		if arg == "boot" {
-			if b.procMountSyncFD != -1 {
-				args = append(args, fmt.Sprintf("--proc-mount-sync-fd=%d", b.procMountSyncFD))
-			}
-			if len(b.productName) > 0 {
-				args = append(args, "--product-name", b.productName)
-			}
+		if arg == subCmdName {
+			break
 		}
-	skip:
 	}
+	// Set sub command flags. Iterate through all the explicitly set flags.
+	fSet.Visit(func(gf *flag.Flag) {
+		// If a conflict is found with override, then prefer override flag.
+		if ov, ok := override[gf.Name]; ok {
+			args = append(args, fmt.Sprintf("--%s=%s", gf.Name, ov))
+			delete(override, gf.Name)
+			return
+		}
+		// Otherwise pass through the original flag.
+		args = append(args, fmt.Sprintf("--%s=%s", gf.Name, gf.Value))
+	})
+	// Apply remaining override flags (that didn't conflict above).
+	for of, ov := range override {
+		args = append(args, fmt.Sprintf("--%s=%s", of, ov))
+	}
+	// Add the non-flag arguments at the end.
+	args = append(args, fSet.Args()...)
 	return args
 }
 
@@ -524,7 +576,7 @@ func execProcUmounter() (*exec.Cmd, *os.File) {
 // umountProc writes to syncFD signalling the process started by
 // execProcUmounter() to umount /proc.
 func umountProc(syncFD int) {
-	syncFile := os.NewFile(uintptr(syncFD), "sync file")
+	syncFile := os.NewFile(uintptr(syncFD), "procfs umount sync FD")
 	buf := make([]byte, 1)
 	if w, err := syncFile.Write(buf); err != nil || w != 1 {
 		util.Fatalf("unable to write into the proc umounter descriptor: %v", err)

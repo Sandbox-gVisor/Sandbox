@@ -19,40 +19,47 @@ import (
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/seccomp"
+	"gvisor.dev/gvisor/pkg/sentry/platform"
 )
 
-// SyscallFilters returns syscalls made exclusively by the KVM platform.
-func (k *KVM) SyscallFilters() seccomp.SyscallRules {
-	r := k.archSyscallFilters()
-	r.Merge(seccomp.SyscallRules{
-		unix.SYS_IOCTL: []seccomp.Rule{
-			{
-				seccomp.MatchAny{},
-				seccomp.EqualTo(_KVM_RUN),
+// SeccompInfo returns seccomp information for the KVM platform.
+func (k *KVM) SeccompInfo() platform.SeccompInfo {
+	return platform.StaticSeccompInfo{
+		PlatformName: "kvm",
+		Filters: k.archSyscallFilters().Merge(seccomp.MakeSyscallRules(map[uintptr]seccomp.SyscallRule{
+			unix.SYS_IOCTL: seccomp.Or{
+				seccomp.PerArg{
+					seccomp.NonNegativeFD{},
+					seccomp.EqualTo(KVM_RUN),
+				},
+				seccomp.PerArg{
+					seccomp.NonNegativeFD{},
+					seccomp.EqualTo(KVM_SET_USER_MEMORY_REGION),
+				},
+				seccomp.PerArg{
+					seccomp.NonNegativeFD{},
+					seccomp.EqualTo(KVM_GET_REGS),
+				},
+				seccomp.PerArg{
+					seccomp.NonNegativeFD{},
+					seccomp.EqualTo(KVM_SET_REGS),
+				},
 			},
-			{
-				seccomp.MatchAny{},
-				seccomp.EqualTo(_KVM_SET_USER_MEMORY_REGION),
-			},
-			{
-				seccomp.MatchAny{},
-				seccomp.EqualTo(_KVM_GET_REGS),
-			},
-			{
-				seccomp.MatchAny{},
-				seccomp.EqualTo(_KVM_SET_REGS),
-			},
-		},
-		unix.SYS_MEMBARRIER: []seccomp.Rule{
-			{
+			unix.SYS_MEMBARRIER: seccomp.PerArg{
 				seccomp.EqualTo(linux.MEMBARRIER_CMD_PRIVATE_EXPEDITED),
 				seccomp.EqualTo(0),
 			},
-		},
-		unix.SYS_MMAP:            {},
-		unix.SYS_RT_SIGSUSPEND:   {},
-		unix.SYS_RT_SIGTIMEDWAIT: {},
-		_SYS_KVM_RETURN_TO_HOST:  {},
-	})
-	return r
+			unix.SYS_MMAP:            seccomp.MatchAll{},
+			unix.SYS_RT_SIGSUSPEND:   seccomp.MatchAll{},
+			unix.SYS_RT_SIGTIMEDWAIT: seccomp.MatchAll{},
+			_SYS_KVM_RETURN_TO_HOST:  seccomp.MatchAll{},
+		})),
+		HotSyscalls: hottestSyscalls(),
+	}
+}
+
+// PrecompiledSeccompInfo implements
+// platform.Constructor.PrecompiledSeccompInfo.
+func (*constructor) PrecompiledSeccompInfo() []platform.SeccompInfo {
+	return []platform.SeccompInfo{(*KVM)(nil).SeccompInfo()}
 }

@@ -125,13 +125,55 @@ func execMany(t *testing.T, conf *config.Config, execs []execDesc) {
 }
 
 func createSharedMount(mount specs.Mount, name string, pod ...*specs.Spec) {
+	numContainers := 0
+	for _, spec := range pod {
+		for i := range spec.Mounts {
+			if spec.Mounts[i].Source == mount.Source {
+				numContainers++
+				break
+			}
+		}
+	}
+	share := "container"
+	if numContainers > 1 {
+		share = "pod"
+	}
 	for _, spec := range pod {
 		spec.Annotations[boot.MountPrefix+name+".source"] = mount.Source
-		spec.Annotations[boot.MountPrefix+name+".type"] = mount.Type
-		spec.Annotations[boot.MountPrefix+name+".share"] = "pod"
+		spec.Annotations[boot.MountPrefix+name+".type"] = "tmpfs"
+		spec.Annotations[boot.MountPrefix+name+".share"] = share
 		if len(mount.Options) > 0 {
 			spec.Annotations[boot.MountPrefix+name+".options"] = strings.Join(mount.Options, ",")
 		}
+	}
+}
+
+func testSharedMount(t *testing.T, tester func(t *testing.T, conf *config.Config, sourceDir string, mntType string)) {
+	// Shared mounts can be tmpfs or bind types. Test both.
+	for _, mntType := range []string{"tmpfs", "bind"} {
+		t.Run(mntType, func(t *testing.T) {
+			// We are interested in seeing how shared mounts interplay with --overlay2.
+			for _, ovl := range []string{"none", "root:self", "all:memory"} {
+				t.Run(ovl, func(t *testing.T) {
+					conf := testutil.TestConfig(t)
+					conf.Overlay2.Set(ovl)
+					rootDir, cleanup, err := testutil.SetupRootDir()
+					if err != nil {
+						t.Fatalf("error creating root dir: %v", err)
+					}
+					defer cleanup()
+					conf.RootDir = rootDir
+
+					sourceDir, err := ioutil.TempDir(testutil.TmpDir(), "mntSrc")
+					if err != nil {
+						t.Fatalf("ioutil.TempDir() failed: %v", err)
+					}
+					defer os.RemoveAll(sourceDir)
+
+					tester(t, conf, sourceDir, mntType)
+				})
+			}
+		})
 	}
 }
 
@@ -1304,278 +1346,251 @@ func TestMultiContainerContainerDestroyStress(t *testing.T) {
 // Test that pod shared mounts are properly mounted in 2 containers and that
 // changes from one container is reflected in the other.
 func TestMultiContainerSharedMount(t *testing.T) {
-	for name, conf := range configs(t, false /* noOverlay */) {
-		t.Run(name, func(t *testing.T) {
-			rootDir, cleanup, err := testutil.SetupRootDir()
-			if err != nil {
-				t.Fatalf("error creating root dir: %v", err)
-			}
-			defer cleanup()
-			conf.RootDir = rootDir
+	testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
+		// Setup the containers.
+		sleep := []string{"sleep", "100"}
+		podSpec, ids := createSpecs(sleep, sleep)
+		mnt0 := specs.Mount{
+			Destination: "/mydir/test",
+			Source:      sourceDir,
+			Type:        mntType,
+			Options:     nil,
+		}
+		podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
 
-			// Setup the containers.
-			sleep := []string{"sleep", "100"}
-			podSpec, ids := createSpecs(sleep, sleep)
-			mnt0 := specs.Mount{
-				Destination: "/mydir/test",
-				Source:      "/some/dir",
-				Type:        "tmpfs",
-				Options:     nil,
-			}
-			podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
+		mnt1 := mnt0
+		mnt1.Destination = "/mydir2/test2"
+		podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
 
-			mnt1 := mnt0
-			mnt1.Destination = "/mydir2/test2"
-			podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
+		createSharedMount(mnt0, "test-mount", podSpec...)
 
-			createSharedMount(mnt0, "test-mount", podSpec...)
+		containers, cleanup, err := startContainers(conf, podSpec, ids)
+		if err != nil {
+			t.Fatalf("error starting containers: %v", err)
+		}
+		defer cleanup()
 
-			containers, cleanup, err := startContainers(conf, podSpec, ids)
-			if err != nil {
-				t.Fatalf("error starting containers: %v", err)
-			}
-			defer cleanup()
-
-			file0 := path.Join(mnt0.Destination, "abc")
-			file1 := path.Join(mnt1.Destination, "abc")
-			execs := []execDesc{
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "-d", mnt0.Destination},
-					name: "directory is mounted in container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "-d", mnt1.Destination},
-					name: "directory is mounted in container1",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/bin/touch", file0},
-					name: "create file in container0",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "-f", file0},
-					name: "file appears in container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "-f", file1},
-					name: "file appears in container1",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/bin/rm", file1},
-					name: "remove file from container1",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "!", "-f", file0},
-					name: "file removed from container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "!", "-f", file1},
-					name: "file removed from container1",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/bin/mkdir", file1},
-					name: "create directory in container1",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "-d", file0},
-					name: "dir appears in container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "-d", file1},
-					name: "dir appears in container1",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/bin/rmdir", file0},
-					name: "remove directory from container0",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "!", "-d", file0},
-					name: "dir removed from container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "!", "-d", file1},
-					name: "dir removed from container1",
-				},
-			}
-			execMany(t, conf, execs)
-		})
-	}
+		file0 := path.Join(mnt0.Destination, "abc")
+		file1 := path.Join(mnt1.Destination, "abc")
+		execs := []execDesc{
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "-d", mnt0.Destination},
+				name: "directory is mounted in container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "-d", mnt1.Destination},
+				name: "directory is mounted in container1",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/bin/touch", file0},
+				name: "create file in container0",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "-f", file0},
+				name: "file appears in container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "-f", file1},
+				name: "file appears in container1",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/bin/rm", file1},
+				name: "remove file from container1",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "!", "-f", file0},
+				name: "file removed from container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "!", "-f", file1},
+				name: "file removed from container1",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/bin/mkdir", file1},
+				name: "create directory in container1",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "-d", file0},
+				name: "dir appears in container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "-d", file1},
+				name: "dir appears in container1",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/bin/rmdir", file0},
+				name: "remove directory from container0",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "!", "-d", file0},
+				name: "dir removed from container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "!", "-d", file1},
+				name: "dir removed from container1",
+			},
+		}
+		execMany(t, conf, execs)
+	})
 }
 
 // Test that pod mounts are mounted as readonly when requested.
 func TestMultiContainerSharedMountReadonly(t *testing.T) {
-	for name, conf := range configs(t, false /* noOverlay */) {
-		t.Run(name, func(t *testing.T) {
-			rootDir, cleanup, err := testutil.SetupRootDir()
-			if err != nil {
-				t.Fatalf("error creating root dir: %v", err)
-			}
-			defer cleanup()
-			conf.RootDir = rootDir
+	testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
+		// Setup the containers.
+		sleep := []string{"sleep", "100"}
+		podSpec, ids := createSpecs(sleep, sleep)
+		mnt0 := specs.Mount{
+			Destination: "/mydir/test",
+			Source:      sourceDir,
+			Type:        mntType,
+			Options:     []string{"ro"},
+		}
+		podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
 
-			// Setup the containers.
-			sleep := []string{"sleep", "100"}
-			podSpec, ids := createSpecs(sleep, sleep)
-			mnt0 := specs.Mount{
-				Destination: "/mydir/test",
-				Source:      "/some/dir",
-				Type:        "tmpfs",
-				Options:     []string{"ro"},
-			}
-			podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
+		mnt1 := mnt0
+		mnt1.Destination = "/mydir2/test2"
+		podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
 
-			mnt1 := mnt0
-			mnt1.Destination = "/mydir2/test2"
-			podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
+		createSharedMount(mnt0, "test-mount", podSpec...)
 
-			createSharedMount(mnt0, "test-mount", podSpec...)
+		containers, cleanup, err := startContainers(conf, podSpec, ids)
+		if err != nil {
+			t.Fatalf("error starting containers: %v", err)
+		}
+		defer cleanup()
 
-			containers, cleanup, err := startContainers(conf, podSpec, ids)
-			if err != nil {
-				t.Fatalf("error starting containers: %v", err)
-			}
-			defer cleanup()
-
-			file0 := path.Join(mnt0.Destination, "abc")
-			file1 := path.Join(mnt1.Destination, "abc")
-			execs := []execDesc{
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "-d", mnt0.Destination},
-					name: "directory is mounted in container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "-d", mnt1.Destination},
-					name: "directory is mounted in container1",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/bin/touch", file0},
-					want: 1,
-					name: "fails to write to container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/bin/touch", file1},
-					want: 1,
-					name: "fails to write to container1",
-				},
-			}
-			execMany(t, conf, execs)
-		})
-	}
+		file0 := path.Join(mnt0.Destination, "abc")
+		file1 := path.Join(mnt1.Destination, "abc")
+		execs := []execDesc{
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "-d", mnt0.Destination},
+				name: "directory is mounted in container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "-d", mnt1.Destination},
+				name: "directory is mounted in container1",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/bin/touch", file0},
+				want: 1,
+				name: "fails to write to container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/bin/touch", file1},
+				want: 1,
+				name: "fails to write to container1",
+			},
+		}
+		execMany(t, conf, execs)
+	})
 }
 
 // Test that pod mounts can be mounted with less restrictive options in
 // container mounts.
 func TestMultiContainerSharedMountCompatible(t *testing.T) {
-	rootDir, cleanup, err := testutil.SetupRootDir()
-	if err != nil {
-		t.Fatalf("error creating root dir: %v", err)
-	}
-	defer cleanup()
-	conf := testutil.TestConfig(t)
-	conf.RootDir = rootDir
+	testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
+		sleep := []string{"sleep", "100"}
+		podSpec, ids := createSpecs(sleep, sleep)
 
-	sleep := []string{"sleep", "100"}
-	podSpec, ids := createSpecs(sleep, sleep)
+		// Init container and annotations allow read-write and exec.
+		mnt0 := specs.Mount{
+			Destination: "/mydir/test",
+			Source:      sourceDir,
+			Type:        mntType,
+			Options:     []string{"rw", "exec"},
+		}
+		podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
 
-	// Init container and annotations allow read-write and exec.
-	mnt0 := specs.Mount{
-		Destination: "/mydir/test",
-		Source:      "/some/dir",
-		Type:        "tmpfs",
-		Options:     []string{"rw", "exec"},
-	}
-	podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
+		// While subcontainer mount has more restrictive options: read-only, noexec.
+		mnt1 := mnt0
+		mnt1.Destination = "/mydir2/test2"
+		mnt1.Options = []string{"ro", "noexec"}
+		podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
 
-	// While subcontainer mount has more restrictive options: read-only, noexec.
-	mnt1 := mnt0
-	mnt1.Destination = "/mydir2/test2"
-	mnt1.Options = []string{"ro", "noexec"}
-	podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
+		createSharedMount(mnt0, "test-mount", podSpec...)
 
-	createSharedMount(mnt0, "test-mount", podSpec...)
+		containers, cleanup, err := startContainers(conf, podSpec, ids)
+		if err != nil {
+			t.Fatalf("error starting containers: %v", err)
+		}
+		defer cleanup()
 
-	containers, cleanup, err := startContainers(conf, podSpec, ids)
-	if err != nil {
-		t.Fatalf("error starting containers: %v", err)
-	}
-	defer cleanup()
-
-	execs := []execDesc{
-		{
-			c:    containers[1],
-			cmd:  []string{"/bin/touch", path.Join(mnt1.Destination, "fail")},
-			want: 1,
-			name: "fails write to container1",
-		},
-		{
-			c:    containers[0],
-			cmd:  []string{"/bin/cp", "/usr/bin/test", mnt0.Destination},
-			name: "writes to container0",
-		},
-		{
-			c:    containers[1],
-			cmd:  []string{"/usr/bin/test", "-f", path.Join(mnt1.Destination, "test")},
-			name: "file appears in container1",
-		},
-		{
-			c:    containers[0],
-			cmd:  []string{path.Join(mnt0.Destination, "test"), "-d", mnt0.Destination},
-			name: "container0 can execute",
-		},
-		{
-			c:    containers[1],
-			cmd:  []string{path.Join(mnt1.Destination, "test"), "-d", mnt1.Destination},
-			err:  "permission denied",
-			name: "container1 cannot execute",
-		},
-	}
-	execMany(t, conf, execs)
+		execs := []execDesc{
+			{
+				c:    containers[1],
+				cmd:  []string{"/bin/touch", path.Join(mnt1.Destination, "fail")},
+				want: 1,
+				name: "fails write to container1",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/bin/cp", "/usr/bin/test", mnt0.Destination},
+				name: "writes to container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "-f", path.Join(mnt1.Destination, "test")},
+				name: "file appears in container1",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{path.Join(mnt0.Destination, "test"), "-d", mnt0.Destination},
+				name: "container0 can execute",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{path.Join(mnt1.Destination, "test"), "-d", mnt1.Destination},
+				err:  "permission denied",
+				name: "container1 cannot execute",
+			},
+		}
+		execMany(t, conf, execs)
+	})
 }
 
 // Test that shared pod mounts continue to work after container is restarted.
 func TestMultiContainerSharedMountRestart(t *testing.T) {
-	for name, conf := range configs(t, false /* noOverlay */) {
-		t.Run(name, func(t *testing.T) {
-			rootDir, cleanup, err := testutil.SetupRootDir()
-			if err != nil {
-				t.Fatalf("error creating root dir: %v", err)
-			}
-			defer cleanup()
-			conf.RootDir = rootDir
-
+	for numSubConts := 1; numSubConts <= 2; numSubConts++ {
+		testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
 			// Setup the containers.
 			sleep := []string{"sleep", "100"}
-			podSpec, ids := createSpecs(sleep, sleep)
-			mnt0 := specs.Mount{
-				Destination: "/mydir/test",
-				Source:      "/some/dir",
-				Type:        "tmpfs",
-				Options:     nil,
+			cmds := [][]string{sleep}
+			for i := 1; i <= numSubConts; i++ {
+				cmds = append(cmds, sleep)
 			}
-			podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
+			podSpec, ids := createSpecs(cmds...)
 
-			mnt1 := mnt0
-			mnt1.Destination = "/mydir2/test2"
-			podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
+			// Add a shared mount to all subcontainers.
+			mnt := specs.Mount{
+				Source:  sourceDir,
+				Type:    mntType,
+				Options: nil,
+			}
+			for i := 1; i <= numSubConts; i++ {
+				mnt.Destination = fmt.Sprintf("/mydir/test%d", i)
+				podSpec[i].Mounts = append(podSpec[i].Mounts, mnt)
+			}
 
-			createSharedMount(mnt0, "test-mount", podSpec...)
+			createSharedMount(mnt, "test-mount", podSpec...)
 
 			containers, cleanup, err := startContainers(conf, podSpec, ids)
 			if err != nil {
@@ -1583,27 +1598,27 @@ func TestMultiContainerSharedMountRestart(t *testing.T) {
 			}
 			defer cleanup()
 
-			file0 := path.Join(mnt0.Destination, "abc")
-			file1 := path.Join(mnt1.Destination, "abc")
+			// Create file in first subcontainer.
+			file1 := "/mydir/test1/abc"
 			execs := []execDesc{
 				{
-					c:    containers[0],
-					cmd:  []string{"/bin/touch", file0},
-					name: "create file in container0",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "-f", file0},
-					name: "file appears in container0",
-				},
-				{
 					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "-f", file1},
-					name: "file appears in container1",
+					cmd:  []string{"/bin/touch", file1},
+					name: "create file in container1",
 				},
+			}
+			// Check it appears in all subcontainers.
+			for i := 1; i <= numSubConts; i++ {
+				fileName := fmt.Sprintf("/mydir/test%d/abc", i)
+				execs = append(execs, execDesc{
+					c:    containers[i],
+					cmd:  []string{"/usr/bin/test", "-f", fileName},
+					name: fmt.Sprintf("file appears in container%d", i),
+				})
 			}
 			execMany(t, conf, execs)
 
+			// Restart first subcontainer.
 			containers[1].Destroy()
 
 			bundleDir, cleanup, err := testutil.SetupBundleDir(podSpec[1])
@@ -1625,32 +1640,15 @@ func TestMultiContainerSharedMountRestart(t *testing.T) {
 				t.Fatalf("error starting container: %v", err)
 			}
 
-			execs = []execDesc{
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "-f", file0},
-					name: "file is still in container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "-f", file1},
-					name: "file is still in container1",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/bin/rm", file1},
-					name: "file removed from container1",
-				},
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "!", "-f", file0},
-					name: "file removed from container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "!", "-f", file1},
-					name: "file removed from container1",
-				},
+			// Ensure that the file exists in all subcontainers.
+			execs = nil
+			for i := 1; i <= numSubConts; i++ {
+				fileName := fmt.Sprintf("/mydir/test%d/abc", i)
+				execs = append(execs, execDesc{
+					c:    containers[i],
+					cmd:  []string{"/usr/bin/test", "-f", fileName},
+					name: fmt.Sprintf("file appears in container%d", i),
+				})
 			}
 			execMany(t, conf, execs)
 		})
@@ -1660,52 +1658,193 @@ func TestMultiContainerSharedMountRestart(t *testing.T) {
 // Test that unsupported pod mounts options are ignored when matching master and
 // replica mounts.
 func TestMultiContainerSharedMountUnsupportedOptions(t *testing.T) {
-	for name, conf := range configs(t, false /* noOverlay */) {
-		t.Run(name, func(t *testing.T) {
-			rootDir, cleanup, err := testutil.SetupRootDir()
-			if err != nil {
-				t.Fatalf("error creating root dir: %v", err)
+	testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
+		// Setup the containers.
+		sleep := []string{"/bin/sleep", "100"}
+		podSpec, ids := createSpecs(sleep, sleep)
+		mnt0 := specs.Mount{
+			Destination: "/mydir/test",
+			Source:      sourceDir,
+			Type:        mntType,
+			Options:     []string{"rw", "relatime"},
+		}
+		podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
+
+		mnt1 := mnt0
+		mnt1.Destination = "/mydir2/test2"
+		mnt1.Options = []string{"rw", "nosuid"}
+		podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
+
+		createSharedMount(mnt0, "test-mount", podSpec...)
+
+		containers, cleanup, err := startContainers(conf, podSpec, ids)
+		if err != nil {
+			t.Fatalf("error starting containers: %v", err)
+		}
+		defer cleanup()
+
+		execs := []execDesc{
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "-d", mnt0.Destination},
+				name: "directory is mounted in container0",
+			},
+			{
+				c:    containers[1],
+				cmd:  []string{"/usr/bin/test", "-d", mnt1.Destination},
+				name: "directory is mounted in container1",
+			},
+		}
+		execMany(t, conf, execs)
+	})
+}
+
+// Test that shared mounts can be repeated within a container.
+func TestMultiContainerSharedMountsRepeated(t *testing.T) {
+	testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
+		// Setup the containers.
+		sleep := []string{"/bin/sleep", "100"}
+		podSpec, ids := createSpecs(sleep)
+		mnt0 := specs.Mount{
+			Destination: "/mydir/test1",
+			Source:      sourceDir,
+			Type:        mntType,
+			Options:     []string{"rw", "relatime"},
+		}
+		mnt1 := specs.Mount{
+			Destination: "/mydir/test2",
+			Source:      sourceDir,
+			Type:        mntType,
+			Options:     []string{"ro"},
+		}
+		podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0, mnt1)
+
+		// Set annotations using less-restrictive mnt0.
+		createSharedMount(mnt0, "test-mount", podSpec...)
+
+		containers, cleanup, err := startContainers(conf, podSpec, ids)
+		if err != nil {
+			t.Fatalf("error starting containers: %v", err)
+		}
+		defer cleanup()
+
+		execs := []execDesc{
+			{
+				c:    containers[0],
+				cmd:  []string{"/bin/touch", path.Join(mnt1.Destination, "fail")},
+				want: 1,
+				name: "fails write to read-only mount",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/bin/cp", "/usr/bin/test", mnt0.Destination},
+				name: "writes to writable mount",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "-f", path.Join(mnt1.Destination, "test")},
+				name: "file appears in read-only mount",
+			},
+			{
+				c:    containers[0],
+				cmd:  []string{"/usr/bin/test", "-f", path.Join(mnt0.Destination, "test")},
+				name: "file appears in writable mount",
+			},
+		}
+		execMany(t, conf, execs)
+	})
+}
+
+// This test checks that a bind mount that is "shared" is overlaid correctly
+// with a self-backed tmpfs.
+func TestMultiContainerSharedBindMount(t *testing.T) {
+	for numContainers := 1; numContainers <= 2; numContainers++ {
+		testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
+			if mntType != "bind" {
+				t.Skipf("This test is only for shared bind mounts, skipping %q mount type", mntType)
 			}
-			defer cleanup()
-			conf.RootDir = rootDir
+			t.Run(fmt.Sprintf("containers-%d", numContainers), func(t *testing.T) {
+				// Setup the containers.
+				sleep := []string{"sleep", "100"}
+				var cmds [][]string
+				for i := 0; i < numContainers; i++ {
+					cmds = append(cmds, sleep)
+				}
+				podSpec, ids := createSpecs(cmds...)
 
-			// Setup the containers.
-			sleep := []string{"/bin/sleep", "100"}
-			podSpec, ids := createSpecs(sleep, sleep)
-			mnt0 := specs.Mount{
-				Destination: "/mydir/test",
-				Source:      "/some/dir",
-				Type:        "tmpfs",
-				Options:     []string{"rw", "relatime"},
-			}
-			podSpec[0].Mounts = append(podSpec[0].Mounts, mnt0)
+				sharedMount := specs.Mount{
+					Destination: "/mydir/test",
+					Source:      sourceDir,
+					Type:        mntType,
+				}
+				for _, spec := range podSpec {
+					spec.Mounts = append(spec.Mounts, sharedMount)
+				}
 
-			mnt1 := mnt0
-			mnt1.Destination = "/mydir2/test2"
-			mnt1.Options = []string{"rw", "nosuid"}
-			podSpec[1].Mounts = append(podSpec[1].Mounts, mnt1)
+				createSharedMount(sharedMount, "test-mount", podSpec...)
 
-			createSharedMount(mnt0, "test-mount", podSpec...)
+				containers, cleanup, err := startContainers(conf, podSpec, ids)
+				if err != nil {
+					t.Fatalf("error starting containers: %v", err)
+				}
+				destroyed := false
+				destroy := func() {
+					if destroyed {
+						return
+					}
+					destroyed = true
+					cleanup()
+				}
+				defer destroy()
 
-			containers, cleanup, err := startContainers(conf, podSpec, ids)
-			if err != nil {
-				t.Fatalf("error starting containers: %v", err)
-			}
-			defer cleanup()
+				// Create a file in shared mount with a few bytes in each container.
+				var execs []execDesc
+				for i, c := range containers {
+					testFileName := fmt.Sprintf("testfile-%d", i)
+					testFilePath := path.Join(sharedMount.Destination, testFileName)
+					execs = append(execs, execDesc{
+						c:    c,
+						cmd:  []string{"/bin/sh", "-c", "echo hello > " + testFilePath},
+						name: fmt.Sprintf("file created in container %d", i),
+					})
+				}
+				execMany(t, conf, execs)
 
-			execs := []execDesc{
-				{
-					c:    containers[0],
-					cmd:  []string{"/usr/bin/test", "-d", mnt0.Destination},
-					name: "directory is mounted in container0",
-				},
-				{
-					c:    containers[1],
-					cmd:  []string{"/usr/bin/test", "-d", mnt1.Destination},
-					name: "directory is mounted in container1",
-				},
-			}
-			execMany(t, conf, execs)
+				// Check that the file is not created on the host.
+				for i := 0; i < numContainers; i++ {
+					testFileName := fmt.Sprintf("testfile-%d", i)
+					if _, err := os.Stat(path.Join(sourceDir, testFileName)); err == nil {
+						t.Errorf("%q file created on the host in spite of tmpfs", testFileName)
+					}
+				}
+
+				// Check that the filestore file is created and is not empty.
+				filestoreFile := boot.SelfFilestorePath(sourceDir, containers[0].sandboxID())
+				var stat unix.Stat_t
+				if err := unix.Stat(filestoreFile, &stat); err != nil {
+					t.Fatalf("unix.Stat(%q) failed for submount filestore: %v", filestoreFile, err)
+				}
+				if stat.Blocks == 0 {
+					t.Errorf("submount filestore file %q is empty", filestoreFile)
+				}
+
+				// Ensure the shared mount is tmpfs.
+				for i, c := range containers {
+					got, err := executeCombinedOutput(conf, c, nil, "/bin/sh", "-c", "mount | grep "+sharedMount.Destination)
+					if err != nil {
+						t.Fatalf("failed to grep mount(1) from container %d: %v", i, err)
+					}
+					if !strings.Contains(string(got), "type tmpfs (rw)") {
+						t.Errorf("expected %s to be a tmpfs mount in container %d. mount(1) reports its type as:\n%s", sharedMount.Destination, i, string(got))
+					}
+				}
+
+				// Destroying the containers should delete the filestore file.
+				destroy()
+				if err := unix.Stat(filestoreFile, &stat); err == nil {
+					t.Fatalf("overlay filestore at %q was not deleted after container.Destroy()", filestoreFile)
+				}
+			})
 		})
 	}
 }
@@ -1718,63 +1857,54 @@ func TestMultiContainerMultiRootCanHandleFDs(t *testing.T) {
 		t.Fatal("error finding test_app:", err)
 	}
 
-	// We set up two containers with one shared mount that is used for a
-	// shared socket. The first container will send an FD over the socket
-	// to the second container. The FD corresponds to a file in the first
-	// container's mount namespace that is not part of the second
-	// container's mount namespace. However, the second container still
-	// should be able to read the FD.
+	testSharedMount(t, func(t *testing.T, conf *config.Config, sourceDir string, mntType string) {
+		// We set up two containers with one shared mount that is used for a
+		// shared socket. The first container will send an FD over the socket
+		// to the second container. The FD corresponds to a file in the first
+		// container's mount namespace that is not part of the second
+		// container's mount namespace. However, the second container still
+		// should be able to read the FD.
 
-	// Create a shared mount where we will put the socket.
-	sharedMnt := specs.Mount{
-		Destination: "/mydir/test",
-		Type:        "tmpfs",
-		// Shared mounts need a Source, even for tmpfs. It is only used
-		// to match up different shared mounts inside the pod.
-		Source: "/some/dir",
-	}
-	socketPath := filepath.Join(sharedMnt.Destination, "socket")
-
-	// Create a writeable tmpfs mount where the FD sender app will create
-	// files to send. This will only be mounted in the FD sender.
-	writeableMnt := specs.Mount{
-		Destination: "/tmp",
-		Type:        "tmpfs",
-	}
-
-	rootDir, cleanup, err := testutil.SetupRootDir()
-	if err != nil {
-		t.Fatalf("error creating root dir: %v", err)
-	}
-	defer cleanup()
-
-	conf := testutil.TestConfig(t)
-	conf.RootDir = rootDir
-
-	// Create the specs.
-	specs, ids := createSpecs(
-		[]string{"sleep", "1000"},
-		[]string{app, "fd_sender", "--socket", socketPath},
-		[]string{app, "fd_receiver", "--socket", socketPath},
-	)
-	createSharedMount(sharedMnt, "shared-mount", specs...)
-	specs[1].Mounts = append(specs[2].Mounts, sharedMnt, writeableMnt)
-	specs[2].Mounts = append(specs[1].Mounts, sharedMnt)
-
-	containers, cleanup, err := startContainers(conf, specs, ids)
-	if err != nil {
-		t.Fatalf("error starting containers: %v", err)
-	}
-	defer cleanup()
-
-	// Both containers should exit successfully.
-	for _, c := range containers[1:] {
-		if ws, err := c.Wait(); err != nil {
-			t.Errorf("failed to wait for process %s: %v", c.Spec.Process.Args, err)
-		} else if es := ws.ExitStatus(); es != 0 {
-			t.Errorf("process %s exited with non-zero status %d", c.Spec.Process.Args, es)
+		// Create a shared mount where we will put the socket.
+		sharedMnt := specs.Mount{
+			Destination: "/mydir/test",
+			Type:        mntType,
+			Source:      sourceDir,
 		}
-	}
+		socketPath := filepath.Join(sharedMnt.Destination, "socket")
+
+		// Create a writeable tmpfs mount where the FD sender app will create
+		// files to send. This will only be mounted in the FD sender.
+		writeableMnt := specs.Mount{
+			Destination: "/tmp",
+			Type:        "tmpfs",
+		}
+
+		// Create the specs.
+		specs, ids := createSpecs(
+			[]string{"sleep", "1000"},
+			[]string{app, "fd_sender", "--socket", socketPath},
+			[]string{app, "fd_receiver", "--socket", socketPath},
+		)
+		specs[1].Mounts = append(specs[1].Mounts, sharedMnt, writeableMnt)
+		specs[2].Mounts = append(specs[2].Mounts, sharedMnt)
+		createSharedMount(sharedMnt, "shared-mount", specs...)
+
+		containers, cleanup, err := startContainers(conf, specs, ids)
+		if err != nil {
+			t.Fatalf("error starting containers: %v", err)
+		}
+		defer cleanup()
+
+		// Both containers should exit successfully.
+		for _, c := range containers[1:] {
+			if ws, err := c.Wait(); err != nil {
+				t.Errorf("failed to wait for process %s: %v", c.Spec.Process.Args, err)
+			} else if es := ws.ExitStatus(); es != 0 {
+				t.Errorf("process %s exited with non-zero status %d", c.Spec.Process.Args, es)
+			}
+		}
+	})
 }
 
 // Test that container is destroyed when Gofer is killed.
@@ -2064,104 +2194,128 @@ func TestMultiContainerHomeEnvDir(t *testing.T) {
 }
 
 func TestMultiContainerEvent(t *testing.T) {
-	conf := testutil.TestConfig(t)
-	rootDir, cleanup, err := testutil.SetupRootDir()
-	if err != nil {
-		t.Fatalf("error creating root dir: %v", err)
-	}
-	defer cleanup()
-	conf.RootDir = rootDir
+	tests := []string{"enableCgroups", "disableCgroups"}
+	for _, name := range tests {
+		conf := testutil.TestConfig(t)
+		t.Run(name, func(t *testing.T) {
+			rootDir, cleanup, err := testutil.SetupRootDir()
+			if err != nil {
+				t.Fatalf("error creating root dir: %v", err)
+			}
+			defer cleanup()
+			conf.RootDir = rootDir
 
-	// Setup the containers.
-	sleep := []string{"/bin/sleep", "100"}
-	busy := []string{"/bin/bash", "-c", "i=0 ; while true ; do (( i += 1 )) ; done"}
-	quick := []string{"/bin/true"}
-	podSpec, ids := createSpecs(sleep, busy, quick)
-	containers, cleanup, err := startContainers(conf, podSpec, ids)
-	if err != nil {
-		t.Fatalf("error starting containers: %v", err)
-	}
-	defer cleanup()
+			// Setup the containers.
+			sleep := []string{"/bin/sh", "-c", "/bin/sleep 100 | grep 123"}
+			busy := []string{"/bin/bash", "-c", "i=0 ; while true ; do (( i += 1 )) ; done"}
+			quick := []string{"/bin/true"}
+			podSpecs, ids := createSpecs(sleep, busy, quick)
+			if name == "enableCgroups" {
+				mnt := specs.Mount{
+					Destination: "/sys/fs/cgroup",
+					Type:        "cgroup",
+					Options:     nil,
+				}
+				podSpecs[0].Mounts = append(podSpecs[0].Mounts, mnt)
+				podSpecs[1].Mounts = append(podSpecs[1].Mounts, mnt)
+				podSpecs[2].Mounts = append(podSpecs[2].Mounts, mnt)
+			}
+			containers, cleanup, err := startContainers(conf, podSpecs, ids)
+			if err != nil {
+				t.Fatalf("error starting containers: %v", err)
+			}
+			defer cleanup()
 
-	t.Logf("Running container sleep %s", containers[0].ID)
-	t.Logf("Running container busy %s", containers[1].ID)
-	t.Logf("Running container quick %s", containers[2].ID)
+			t.Logf("Running container sleep %s", containers[0].ID)
+			t.Logf("Running container busy %s", containers[1].ID)
+			t.Logf("Running container quick %s", containers[2].ID)
 
-	// Wait for last container to stabilize the process count that is
-	// checked further below.
-	if ws, err := containers[2].Wait(); err != nil || ws != 0 {
-		t.Fatalf("Container.Wait, status: %v, err: %v", ws, err)
-	}
-	expectedPL := []*control.Process{
-		newProcessBuilder().Cmd("sleep").Process(),
-	}
-	if err := waitForProcessList(containers[0], expectedPL); err != nil {
-		t.Errorf("failed to wait for sleep to start: %v", err)
-	}
-	expectedPL = []*control.Process{
-		newProcessBuilder().Cmd("bash").Process(),
-	}
-	if err := waitForProcessList(containers[1], expectedPL); err != nil {
-		t.Errorf("failed to wait for bash to start: %v", err)
-	}
+			// Wait for containers to start (last container should complete).
+			if err := waitForProcessCount(containers[0], 3); err != nil {
+				t.Errorf("failed to wait for sleep to start: %v", err)
+			}
+			if err := waitForProcessCount(containers[1], 1); err != nil {
+				t.Errorf("failed to wait for bash to start: %v", err)
+			}
+			if ws, err := containers[2].Wait(); err != nil || ws != 0 {
+				t.Fatalf("Container.Wait, status: %v, err: %v", ws, err)
+			}
 
-	// Check events for running containers.
-	for _, cont := range containers[:2] {
-		ret, err := cont.Event()
-		if err != nil {
-			t.Errorf("Container.Event(%q): %v", cont.ID, err)
-		}
-		evt := ret.Event
-		if want := "stats"; evt.Type != want {
-			t.Errorf("Wrong event type, cid: %q, want: %s, got: %s", cont.ID, want, evt.Type)
-		}
-		if cont.ID != evt.ID {
-			t.Errorf("Wrong container ID, want: %s, got: %s", cont.ID, evt.ID)
-		}
-		// One process per remaining container.
-		if got, want := evt.Data.Pids.Current, uint64(2); got != want {
-			t.Errorf("Wrong number of PIDs, cid: %q, want: %d, got: %d", cont.ID, want, got)
-		}
+			// Check events for running containers.
+			for i, cont := range containers[:2] {
+				ret, err := cont.Event()
+				if err != nil {
+					t.Errorf("Container.Event(%q): %v", cont.ID, err)
+				}
+				evt := ret.Event
+				if want := "stats"; evt.Type != want {
+					t.Errorf("Wrong event type, cid: %q, want: %s, got: %s", cont.ID, want, evt.Type)
+				}
+				if cont.ID != evt.ID {
+					t.Errorf("Wrong container ID, want: %s, got: %s", cont.ID, evt.ID)
+				}
 
-		// The exited container should always have a usage of zero.
-		if exited := ret.ContainerUsage[containers[2].ID]; exited != 0 {
-			t.Errorf("Exited container should report 0 CPU usage, got: %d", exited)
-		}
-	}
+				// container[0] expects 3 processes, while container[1] expects 1.
+				wantPids := 3
+				if i == 1 {
+					wantPids = 1
+				}
+				if got := evt.Data.Pids.Current; got != uint64(wantPids) {
+					t.Errorf("Wrong number of PIDs, cid: %q, want: %d, got: %d", cont.ID, wantPids, got)
+				}
 
-	// Check that CPU reported by busy container is higher than sleep.
-	cb := func() error {
-		sleepEvt, err := containers[0].Event()
-		if err != nil {
-			return &backoff.PermanentError{Err: err}
-		}
-		sleepUsage := sleepEvt.Event.Data.CPU.Usage.Total
+				switch i {
+				case 0:
+					if name != "enableCgroups" && evt.Data.Memory.Usage.Usage != uint64(0) {
+						t.Errorf("root container should report 0 memory usage, got: %v", evt.Data.Memory.Usage.Usage)
+					}
+				case 1:
+					if evt.Data.Memory.Usage.Usage == uint64(0) {
+						t.Error("sub-container should report non-zero memory usage")
+					}
+				}
 
-		busyEvt, err := containers[1].Event()
-		if err != nil {
-			return &backoff.PermanentError{Err: err}
-		}
-		busyUsage := busyEvt.Event.Data.CPU.Usage.Total
+				// The exited container should always have a usage of zero.
+				if exited := ret.ContainerUsage[containers[2].ID]; exited != 0 {
+					t.Errorf("Exited container should report 0 CPU usage, got: %d", exited)
+				}
+			}
 
-		if busyUsage <= sleepUsage {
-			t.Logf("Busy container usage lower than sleep (busy: %d, sleep: %d), retrying...", busyUsage, sleepUsage)
-			return fmt.Errorf("busy container should have higher usage than sleep, busy: %d, sleep: %d", busyUsage, sleepUsage)
-		}
-		return nil
-	}
-	// Give time for busy container to run and use more CPU than sleep.
-	if err := testutil.Poll(cb, 10*time.Second); err != nil {
-		t.Fatal(err)
-	}
+			// Check that CPU reported by busy container is higher than sleep.
+			cb := func() error {
+				sleepEvt, err := containers[0].Event()
+				if err != nil {
+					return &backoff.PermanentError{Err: err}
+				}
+				sleepUsage := sleepEvt.Event.Data.CPU.Usage.Total
 
-	// Check that stopped and destroyed containers return error.
-	if err := containers[1].Destroy(); err != nil {
-		t.Fatalf("container.Destroy: %v", err)
-	}
-	for _, cont := range containers[1:] {
-		if _, err := cont.Event(); err == nil {
-			t.Errorf("Container.Event() should have failed, cid: %q, state: %v", cont.ID, cont.Status)
-		}
+				busyEvt, err := containers[1].Event()
+				if err != nil {
+					return &backoff.PermanentError{Err: err}
+				}
+				busyUsage := busyEvt.Event.Data.CPU.Usage.Total
+
+				if busyUsage <= sleepUsage {
+					t.Logf("Busy container usage lower than sleep (busy: %d, sleep: %d), retrying...", busyUsage, sleepUsage)
+					return fmt.Errorf("busy container should have higher usage than sleep, busy: %d, sleep: %d", busyUsage, sleepUsage)
+				}
+				return nil
+			}
+			// Give time for busy container to run and use more CPU than sleep.
+			if err := testutil.Poll(cb, 10*time.Second); err != nil {
+				t.Fatal(err)
+			}
+
+			// Check that stopped and destroyed containers return error.
+			if err := containers[1].Destroy(); err != nil {
+				t.Fatalf("container.Destroy: %v", err)
+			}
+			for _, cont := range containers[1:] {
+				if _, err := cont.Event(); err == nil {
+					t.Errorf("Container.Event() should have failed, cid: %q, state: %v", cont.ID, cont.Status)
+				}
+			}
+		})
 	}
 }
 
@@ -2275,8 +2429,7 @@ func TestMultiContainerShm(t *testing.T) {
 		spec.Mounts = append(spec.Mounts, sharedMount)
 	}
 
-	// Create annotation hints for the init container.
-	createSharedMount(sharedMount, "devshm", testSpecs[0])
+	createSharedMount(sharedMount, "devshm", testSpecs...)
 
 	containers, cleanup, err := startContainers(conf, testSpecs, ids)
 	if err != nil {
@@ -2381,7 +2534,7 @@ func TestMultiContainerOverlayLeaks(t *testing.T) {
 		}
 
 		// Stat filestoreFile to see its usage. It should have been cleaned up.
-		filestoreFile := boot.SelfOverlayFilestorePath(s.Root.Path, sandboxID)
+		filestoreFile := boot.SelfFilestorePath(s.Root.Path, sandboxID)
 		var stat unix.Stat_t
 		if err := unix.Stat(filestoreFile, &stat); err != nil {
 			t.Errorf("unix.Stat(%q) failed for rootfs filestore: %v", filestoreFile, err)
@@ -2427,8 +2580,12 @@ func TestMultiContainerMemoryLeakStress(t *testing.T) {
 
 	// Subcontainers will do a lot of filesystem work. Create a lot of them.
 	createFsTree := []string{app, "fsTreeCreate", "--depth=10", "--file-per-level=10", "--file-size=1048576"}
-	const warmupContainers = 5
-	const stressContainers = 45
+	const (
+		warmupContainers                   = 5
+		stressContainers                   = 25
+		nominalReclaimDurationPerContainer = time.Second
+		maxReclaimDurationPerContainer     = 5 * time.Second
+	)
 	cmds := make([][]string, 0, warmupContainers+stressContainers+1)
 	cmds = append(cmds, sleep)
 	for i := 0; i < warmupContainers+stressContainers; i++ {
@@ -2465,9 +2622,11 @@ func TestMultiContainerMemoryLeakStress(t *testing.T) {
 	}
 
 	// Give the reclaimer goroutine some time to reclaim.
-	time.Sleep(3 * time.Second)
+	time.Sleep(warmupContainers * nominalReclaimDurationPerContainer)
 
 	// Measure the memory usage after the warm up.
+	// It's possible, though unlikely, that reclaiming is unfinished; this is
+	// harmless because we tolerate newUsage being lower than oldUsage below.
 	oldUsage, err := rootCont[0].Sandbox.Usage(true /* Full */)
 	if err != nil {
 		t.Fatalf("sandbox.Usage failed: %v", err)
@@ -2488,28 +2647,204 @@ func TestMultiContainerMemoryLeakStress(t *testing.T) {
 		}
 	}
 
-	// Give the reclaimer goroutine some time to reclaim.
-	time.Sleep(3 * time.Second)
-
-	// Compare memory usage.
-	newUsage, err := rootCont[0].Sandbox.Usage(true /* Full */)
-	if err != nil {
-		t.Fatalf("sandbox.Usage failed: %v", err)
-	}
-	// Note that all fields of control.MemoryUsage are exported and uint64.
+	// Sample memory usage until all fields are no more than 5% greater than
+	// after warmup.
+	deadline := time.Now().Add(stressContainers * maxReclaimDurationPerContainer)
 	oldUsageV := reflect.ValueOf(oldUsage)
-	newUsageV := reflect.ValueOf(newUsage)
-	numFields := oldUsageV.NumField()
-	for i := 0; i < numFields; i++ {
-		name := oldUsageV.Type().Field(i).Name
-		oldVal := oldUsageV.Field(i).Interface().(uint64)
-		newVal := newUsageV.Field(i).Interface().(uint64)
-		if newVal <= oldVal {
-			continue
+	for {
+		newUsage, err := rootCont[0].Sandbox.Usage(true /* Full */)
+		if err != nil {
+			t.Fatalf("sandbox.Usage failed: %v", err)
 		}
+		allFieldsOk := true
+		// Note that all fields of control.MemoryUsage are exported and uint64.
+		newUsageV := reflect.ValueOf(newUsage)
+		numFields := oldUsageV.NumField()
+		for i := 0; i < numFields; i++ {
+			name := oldUsageV.Type().Field(i).Name
+			oldVal := oldUsageV.Field(i).Interface().(uint64)
+			newVal := newUsageV.Field(i).Interface().(uint64)
+			if newVal <= oldVal {
+				continue
+			}
+			if ((newVal-oldVal)*100)/oldVal > 5 {
+				t.Logf("%s usage increased by more than 5%%: old=%d, new=%d", name, oldVal, newVal)
+				allFieldsOk = false
+			}
+		}
+		if allFieldsOk {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Memory usage after stress containers exited did not converge to memory usage after warmup")
+		}
+		time.Sleep(time.Second)
+	}
+}
 
-		if ((newVal-oldVal)*100)/oldVal > 5 {
-			t.Errorf("%s usage increased by more than 5%%: old=%d, new=%d", name, oldVal, newVal)
-		}
+// Tests cgroups are mounted in only containers which have a cgroup mount in
+// the spec.
+func TestMultiContainerCgroups(t *testing.T) {
+	_, err := testutil.FindFile("test/cmd/test_app/test_app")
+	if err != nil {
+		t.Fatal("error finding test_app:", err)
+	}
+
+	for name, conf := range configs(t, false /* noOverlay */) {
+		t.Run(name, func(t *testing.T) {
+			rootDir, cleanup, err := testutil.SetupRootDir()
+			if err != nil {
+				t.Fatalf("error creating root dir: %v", err)
+			}
+			defer cleanup()
+			conf.RootDir = rootDir
+
+			podSpecs, ids := createSpecs(
+				[]string{"sleep", "100"},
+				[]string{"sleep", "100"})
+
+			podSpecs[1].Linux = &specs.Linux{
+				Namespaces: []specs.LinuxNamespace{{Type: "pid"}},
+			}
+
+			mnt0 := specs.Mount{
+				Destination: "/sys/fs/cgroup",
+				Type:        "cgroup",
+				Options:     nil,
+			}
+			// Append cgroups mount for only one container.
+			podSpecs[0].Mounts = append(podSpecs[0].Mounts, mnt0)
+
+			createSharedMount(mnt0, "test-mount", podSpecs...)
+			containers, cleanup, err := startContainers(conf, podSpecs, ids)
+			if err != nil {
+				t.Fatalf("error starting containers: %v", err)
+			}
+			defer cleanup()
+
+			ctrlFileMap := map[string]string{
+				"cpu":     "cpu.shares",
+				"cpuacct": "cpuacct.usage",
+				"cpuset":  "cpuset.cpus",
+				"devices": "devices.allow",
+				"memory":  "memory.usage_in_bytes",
+				"pids":    "pids.current",
+			}
+			for ctrl, f := range ctrlFileMap {
+				ctrlRoot := control.CgroupControlFile{
+					Controller: ctrl,
+					Path:       "/",
+					Name:       f,
+				}
+				ctrl0 := control.CgroupControlFile{
+					Controller: ctrl,
+					Path:       "/" + containers[0].ID,
+					Name:       f,
+				}
+				ctrl1 := control.CgroupControlFile{
+					Controller: ctrl,
+					Path:       "/" + containers[1].ID,
+					Name:       f,
+				}
+
+				if _, err := containers[0].Sandbox.CgroupsReadControlFile(ctrlRoot); err != nil {
+					t.Fatalf("error root cgroup mount for %s not found %v", ctrl, err)
+				}
+				if _, err := containers[0].Sandbox.CgroupsReadControlFile(ctrl0); err != nil {
+					t.Fatalf("error %s cgroups not mounted in container0 %v", ctrl, err)
+				}
+				if _, err := containers[1].Sandbox.CgroupsReadControlFile(ctrl1); err == nil {
+					t.Fatalf("error %s cgroups mounted in container1 even when the spec does not have a cgroup mount %v", ctrl, err)
+				}
+			}
+		})
+	}
+}
+
+// Tests the cgroups are mounted in the containers when the spec has a cgroup
+// mount. Also, checks memory usage stats from cgroups work correctly when the
+// memory is increased for one container.
+func TestMultiContainerCgroupsMemoryUsage(t *testing.T) {
+	_, err := testutil.FindFile("test/cmd/test_app/test_app")
+	if err != nil {
+		t.Fatal("error finding test_app:", err)
+	}
+
+	for name, conf := range configs(t, false /* noOverlay */) {
+		t.Run(name, func(t *testing.T) {
+			rootDir, cleanup, err := testutil.SetupRootDir()
+			if err != nil {
+				t.Fatalf("error creating root dir: %v", err)
+			}
+			defer cleanup()
+			conf.RootDir = rootDir
+
+			podSpecs, ids := createSpecs(
+				[]string{"sleep", "100"},
+				[]string{"sleep", "10"})
+
+			podSpecs[1].Linux = &specs.Linux{
+				Namespaces: []specs.LinuxNamespace{{Type: "pid"}},
+			}
+
+			mnt0 := specs.Mount{
+				Destination: "/sys/fs/cgroup",
+				Type:        "cgroup",
+				Options:     nil,
+			}
+			// Append cgroups mount for both containers.
+			podSpecs[0].Mounts = append(podSpecs[0].Mounts, mnt0)
+			podSpecs[1].Mounts = append(podSpecs[1].Mounts, mnt0)
+
+			createSharedMount(mnt0, "test-mount", podSpecs...)
+			containers, cleanup, err := startContainers(conf, podSpecs, ids)
+			if err != nil {
+				t.Fatalf("error starting containers: %v", err)
+			}
+			defer cleanup()
+
+			ctrlRoot := control.CgroupControlFile{
+				Controller: "memory",
+				Path:       "/",
+				Name:       "memory.usage_in_bytes",
+			}
+			ctrl0 := control.CgroupControlFile{
+				Controller: "memory",
+				Path:       "/" + containers[0].ID,
+				Name:       "memory.usage_in_bytes",
+			}
+			ctrl1 := control.CgroupControlFile{
+				Controller: "memory",
+				Path:       "/" + containers[1].ID,
+				Name:       "memory.usage_in_bytes",
+			}
+
+			usageTotal, err := containers[0].Sandbox.CgroupsReadControlFile(ctrlRoot)
+			if err != nil {
+				t.Fatalf("error getting total usage %v", err)
+			}
+			usage0, err := containers[0].Sandbox.CgroupsReadControlFile(ctrl0)
+			if err != nil {
+				t.Fatalf("error getting container0 usage %v", err)
+			}
+			usage1, err := containers[1].Sandbox.CgroupsReadControlFile(ctrl1)
+			if err != nil {
+				t.Fatalf("error getting container1 usage %v", err)
+			}
+			if usageTotal < (usage0 + usage1) {
+				t.Fatalf("error total usage is less total %v container0_usage %v container1_usage %v", usageTotal, usage0, usage1)
+			}
+
+			// Wait for the second container to exit and check that the new usage must
+			// be less than the old usage.
+			time.Sleep(12 * time.Second)
+			newUsageTotal, err := containers[0].Sandbox.CgroupsReadControlFile(ctrlRoot)
+			if err != nil {
+				t.Fatalf("error getting total usage %v", err)
+			}
+			if newUsageTotal >= usageTotal {
+				t.Fatalf("error new total usage %v is not less than old total usage %v", newUsageTotal, usageTotal)
+			}
+		})
 	}
 }

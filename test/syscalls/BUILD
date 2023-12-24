@@ -1,5 +1,5 @@
-load("//tools:defs.bzl", "more_shards", "most_shards")
 load("//test/runner:defs.bzl", "syscall_test")
+load("//tools:defs.bzl", "more_shards", "most_shards")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -64,10 +64,14 @@ syscall_test(
     test = "//test/syscalls/linux:brk_test",
 )
 
-syscall_test(
-    one_sandbox = False,
-    test = "//test/syscalls/linux:cgroup_test",
-)
+# TODO(b/315355651): Fix cgroup tests in runsc. Cgroups are mounted in the
+# root/pause container by default and for other containers cgroups are bind
+# mounted if the container spec has a cgroup mount. These cgroup tests
+# explicitly mount the cgroups which will fail now in runsc.
+# syscall_test(
+#     one_sandbox = False,
+#     test = "//test/syscalls/linux:cgroup_test",
+# )
 
 syscall_test(
     add_fusefs = True,
@@ -314,6 +318,10 @@ syscall_test(
 
 syscall_test(
     test = "//test/syscalls/linux:kcov_test",
+)
+
+syscall_test(
+    test = "//test/syscalls/linux:keys_test",
 )
 
 syscall_test(
@@ -666,6 +674,10 @@ syscall_test(
     # setgid tests require the gofer's user namespace to have multiple groups,
     # but bazel only provides one.
     use_tmpfs = True,
+)
+
+syscall_test(
+    test = "//test/syscalls/linux:setns_test",
 )
 
 syscall_test(
@@ -1179,6 +1191,10 @@ syscall_test(
 
 syscall_test(
     test = "//test/syscalls/linux:processes_test",
+)
+
+syscall_test(
+    test = "//test/syscalls/linux:process_vm_read_write_test",
 )
 
 syscall_test(
