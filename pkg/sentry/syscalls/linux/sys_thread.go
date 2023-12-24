@@ -206,7 +206,6 @@ func ExitGroup(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintp
 func clone(t *kernel.Task, flags int, stack hostarch.Addr, parentTID hostarch.Addr, childTID hostarch.Addr, tls hostarch.Addr) (uintptr, *kernel.SyscallControl, error) {
 	args := linux.CloneArgs{
 		Flags:      uint64(uint32(flags) &^ linux.CSIGNAL),
-		Pidfd:      uint64(parentTID),
 		ChildTID:   uint64(childTID),
 		ParentTID:  uint64(parentTID),
 		ExitSignal: uint64(flags & linux.CSIGNAL),
@@ -232,6 +231,29 @@ func Vfork(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, 
 	//     CLONE_VM | CLONE_VFORK | SIGCHLD
 	// """ - vfork(2)
 	return clone(t, linux.CLONE_VM|linux.CLONE_VFORK|int(linux.SIGCHLD), 0, 0, 0, 0)
+}
+
+// Clone3 implements linux syscall clone3(2).
+func Clone3(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
+	cloneArgsPointer := args[0].Pointer()
+	size := args[1].SizeT()
+
+	if int(size) < linux.CLONE_ARGS_SIZE_VER0 || int(size) > linux.CLONE_ARGS_SIZE_VER2 {
+		return 0, nil, linuxerr.EINVAL
+	}
+
+	var cloneArgs linux.CloneArgs
+	if cloneArgsPointer != 0 {
+		if _, err := cloneArgs.CopyInN(t, cloneArgsPointer, int(size)); err != nil {
+			return 0, nil, err
+		}
+	}
+
+	ntid, ctrl, err := t.Clone(&cloneArgs)
+	if err != nil {
+		return 0, nil, err
+	}
+	return uintptr(ntid), ctrl, err
 }
 
 // parseCommonWaitOptions applies the options common to wait4 and waitid to
@@ -443,6 +465,20 @@ func SetTidAddress(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (u
 	return uintptr(t.ThreadID()), nil, nil
 }
 
+// Setns implements linux syscall setns(2).
+func Setns(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
+	fd := args[0].Int()
+
+	file := t.GetFile(fd)
+	if file == nil {
+		return 0, nil, linuxerr.EBADF
+	}
+	defer file.DecRef(t)
+
+	flags := args[1].Int()
+	return 0, nil, t.Setns(file, flags)
+}
+
 // Unshare implements linux syscall unshare(2).
 func Unshare(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
 	flags := args[0].Int()
@@ -634,7 +670,11 @@ func Getpgid(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr
 
 // Setsid implements the linux syscall setsid(2).
 func Setsid(t *kernel.Task, sysno uintptr, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
-	return 0, nil, t.ThreadGroup().CreateSession()
+	sid, err := t.ThreadGroup().CreateSession()
+	if err != nil {
+		return 0, nil, err
+	}
+	return uintptr(sid), nil, nil
 }
 
 // Getsid implements the linux syscall getsid(2).

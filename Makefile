@@ -147,7 +147,18 @@ reload_docker = \
     sudo chmod 0755 /etc/docker && \
     sudo chmod 0644 /etc/docker/daemon.json; \
   fi
-configure = $(call configure_noreload,$(1),$(2)) && $(reload_docker)
+
+wait_for_runtime = ( \
+  set -x; \
+  docker info --format '{{range $$k,$$v:=.Runtimes}}{{println $$k}}{{end}}' | grep -qF $(1) || \
+  for i in 1 2 3 4 5; do \
+    sleep 1; \
+    docker info --format '{{range $$k,$$v:=.Runtimes}}{{println $$k}}{{end}}' | grep -qF $(1) && break; \
+  done \
+)
+
+
+configure = $(call configure_noreload,$(1),$(2)) && $(reload_docker) && $(call wait_for_runtime,$(1))
 
 # Helpers for above. Requires $(RUNTIME_BIN) dependency.
 install_runtime = $(call configure,$(1),$(2) --TESTONLY-test-name-env=RUNSC_TEST_NAME)
@@ -205,12 +216,12 @@ nogo-tests:
 # For unit tests, we take everything in the root, pkg/... and tools/..., and
 # pull in all directories in runsc except runsc/container.
 unit-tests: ## Local package unit tests in pkg/..., tools/.., etc.
-	@$(call test,--test_tag_filters=-nogo --test_filter=-//runsc/container/... //:all pkg/... tools/... runsc/... vdso/... test/trace/...)
+	@$(call test,'--test_tag_filters=-nogo,-requires-kvm' //:all pkg/... tools/... runsc/... vdso/... test/trace/...)
 .PHONY: unit-tests
 
 # See unit-tests: this includes runsc/container.
-container-tests: $(RUNTIME_BIN) ## Run all tests in runsc/container/...
-	@$(call test,--test_tag_filters=-nogo --test_env=RUNTIME=$(RUNTIME_BIN) runsc/container/...)
+container-tests: ## Run all tests in runsc/container/...
+	@$(call test,--test_tag_filters=-nogo runsc/container/...)
 .PHONY: container-tests
 
 tests: ## Runs all unit tests and syscall tests.
@@ -262,6 +273,41 @@ arm-qemu-smoke-test: $(RUNTIME_BIN) load-arm-qemu
 simple-tests: unit-tests # Compatibility target.
 .PHONY: simple-tests
 
+# Images needed for GPU smoke tests.
+gpu-smoke-images: load-basic_cuda-vector-add load-gpu_cuda-tests
+.PHONY: gpu-smoke-images
+
+gpu-smoke-tests: gpu-smoke-images $(RUNTIME_BIN)
+	@$(call sudo,test/gpu:smoke_test,--runtime=runc -test.v $(ARGS))
+	@$(call install_runtime,$(RUNTIME),--nvproxy=true --nvproxy-docker=true)
+	@$(call sudo,test/gpu:smoke_test,--runtime=$(RUNTIME) -test.v $(ARGS))
+.PHONY: gpu-smoke-tests
+
+cos-gpu-smoke-tests: gpu-smoke-images $(RUNTIME_BIN)
+	@$(call sudo,test/gpu:smoke_test,--runtime=runc -test.v --cos-gpu $(ARGS))
+	@$(call install_runtime,$(RUNTIME),--nvproxy=true)
+	@$(call sudo,test/gpu:smoke_test,--runtime=$(RUNTIME) -test.v --cos-gpu $(ARGS))
+.PHONY: cos-gpu-smoke-tests
+
+# Images needed for GPU tests.
+# This is a superset of those needed for smoke tests.
+# It includes non-GPU images that are used as part of GPU tests,
+# e.g. busybox and python.
+gpu-images: gpu-smoke-images load-gpu_ollama load-basic_busybox load-basic_python
+.PHONY: gpu-images
+
+gpu-all-tests: gpu-images gpu-smoke-tests $(RUNTIME_BIN)
+	@$(call install_runtime,$(RUNTIME),--nvproxy=true --nvproxy-docker=true)
+	@$(call sudo,test/gpu:textgen_test,--runtime=$(RUNTIME) -test.v $(ARGS))
+	@$(call sudo,test/gpu:sr_test,--runtime=$(RUNTIME) -test.v $(ARGS))
+.PHONY: gpu-all-tests
+
+cos-gpu-all-tests: gpu-images cos-gpu-smoke-tests $(RUNTIME_BIN)
+	@$(call install_runtime,$(RUNTIME),--nvproxy=true)
+	@$(call sudo,test/gpu:textgen_test,--runtime=$(RUNTIME) -test.v --cos-gpu $(ARGS))
+	@$(call sudo,test/gpu:sr_test,--runtime=$(RUNTIME) -test.v --cos-gpu $(ARGS))
+.PHONY: cos-gpu-all-tests
+
 portforward-tests: load-basic_redis load-basic_nginx $(RUNTIME_BIN)
 	@$(call install_runtime,$(RUNTIME),--network=sandbox)
 	@$(call sudo,test/root:portforward_test,--runtime=$(RUNTIME) -test.v $(ARGS))
@@ -278,7 +324,6 @@ docker-tests: load-basic $(RUNTIME_BIN)
 	@$(call install_runtime,$(RUNTIME)-dcache,--fdlimit=2000 --dcache=100) # Used by TestDentryCacheLimit.
 	@$(call install_runtime,$(RUNTIME)-host-uds,--host-uds=all) # Used by TestHostSocketConnect.
 	@$(call install_runtime,$(RUNTIME)-overlay,--overlay2=all:self) # Used by TestOverlay*.
-	@$(call install_runtime,$(RUNTIME)-no-overlay,--overlay2=none) # Used by TestCheckpointRestore.
 	@$(call test_runtime,$(RUNTIME),$(INTEGRATION_TARGETS) //test/e2e:integration_runtime_test)
 .PHONY: docker-tests
 
@@ -319,6 +364,8 @@ iptables-tests: load-iptables $(RUNTIME_BIN)
 	@#$(call test,--test_env=RUNTIME=runc //test/iptables:iptables_test)
 	@$(call install_runtime,$(RUNTIME),--net-raw)
 	@$(call test_runtime,$(RUNTIME),--test_env=TEST_NET_RAW=true //test/iptables:iptables_test)
+	@$(call install_runtime,$(RUNTIME)-nftables,--net-raw --reproduce-nftables)
+	@$(call test_runtime,$(RUNTIME)-nftables, --test_output=all //test/iptables:nftables_test --test_arg=$(RUNTIME)-nftables)
 .PHONY: iptables-tests
 
 packetdrill-tests: load-packetdrill $(RUNTIME_BIN)
@@ -331,13 +378,25 @@ fsstress-test: load-basic $(RUNTIME_BIN)
 	@$(call test_runtime,$(RUNTIME),//test/fsstress:fsstress_test)
 .PHONY: fsstress-test
 
+# Helper to install containerd.
+# $(1) is the containerd version.
+install_containerd = \
+	($(call header,INSTALL CONTAINERD); \
+	export T=$$(mktemp -d --tmpdir containerd.XXXXXX); \
+	cp tools/install_containerd.sh $$T && \
+	cd /tmp && \
+	sudo -H "PATH=$$PATH" $$T/install_containerd.sh $(1); \
+	rm -rf $$T)
 
 # Specific containerd version tests.
 containerd-test-%: load-basic_alpine load-basic_python load-basic_busybox load-basic_symlink-resolv load-basic_httpd load-basic_ubuntu $(RUNTIME_BIN)
 	@$(call install_runtime,$(RUNTIME),) # Clear flags.
-	@sudo -H tools/install_containerd.sh $*
+	@$(call install_containerd,$*)
 ifeq (,$(STAGED_BINARIES))
-	@$(call sudocopy,//shim:containerd-shim-runsc-v1,"$$(dirname $$(which containerd))")
+	@(export T=$$(mktemp -d --tmpdir containerd.XXXXXX); \
+	$(call copy,//shim:containerd-shim-runsc-v1,$$T) && \
+	sudo mv $$T/containerd-shim-runsc-v1 "$$(dirname $$(which containerd))"; \
+	rm -rf $$T)
 else
 	gsutil cat "$(STAGED_BINARIES)" | \
 		sudo tar -C "$$(dirname $$(which containerd))" -zxvf - containerd-shim-runsc-v1
@@ -432,6 +491,11 @@ run-benchmark: load-benchmarks ## Runs single benchmark and optionally sends dat
 	@$(call run_benchmark,$(RUNTIME))
 .PHONY: run-benchmark
 
+## Seccomp targets.
+seccomp-sentry-filters:  # Dumps seccomp-bpf program for the Sentry binary.
+	@$(call run,//runsc/boot/filter/dumpfilter,$(ARGS))
+.PHONY: seccomp-sentry-filters
+
 ##
 ## Website & documentation helpers.
 ##
@@ -453,7 +517,8 @@ website-build: load-jekyll ## Build the site image locally.
 .PHONY: website-build
 
 website-server: website-build ## Run a local server for development.
-	@docker run -i -p 8080:8080 $(WEBSITE_IMAGE)
+	@# NOTE: When running locally we use the localhost:8080 as custom domain.
+	@docker run -i -p 8080:8080 $(WEBSITE_IMAGE) --custom-domain='*'
 .PHONY: website-server
 
 website-push: website-build ## Push a new image and update the service.

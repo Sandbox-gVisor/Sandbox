@@ -29,10 +29,12 @@ import (
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/coverage"
 	"gvisor.dev/gvisor/pkg/log"
+	"gvisor.dev/gvisor/pkg/metric"
 	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sentry/platform"
 	"gvisor.dev/gvisor/pkg/sentry/syscalls/linux"
 	"gvisor.dev/gvisor/runsc/cmd"
+	"gvisor.dev/gvisor/runsc/cmd/nvproxy"
 	"gvisor.dev/gvisor/runsc/cmd/trace"
 	"gvisor.dev/gvisor/runsc/cmd/util"
 	"gvisor.dev/gvisor/runsc/config"
@@ -51,10 +53,11 @@ var (
 	// system that are not covered by the runtime spec.
 
 	// Debugging flags.
-	logFD      = flag.Int("log-fd", -1, "file descriptor to log to.  If set, the 'log' flag is ignored.")
-	debugLogFD = flag.Int("debug-log-fd", -1, "file descriptor to write debug logs to.  If set, the 'debug-log-dir' flag is ignored.")
-	panicLogFD = flag.Int("panic-log-fd", -1, "file descriptor to write Go's runtime messages.")
-	coverageFD = flag.Int("coverage-fd", -1, "file descriptor to write Go coverage output.")
+	logFD              = flag.Int("log-fd", -1, "file descriptor to log to.  If set, the 'log' flag is ignored.")
+	debugLogFD         = flag.Int("debug-log-fd", -1, "file descriptor to write debug logs to.  If set, the 'debug-log-dir' flag is ignored.")
+	panicLogFD         = flag.Int("panic-log-fd", -1, "file descriptor to write Go's runtime messages.")
+	coverageFD         = flag.Int("coverage-fd", -1, "file descriptor to write Go coverage output.")
+	profilingMetricsFD = flag.Int("profiling-metrics-fd", -1, "file descriptor to write sentry profiling metrics.")
 
 	// logSocket is used for json logging
 	logSocket = flag.Int("web-log-socket-fd", -1, "...")
@@ -62,58 +65,8 @@ var (
 
 // Main is the main entrypoint.
 func Main() {
-	// Help and flags commands are generated automatically.
-	help := cmd.NewHelp(subcommands.DefaultCommander)
-	help.Register(new(cmd.Platforms))
-	help.Register(new(cmd.Syscalls))
-	subcommands.Register(help, "")
-	subcommands.Register(subcommands.FlagsCommand(), "")
-
-	// Register OCI user-facing runsc commands.
-	subcommands.Register(new(cmd.Checkpoint), "")
-	subcommands.Register(new(cmd.Create), "")
-	subcommands.Register(new(cmd.Delete), "")
-	subcommands.Register(new(cmd.Do), "")
-	subcommands.Register(new(cmd.Events), "")
-	subcommands.Register(new(cmd.Exec), "")
-	subcommands.Register(new(cmd.Kill), "")
-	subcommands.Register(new(cmd.List), "")
-	subcommands.Register(new(cmd.PS), "")
-	subcommands.Register(new(cmd.Pause), "")
-	subcommands.Register(new(cmd.PortForward), "")
-	subcommands.Register(new(cmd.Restore), "")
-	subcommands.Register(new(cmd.Resume), "")
-	subcommands.Register(new(cmd.Run), "")
-	subcommands.Register(new(cmd.Spec), "")
-	subcommands.Register(new(cmd.Start), "")
-	subcommands.Register(new(cmd.State), "")
-	subcommands.Register(new(cmd.Wait), "")
-
-	// Helpers.
-	const helperGroup = "helpers"
-	subcommands.Register(new(cmd.Install), helperGroup)
-	subcommands.Register(new(cmd.Mitigate), helperGroup)
-	subcommands.Register(new(cmd.Uninstall), helperGroup)
-	subcommands.Register(new(trace.Trace), helperGroup)
-
-	const debugGroup = "debug"
-	subcommands.Register(new(cmd.Debug), debugGroup)
-	subcommands.Register(new(cmd.Statefile), debugGroup)
-	subcommands.Register(new(cmd.Symbolize), debugGroup)
-	subcommands.Register(new(cmd.Usage), debugGroup)
-	subcommands.Register(new(cmd.ReadControl), debugGroup)
-	subcommands.Register(new(cmd.WriteControl), debugGroup)
-
-	const metricGroup = "metrics"
-	subcommands.Register(new(cmd.MetricMetadata), metricGroup)
-	subcommands.Register(new(cmd.MetricExport), metricGroup)
-	subcommands.Register(new(cmd.MetricServer), metricGroup)
-
-	// Internal commands.
-	const internalGroup = "internal use only"
-	subcommands.Register(new(cmd.Boot), internalGroup)
-	subcommands.Register(new(cmd.Gofer), internalGroup)
-	subcommands.Register(new(cmd.Umount), internalGroup)
+	// Register all commands.
+	forEachCmd(subcommands.Register)
 
 	// Register with the main command line.
 	config.RegisterFlags(flag.CommandLine)
@@ -227,6 +180,12 @@ func Main() {
 		f := os.NewFile(uintptr(*coverageFD), "coverage file")
 		coverage.EnableReport(f)
 	}
+	if *profilingMetricsFD >= 0 {
+		metric.ProfilingMetricWriter = os.NewFile(uintptr(*profilingMetricsFD), "metrics file")
+		if metric.ProfilingMetricWriter == nil {
+			log.Warningf("Failed to use -profiling-metrics-fd")
+		}
+	}
 
 	if *logSocket >= 0 {
 		log.SetJSONTarget(log.MoreJSONEmitter{&log.Writer{Next: os.NewFile(uintptr(*logSocket), "log socket file name")}})
@@ -280,6 +239,63 @@ func Main() {
 	// Return an error that is unlikely to be used by the application.
 	log.Warningf("Failure to execute command, err: %v", subcmdCode)
 	os.Exit(128)
+}
+
+// forEachCmd invokes the passed callback for each command supported by runsc.
+func forEachCmd(cb func(cmd subcommands.Command, group string)) {
+	// Help and flags commands are generated automatically.
+	help := cmd.NewHelp(subcommands.DefaultCommander)
+	help.Register(new(cmd.Platforms))
+	help.Register(new(cmd.Syscalls))
+	cb(help, "")
+	cb(subcommands.FlagsCommand(), "")
+
+	// Register OCI user-facing runsc commands.
+	cb(new(cmd.Checkpoint), "")
+	cb(new(cmd.Create), "")
+	cb(new(cmd.Delete), "")
+	cb(new(cmd.Do), "")
+	cb(new(cmd.Events), "")
+	cb(new(cmd.Exec), "")
+	cb(new(cmd.Kill), "")
+	cb(new(cmd.List), "")
+	cb(new(cmd.PS), "")
+	cb(new(cmd.Pause), "")
+	cb(new(cmd.PortForward), "")
+	cb(new(cmd.Restore), "")
+	cb(new(cmd.Resume), "")
+	cb(new(cmd.Run), "")
+	cb(new(cmd.Spec), "")
+	cb(new(cmd.Start), "")
+	cb(new(cmd.State), "")
+	cb(new(cmd.Wait), "")
+
+	// Helpers.
+	const helperGroup = "helpers"
+	cb(new(cmd.Install), helperGroup)
+	cb(new(cmd.Mitigate), helperGroup)
+	cb(new(cmd.Uninstall), helperGroup)
+	cb(new(nvproxy.Nvproxy), helperGroup)
+	cb(new(trace.Trace), helperGroup)
+
+	const debugGroup = "debug"
+	cb(new(cmd.Debug), debugGroup)
+	cb(new(cmd.Statefile), debugGroup)
+	cb(new(cmd.Symbolize), debugGroup)
+	cb(new(cmd.Usage), debugGroup)
+	cb(new(cmd.ReadControl), debugGroup)
+	cb(new(cmd.WriteControl), debugGroup)
+
+	const metricGroup = "metrics"
+	cb(new(cmd.MetricMetadata), metricGroup)
+	cb(new(cmd.MetricExport), metricGroup)
+	cb(new(cmd.MetricServer), metricGroup)
+
+	// Internal commands.
+	const internalGroup = "internal use only"
+	cb(new(cmd.Boot), internalGroup)
+	cb(new(cmd.Gofer), internalGroup)
+	cb(new(cmd.Umount), internalGroup)
 }
 
 func newEmitter(format string, logFile io.Writer) log.Emitter {

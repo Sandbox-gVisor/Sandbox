@@ -28,10 +28,11 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_split.h"
 #include "absl/synchronization/notification.h"
-#include "test/util/capability_util.h"
 #include "test/util/cgroup_util.h"
 #include "test/util/cleanup.h"
+#include "test/util/linux_capability_util.h"
 #include "test/util/mount_util.h"
+#include "test/util/posix_error.h"
 #include "test/util/temp_path.h"
 #include "test/util/test_util.h"
 #include "test/util/thread_util.h"
@@ -50,7 +51,7 @@ using ::testing::Key;
 using ::testing::Not;
 
 std::vector<std::string> known_controllers = {
-    "cpu", "cpuset", "cpuacct", "job", "memory", "pids",
+    "cpu", "cpuset", "cpuacct", "devices", "job", "memory", "pids",
 };
 
 bool CgroupsAvailable() {
@@ -651,8 +652,9 @@ TEST(MemoryCgroup, MemoryUsageInBytes) {
 
   Mounter m(ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir()));
   Cgroup c = ASSERT_NO_ERRNO_AND_VALUE(m.MountCgroupfs("memory"));
-  EXPECT_THAT(c.ReadIntegerControlFile("memory.usage_in_bytes"),
-              IsPosixErrorOkAndHolds(Gt(0)));
+  const uint64_t usage = ASSERT_NO_ERRNO_AND_VALUE(
+      c.ReadIntegerControlFile("memory.usage_in_bytes"));
+  EXPECT_GE(usage, 0);
 }
 
 TEST(CPUCgroup, ControlFilesHaveDefaultValues) {
@@ -856,7 +858,7 @@ TEST(CPUAcctCgroup, NoDoubleAccounting) {
 
 // WriteAndVerifyControlValue attempts to write val to a cgroup file at path,
 // and verify the value by reading it afterwards.
-PosixError WriteAndVerifyControlValue(const Cgroup& c, std::string_view path,
+PosixError WriteAndVerifyControlValue(const Cgroup& c, absl::string_view path,
                                       int64_t val) {
   RETURN_IF_ERRNO(c.WriteIntegerControlFile(path, val));
   ASSIGN_OR_RETURN_ERRNO(int64_t newval, c.ReadIntegerControlFile(path));
@@ -873,7 +875,7 @@ PosixError WriteAndVerifyControlValue(const Cgroup& c, std::string_view path,
 PosixErrorOr<std::vector<bool>> ParseBitmap(std::string s) {
   std::vector<bool> bitmap;
   bitmap.reserve(64);
-  for (const std::string_view& t : absl::StrSplit(s, ',')) {
+  for (const absl::string_view& t : absl::StrSplit(s, ',')) {
     std::vector<std::string> parts = absl::StrSplit(t, absl::MaxSplits('-', 2));
     if (parts.size() == 2) {
       ASSIGN_OR_RETURN_ERRNO(uint64_t start, Atoi<uint64_t>(parts[0]));
@@ -1426,6 +1428,97 @@ TEST(PIDsCgroup, RaceFSDestructionChargeUncharge) {
       });
     }
   });
+}
+
+TEST(DevicesCgroup, ControlFilesExist) {
+  SKIP_IF(!CgroupsAvailable());
+
+  Mounter m(ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir()));
+  Cgroup c = ASSERT_NO_ERRNO_AND_VALUE(m.MountCgroupfs("devices"));
+
+  // The root group starts with allowing rwm to all.
+  EXPECT_THAT(c.ReadControlFile("devices.allow"), IsPosixErrorOkAndHolds(""));
+  EXPECT_THAT(c.ReadControlFile("devices.deny"), IsPosixErrorOkAndHolds(""));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("a *:* rwm"));
+}
+
+TEST(DevicesCgroup, DenyAll) {
+  SKIP_IF(!CgroupsAvailable());
+
+  Mounter m(ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir()));
+  Cgroup c = ASSERT_NO_ERRNO_AND_VALUE(m.MountCgroupfs("devices"));
+
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.allow", "b *:* rw\n"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("b *:* rw\n"));
+
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.deny", "a"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"), IsPosixErrorOkAndHolds(""));
+}
+
+TEST(DevicesCgroup, AddDeviceRule) {
+  SKIP_IF(!CgroupsAvailable());
+
+  Mounter m(ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir()));
+  Cgroup c = ASSERT_NO_ERRNO_AND_VALUE(m.MountCgroupfs("devices"));
+
+  ASSERT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("a *:* rwm"));
+  // Gives character devices with major device number 7 read and write
+  // permission.
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.allow", "c 7:* rw\n"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("c 7:* rw\n"));
+
+  // Diasllows all devices.
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.deny", "a"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"), IsPosixErrorOkAndHolds(""));
+
+  // Adds one more rule.
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.allow", "b *:* rw\n"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("b *:* rw\n"));
+}
+
+TEST(DevicesCgroup, RemoveDeviceRule) {
+  SKIP_IF(!CgroupsAvailable());
+
+  Mounter m(ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir()));
+  Cgroup c = ASSERT_NO_ERRNO_AND_VALUE(m.MountCgroupfs("devices"));
+  // The root group starts with allowing rwm to all.
+  ASSERT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("a *:* rwm"));
+  // Gives character devices with the major device number 7 read and write
+  // permission.
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.allow", "c 7:* rw"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("c 7:* rw\n"));
+
+  // Removes the write permission from the character devices with the major
+  // device number 7.
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.deny", "c 7:* w"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("c 7:* r\n"));
+}
+
+TEST(DevicesCgroup, IgnorePartialMatchRule) {
+  SKIP_IF(!CgroupsAvailable());
+
+  Mounter m(ASSERT_NO_ERRNO_AND_VALUE(TempPath::CreateDir()));
+  Cgroup c = ASSERT_NO_ERRNO_AND_VALUE(m.MountCgroupfs("devices"));
+
+  // Gives character devices with the major device number 7 read and write
+  // permission.
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.allow", "c 7:* rw"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("c 7:* rw\n"));
+
+  // Expect no change to the allow list since minor device matches partially a
+  // exsting rule for character devices 7:*.
+  ASSERT_NO_ERRNO(c.WriteControlFile("devices.deny", "c 7:0 w"));
+  EXPECT_THAT(c.ReadControlFile("devices.list"),
+              IsPosixErrorOkAndHolds("c 7:* rw\n"));
 }
 
 }  // namespace

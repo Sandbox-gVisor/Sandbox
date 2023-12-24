@@ -16,7 +16,6 @@ package tcp
 
 import (
 	"container/heap"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -29,7 +28,6 @@ import (
 	"gvisor.dev/gvisor/pkg/sleep"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/hash/jenkins"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/ports"
 	"gvisor.dev/gvisor/pkg/tcpip/seqnum"
@@ -75,6 +73,17 @@ const (
 	// SegOverheadFactor is used to multiply the value provided by the
 	// user on a SetSockOpt for setting the socket send/receive buffer sizes.
 	SegOverheadFactor = 2
+)
+
+type connDirectionState uint32
+
+// Connection direction states used for directionState checks in endpoint struct
+// to detect half-closed connection and deliver POLLRDHUP
+const (
+	connDirectionStateOpen      connDirectionState = 0
+	connDirectionStateRcvClosed connDirectionState = 1
+	connDirectionStateSndClosed connDirectionState = 2
+	connDirectionStateAll       connDirectionState = connDirectionStateOpen | connDirectionStateRcvClosed | connDirectionStateSndClosed
 )
 
 // connected returns true when s is one of the states representing an
@@ -398,6 +407,10 @@ type endpoint struct {
 	// state must be read/set using the EndpointState()/setEndpointState()
 	// methods.
 	state atomicbitops.Uint32 `state:".(EndpointState)"`
+
+	// connectionDirectionState holds current state of send and receive,
+	// accessed atomically
+	connectionDirectionState atomicbitops.Uint32
 
 	// origEndpointState is only used during a restore phase to save the
 	// endpoint state at restore time as the socket is moved to it's correct
@@ -843,10 +856,12 @@ func newEndpoint(s *stack.Stack, protocol *protocol, netProto tcpip.NetworkProto
 			interval: DefaultKeepaliveInterval,
 			count:    DefaultKeepaliveCount,
 		},
-		uniqueID:      s.UniqueID(),
-		ipv4TTL:       tcpip.UseDefaultIPv4TTL,
-		ipv6HopLimit:  tcpip.UseDefaultIPv6HopLimit,
-		txHash:        s.Rand().Uint32(),
+		uniqueID:     s.UniqueID(),
+		ipv4TTL:      tcpip.UseDefaultIPv4TTL,
+		ipv6HopLimit: tcpip.UseDefaultIPv6HopLimit,
+		// txHash only determines which outgoing queue to use, so
+		// InsecureRNG is fine.
+		txHash:        s.InsecureRNG().Uint32(),
 		windowClamp:   DefaultReceiveBufferSize,
 		maxSynRetries: DefaultSynRetries,
 	}
@@ -940,6 +955,9 @@ func (e *endpoint) Readiness(mask waiter.EventMask) waiter.EventMask {
 			if e.sndQueueInfo.SndClosed || e.sndQueueInfo.SndBufUsed < sndBufSize {
 				result |= waiter.WritableEvents
 			}
+			if e.sndQueueInfo.SndClosed {
+				e.updateConnDirectionState(connDirectionStateSndClosed)
+			}
 			e.sndQueueInfo.sndQueueMu.Unlock()
 		}
 
@@ -949,8 +967,16 @@ func (e *endpoint) Readiness(mask waiter.EventMask) waiter.EventMask {
 			if e.RcvBufUsed > 0 || e.RcvClosed {
 				result |= waiter.ReadableEvents
 			}
+			if e.RcvClosed {
+				e.updateConnDirectionState(connDirectionStateRcvClosed)
+			}
 			e.rcvQueueMu.Unlock()
 		}
+	}
+
+	// Determine whether endpoint is half-closed with rcv shutdown
+	if e.connDirectionState() == connDirectionStateRcvClosed {
+		result |= waiter.EventRdHUp
 	}
 
 	return result
@@ -2033,11 +2059,16 @@ func (e *endpoint) GetSockOptInt(opt tcpip.SockOptInt) (int, tcpip.Error) {
 		return v, nil
 
 	case tcpip.MaxSegOption:
-		// This is just stubbed out. Linux never returns the user_mss
-		// value as it either returns the defaultMSS or returns the
-		// actual current MSS. Netstack just returns the defaultMSS
-		// always for now.
+		// Linux only returns user_mss value if user_mss is set and the socket is
+		// unconnected. Otherwise Linux returns the actual current MSS. Netstack
+		// mimics the user_mss behavior, but otherwise just returns the defaultMSS
+		// for now.
 		v := header.TCPDefaultMSS
+		e.LockUser()
+		if state := e.EndpointState(); e.userMSS > 0 && (state.internal() || state == StateClose || state == StateListen) {
+			v = int(e.userMSS)
+		}
+		e.UnlockUser()
 		return v, nil
 
 	case tcpip.MTUDiscoverOption:
@@ -2213,28 +2244,6 @@ func (e *endpoint) registerEndpoint(addr tcpip.FullAddress, netProto tcpip.Netwo
 		// endpoint would be trying to connect to itself).
 		sameAddr := e.TransportEndpointInfo.ID.LocalAddress == e.TransportEndpointInfo.ID.RemoteAddress
 
-		// Calculate a port offset based on the destination IP/port and
-		// src IP to ensure that for a given tuple (srcIP, destIP,
-		// destPort) the offset used as a starting point is the same to
-		// ensure that we can cycle through the port space effectively.
-		portBuf := make([]byte, 2)
-		binary.LittleEndian.PutUint16(portBuf, e.ID.RemotePort)
-
-		h := jenkins.Sum32(e.protocol.portOffsetSecret)
-		for _, s := range [][]byte{
-			e.ID.LocalAddress.AsSlice(),
-			e.ID.RemoteAddress.AsSlice(),
-			portBuf,
-		} {
-			// Per io.Writer.Write:
-			//
-			// Write must return a non-nil error if it returns n < len(p).
-			if _, err := h.Write(s); err != nil {
-				panic(err)
-			}
-		}
-		portOffset := h.Sum32()
-
 		var twReuse tcpip.TCPTimeWaitReuseOption
 		if err := e.stack.TransportProtocolOption(ProtocolNumber, &twReuse); err != nil {
 			panic(fmt.Sprintf("e.stack.TransportProtocolOption(%d, %#v) = %s", ProtocolNumber, &twReuse, err))
@@ -2251,7 +2260,7 @@ func (e *endpoint) registerEndpoint(addr tcpip.FullAddress, netProto tcpip.Netwo
 		}
 
 		bindToDevice := tcpip.NICID(e.ops.GetBindToDevice())
-		if _, err := e.stack.PickEphemeralPortStable(portOffset, func(p uint16) (bool, tcpip.Error) {
+		if _, err := e.stack.PickEphemeralPort(e.stack.SecureRNG(), func(p uint16) (bool, tcpip.Error) {
 			if sameAddr && p == e.TransportEndpointInfo.ID.RemotePort {
 				return false, nil
 			}
@@ -2264,7 +2273,7 @@ func (e *endpoint) registerEndpoint(addr tcpip.FullAddress, netProto tcpip.Netwo
 				BindToDevice: bindToDevice,
 				Dest:         addr,
 			}
-			if _, err := e.stack.ReservePort(e.stack.Rand(), portRes, nil /* testPort */); err != nil {
+			if _, err := e.stack.ReservePort(e.stack.SecureRNG(), portRes, nil /* testPort */); err != nil {
 				if _, ok := err.(*tcpip.ErrPortInUse); !ok || !reuse {
 					return false, nil
 				}
@@ -2311,7 +2320,7 @@ func (e *endpoint) registerEndpoint(addr tcpip.FullAddress, netProto tcpip.Netwo
 					BindToDevice: bindToDevice,
 					Dest:         addr,
 				}
-				if _, err := e.stack.ReservePort(e.stack.Rand(), portRes, nil /* testPort */); err != nil {
+				if _, err := e.stack.ReservePort(e.stack.SecureRNG(), portRes, nil /* testPort */); err != nil {
 					return false, nil
 				}
 			}
@@ -2509,7 +2518,13 @@ func (e *endpoint) shutdownLocked(flags tcpip.ShutdownFlags) tcpip.Error {
 			}
 			// Wake up any readers that maybe waiting for the stream to become
 			// readable.
-			e.waiterQueue.Notify(waiter.ReadableEvents)
+			events := waiter.ReadableEvents
+			if e.shutdownFlags&tcpip.ShutdownWrite == 0 {
+				// If ShutdownWrite is not set, write end won't close and
+				// we end up with a half-closed connection
+				events |= waiter.EventRdHUp
+			}
+			e.waiterQueue.Notify(events)
 		}
 
 		// Close for write.
@@ -2567,14 +2582,14 @@ func (e *endpoint) shutdownLocked(flags tcpip.ShutdownFlags) tcpip.Error {
 // Listen puts the endpoint in "listen" mode, which allows it to accept
 // new connections.
 func (e *endpoint) Listen(backlog int) tcpip.Error {
-	err := e.listen(backlog)
-	if err != nil {
+	if err := e.listen(backlog); err != nil {
 		if !err.IgnoreStats() {
 			e.stack.Stats().TCP.FailedConnectionAttempts.Increment()
 			e.stats.FailedConnectionAttempts.Increment()
 		}
+		return err
 	}
-	return err
+	return nil
 }
 
 func (e *endpoint) listen(backlog int) tcpip.Error {
@@ -2597,6 +2612,7 @@ func (e *endpoint) listen(backlog int) tcpip.Error {
 		}
 
 		e.shutdownFlags = 0
+		e.updateConnDirectionState(connDirectionStateOpen)
 		e.rcvQueueMu.Lock()
 		e.RcvClosed = false
 		e.rcvQueueMu.Unlock()
@@ -2740,7 +2756,7 @@ func (e *endpoint) bindLocked(addr tcpip.FullAddress) (err tcpip.Error) {
 		BindToDevice: bindToDevice,
 		Dest:         tcpip.FullAddress{},
 	}
-	port, err := e.stack.ReservePort(e.stack.Rand(), portRes, func(p uint16) (bool, tcpip.Error) {
+	port, err := e.stack.ReservePort(e.stack.SecureRNG(), portRes, func(p uint16) (bool, tcpip.Error) {
 		id := e.TransportEndpointInfo.ID
 		id.LocalPort = p
 		// CheckRegisterTransportEndpoint should only return an error if there is a
@@ -3019,6 +3035,16 @@ func (e *endpoint) maxReceiveBufferSize() int {
 	return rs.Max
 }
 
+// directionState returns the close state of send and receive part of the endpoint
+func (e *endpoint) connDirectionState() connDirectionState {
+	return connDirectionState(e.connectionDirectionState.Load())
+}
+
+// updateDirectionState updates the close state of send and receive part of the endpoint
+func (e *endpoint) updateConnDirectionState(state connDirectionState) connDirectionState {
+	return connDirectionState(e.connectionDirectionState.Swap(uint32(e.connDirectionState() | state)))
+}
+
 // rcvWndScaleForHandshake computes the receive window scale to offer to the
 // peer when window scaling is enabled (true by default). If auto-tuning is
 // disabled then the window scaling factor is based on the size of the
@@ -3276,4 +3302,8 @@ func (e *endpoint) computeTCPSendBufferSize() int64 {
 	}
 
 	return newSndBufSz
+}
+
+func (e *endpoint) GetAcceptConn() bool {
+	return EndpointState(e.State()) == StateListen
 }

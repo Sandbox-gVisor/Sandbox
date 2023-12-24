@@ -540,6 +540,7 @@ func (e *endpoint) handleICMP(pkt stack.PacketBufferPtr, hasFragmentHeader bool,
 		//
 		na.SetSolicitedFlag(!unspecifiedSource)
 		na.SetOverrideFlag(true)
+		na.SetRouterFlag(e.Forwarding())
 		na.SetTargetAddress(targetAddr)
 		na.Options().Serialize(optsSerializer)
 		packet.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
@@ -595,7 +596,7 @@ func (e *endpoint) handleICMP(pkt stack.PacketBufferPtr, hasFragmentHeader bool,
 
 			// We just got an NA from a node that owns an address we are performing
 			// DAD on, implying the address is not unique. In this case we let the
-			// stack know so it can handle such a scenario and do nothing furthur with
+			// stack know so it can handle such a scenario and do nothing further with
 			// the NDP NA.
 			//
 			// We would get an error if the address no longer exists or the address
@@ -913,7 +914,7 @@ func (e *endpoint) LinkAddressRequest(targetAddr, localAddr tcpip.Address, remot
 
 	if localAddr.BitLen() == 0 {
 		// Find an address that we can use as our source address.
-		addressEndpoint := e.AcquireOutgoingPrimaryAddress(remoteAddr, false /* allowExpired */)
+		addressEndpoint := e.AcquireOutgoingPrimaryAddress(remoteAddr, tcpip.Address{} /* srcHint */, false /* allowExpired */)
 		if addressEndpoint == nil {
 			return &tcpip.ErrNetworkUnreachable{}
 		}
@@ -960,7 +961,7 @@ type icmpReason interface {
 type icmpReasonParameterProblem struct {
 	code header.ICMPv6Code
 
-	// pointer is defined in the RFC 4443 setion 3.4 which reads:
+	// pointer is defined in the RFC 4443 section 3.4 which reads:
 	//
 	//  Pointer         Identifies the octet offset within the invoking packet
 	//                  where the error was detected.

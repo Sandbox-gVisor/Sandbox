@@ -13,6 +13,9 @@ go_test(
 
 go_library(
     name = "checksum",
-    srcs = ["checksum.go"],
+    srcs = [
+        "checksum.go",
+        "checksum_unsafe.go",
+    ],
     visibility = ["//visibility:public"],
 )

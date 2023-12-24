@@ -158,14 +158,13 @@ func setup(t *testing.T) (context.Context, *auth.Credentials, *vfs.VirtualFilesy
 	vfsObj.MustRegisterFilesystemType("tmpfs", FilesystemType{}, &vfs.RegisterFilesystemTypeOptions{
 		AllowUserMount: true,
 	})
-	mntns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{})
+	mntns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{}, nil)
 	if err != nil {
 		t.Fatalf("failed to create tmpfs root mount: %v", err)
 	}
 
 	// Create the pipe.
-	root := mntns.Root()
-	root.IncRef()
+	root := mntns.Root(ctx)
 	pop := vfs.PathOperation{
 		Root:  root,
 		Start: root,

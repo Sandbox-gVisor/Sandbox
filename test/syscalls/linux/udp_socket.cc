@@ -17,6 +17,7 @@
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
 
+#include <cerrno>
 #include <ctime>
 #include <utility>
 #include <vector>
@@ -2447,6 +2448,40 @@ TEST_P(UdpSocketTest, ReadShutdownOnBoundSocket) {
   }
 }
 
+TEST_P(UdpSocketTest, ReconnectDoesNotClearReadShutdown) {
+  // TODO(gvisor.dev/issue/1202): Reconnecting the UDP socket after shutdown
+  // fails on hostinet.
+  SKIP_IF(IsRunningWithHostinet());
+  ASSERT_NO_ERRNO(BindLoopback());
+  ASSERT_THAT(connect(sock_.get(), bind_addr_, addrlen_), SyscallSucceeds());
+  ASSERT_THAT(shutdown(sock_.get(), SHUT_RD), SyscallSucceeds());
+
+  char received[512];
+  EXPECT_THAT(recv(sock_.get(), received, sizeof(received), 0),
+              SyscallSucceedsWithValue(0));
+
+  EXPECT_THAT(connect(sock_.get(), bind_addr_, addrlen_), SyscallSucceeds());
+  EXPECT_THAT(recv(sock_.get(), received, sizeof(received), 0),
+              SyscallSucceedsWithValue(0));
+}
+
+TEST_P(UdpSocketTest, ReconnectDoesNotClearWriteShutdown) {
+  // TODO(gvisor.dev/issue/1202): Reconnecting the UDP socket after shutdown
+  // fails on hostinet.
+  SKIP_IF(IsRunningWithHostinet());
+  ASSERT_NO_ERRNO(BindLoopback());
+  ASSERT_THAT(connect(sock_.get(), bind_addr_, addrlen_), SyscallSucceeds());
+
+  const char buf = 'A';
+  ASSERT_THAT(send(sock_.get(), &buf, 1, 0), SyscallSucceeds());
+
+  ASSERT_THAT(shutdown(sock_.get(), SHUT_WR), SyscallSucceeds());
+  EXPECT_THAT(send(sock_.get(), &buf, 1, 0), SyscallFailsWithErrno(EPIPE));
+
+  EXPECT_THAT(connect(sock_.get(), bind_addr_, addrlen_), SyscallSucceeds());
+  EXPECT_THAT(send(sock_.get(), &buf, 1, 0), SyscallFailsWithErrno(EPIPE));
+}
+
 INSTANTIATE_TEST_SUITE_P(AllInetTests, UdpSocketControlMessagesTest,
                          ::testing::Values(AddressFamily::kIpv4,
                                            AddressFamily::kIpv6,
@@ -2475,7 +2510,7 @@ TEST(UdpInet6SocketTest, ConnectInet4Sockaddr) {
   ASSERT_NE(addr = inet_ntop(sockname.ss_family, &sockname, addr_buf,
                              sizeof(addr_buf)),
             nullptr);
-  ASSERT_TRUE(IN6_IS_ADDR_V4MAPPED(sin6->sin6_addr.s6_addr)) << addr;
+  ASSERT_TRUE(IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr)) << addr;
 }
 
 }  // namespace

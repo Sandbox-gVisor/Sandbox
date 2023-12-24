@@ -21,6 +21,15 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/usage"
 )
 
+// FrameRefSegInfo holds reference count and memory cgroup id of the segment.
+type FrameRefSegInfo struct {
+	// refs indicates the reference count of the segment.
+	refs uint64
+	// memCgID is the memory cgroup id of the first task which touches the
+	// segment. This will not be changed over the lifetime of the segment.
+	memCgID uint32
+}
+
 // FrameRefSetFunctions implements segment.Functions for FrameRefSet.
 type FrameRefSetFunctions struct{}
 
@@ -35,38 +44,41 @@ func (FrameRefSetFunctions) MaxKey() uint64 {
 }
 
 // ClearValue implements segment.Functions.ClearValue.
-func (FrameRefSetFunctions) ClearValue(val *uint64) {
+func (FrameRefSetFunctions) ClearValue(val *FrameRefSegInfo) {
 }
 
 // Merge implements segment.Functions.Merge.
-func (FrameRefSetFunctions) Merge(_ memmap.FileRange, val1 uint64, _ memmap.FileRange, val2 uint64) (uint64, bool) {
+func (FrameRefSetFunctions) Merge(_ memmap.FileRange, val1 FrameRefSegInfo, _ memmap.FileRange, val2 FrameRefSegInfo) (FrameRefSegInfo, bool) {
 	if val1 != val2 {
-		return 0, false
+		return FrameRefSegInfo{}, false
 	}
 	return val1, true
 }
 
 // Split implements segment.Functions.Split.
-func (FrameRefSetFunctions) Split(_ memmap.FileRange, val uint64, _ uint64) (uint64, uint64) {
+func (FrameRefSetFunctions) Split(_ memmap.FileRange, val FrameRefSegInfo, _ uint64) (FrameRefSegInfo, FrameRefSegInfo) {
 	return val, val
 }
 
 // IncRefAndAccount adds a reference on the range fr. All newly inserted segments
-// are accounted as host page cache memory mappings.
-func (refs *FrameRefSet) IncRefAndAccount(fr memmap.FileRange) {
-	seg, gap := refs.Find(fr.Start)
+// are accounted as host page cache memory mappings. The new segments will be
+// associated with the memCgID, if the segment already exists then the memCgID
+// will not be changed.
+func (s *FrameRefSet) IncRefAndAccount(fr memmap.FileRange, memCgID uint32) {
+	seg, gap := s.Find(fr.Start)
 	for {
 		switch {
 		case seg.Ok() && seg.Start() < fr.End:
-			seg = refs.Isolate(seg, fr)
-			seg.SetValue(seg.Value() + 1)
+			seg = s.Isolate(seg, fr)
+			seg.ValuePtr().refs++
 			seg, gap = seg.NextNonEmpty()
 		case gap.Ok() && gap.Start() < fr.End:
 			newRange := gap.Range().Intersect(fr)
-			usage.MemoryAccounting.Inc(newRange.Length(), usage.Mapped)
-			seg, gap = refs.InsertWithoutMerging(gap, newRange, 1).NextNonEmpty()
+			usage.MemoryAccounting.Inc(newRange.Length(), usage.Mapped, memCgID)
+			frInfo := FrameRefSegInfo{refs: 1, memCgID: memCgID}
+			seg, gap = s.InsertWithoutMerging(gap, newRange, frInfo).NextNonEmpty()
 		default:
-			refs.MergeAdjacent(fr)
+			s.MergeOutsideRange(fr)
 			return
 		}
 	}
@@ -74,18 +86,18 @@ func (refs *FrameRefSet) IncRefAndAccount(fr memmap.FileRange) {
 
 // DecRefAndAccount removes a reference on the range fr and untracks segments
 // that are removed from memory accounting.
-func (refs *FrameRefSet) DecRefAndAccount(fr memmap.FileRange) {
-	seg := refs.FindSegment(fr.Start)
+func (s *FrameRefSet) DecRefAndAccount(fr memmap.FileRange) {
+	seg := s.FindSegment(fr.Start)
 
 	for seg.Ok() && seg.Start() < fr.End {
-		seg = refs.Isolate(seg, fr)
-		if old := seg.Value(); old == 1 {
-			usage.MemoryAccounting.Dec(seg.Range().Length(), usage.Mapped)
-			seg = refs.Remove(seg).NextSegment()
+		seg = s.Isolate(seg, fr)
+		if old := seg.ValuePtr().refs; old == 1 {
+			usage.MemoryAccounting.Dec(seg.Range().Length(), usage.Mapped, seg.ValuePtr().memCgID)
+			seg = s.Remove(seg).NextSegment()
 		} else {
-			seg.SetValue(old - 1)
+			seg.ValuePtr().refs--
 			seg = seg.NextSegment()
 		}
 	}
-	refs.MergeAdjacent(fr)
+	s.MergeOutsideRange(fr)
 }

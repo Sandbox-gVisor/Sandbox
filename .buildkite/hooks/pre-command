@@ -1,5 +1,18 @@
 set -euo pipefail
 
+export BAZEL_REMOTE_CACHE="--remote_cache=https://storage.googleapis.com/gvisor-buildkite-bazel-cache --google_default_credentials"
+
+if POSIXLY_CORRECT=true df --local --output=pcent,ipcent,target | grep -vE '/snap/' | grep -qE '9[4-9]%|100%'; then
+  echo "Disk usage has reached critical level, node is bad." >&2
+  echo "Automated monitoring should recycle this node soon." >&2
+  echo "If this made your build pipeline fail, sorry!" >&2
+  echo "Try your luck again." >&2
+  sudo df -h --local | sed -r 's/^/[df] /' >&2
+  sleep 10
+  killall buildkite-agent
+  exit 1
+fi
+
 if [[ "${BUILDKITE_PIPELINE_NAME:-}" == "Pipeline" ]]; then
   # Check that the target branch exists.
   git fetch origin "${BUILDKITE_BRANCH}" || {
@@ -85,7 +98,7 @@ if [[ "${BUILDKITE_PIPELINE_INSTALL_RUNTIME:-}" == "true" ]]; then
     # just a SIGHUP.
     echo 'Reloading Docker daemon with this new configuration:' >&2
     cat /etc/docker/daemon.json >&2
-    bash -c "$DOCKER_RELOAD_COMMAND"
+    bash -xc "$DOCKER_RELOAD_COMMAND"
   fi
 fi
 

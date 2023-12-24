@@ -42,10 +42,14 @@ const (
 	CgroupControllerCPU     = CgroupControllerType("cpu")
 	CgroupControllerCPUAcct = CgroupControllerType("cpuacct")
 	CgroupControllerCPUSet  = CgroupControllerType("cpuset")
+	CgroupControllerDevices = CgroupControllerType("devices")
 	CgroupControllerJob     = CgroupControllerType("job")
 	CgroupControllerMemory  = CgroupControllerType("memory")
 	CgroupControllerPIDs    = CgroupControllerType("pids")
 )
+
+// CgroupCtrls is the list of cgroup controllers.
+var CgroupCtrls = []CgroupControllerType{"cpu", "cpuacct", "cpuset", "devices", "job", "memory", "pids"}
 
 // ParseCgroupController parses a string as a CgroupControllerType.
 func ParseCgroupController(val string) (CgroupControllerType, error) {
@@ -56,6 +60,8 @@ func ParseCgroupController(val string) (CgroupControllerType, error) {
 		return CgroupControllerCPUAcct, nil
 	case "cpuset":
 		return CgroupControllerCPUSet, nil
+	case "devices":
+		return CgroupControllerDevices, nil
 	case "job":
 		return CgroupControllerJob, nil
 	case "memory":
@@ -202,7 +208,7 @@ type CgroupImpl interface {
 	// The implementer should silently succeed if no matching controllers are
 	// found.
 	//
-	// The underlying implementaion will panic if passed an incompatible
+	// The underlying implementation will panic if passed an incompatible
 	// resource type for a given controller.
 	//
 	// See cgroupfs.controller.Charge.
@@ -229,7 +235,7 @@ type hierarchy struct {
 	id   uint32
 	name string
 	// These are a subset of the controllers in CgroupRegistry.controllers,
-	// grouped here by hierarchy for conveninent lookup.
+	// grouped here by hierarchy for convenient lookup.
 	controllers map[CgroupControllerType]CgroupController
 	// fs is not owned by hierarchy. The FS is responsible for unregistering the
 	// hierarchy on destruction, which removes this association.

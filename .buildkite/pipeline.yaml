@@ -40,6 +40,7 @@ _templates:
       BENCHMARKS_PROJECT: gvisor-benchmarks
       BENCHMARKS_TABLE: benchmarks
       BENCHMARKS_UPLOAD: true
+      BENCHMARKS_PLATFORMS: "kvm systrap"
       BUILDKITE_PIPELINE_INSTALL_RUNTIME: true
     agents:
       <<: *kvm_agents
@@ -167,6 +168,38 @@ steps:
       - git checkout go && git clean -xf .
       - GOOS=linux GOARCH=mips go build $$PACKAGES
 
+  # GPU workflow.
+  - <<: *common
+    <<: *source_test_presubmit
+    label: ":firefighter: GPU Smoke Tests"
+    commands:
+      - make sudo TARGETS=//tools/gpu:main ARGS="install --latest" || cat /var/log/nvidia-installer.log
+      - make gpu-smoke-tests RUNTIME_ARGS="--strace --debug"
+    agents:
+      queue: gpu
+  - <<: *common
+    <<: *source_test_continuous
+    label: ":screwdriver: GPU Tests"
+    commands:
+      - make sudo TARGETS=//tools/gpu:main ARGS="install --latest" || cat /var/log/nvidia-installer.log
+      - make gpu-all-tests RUNTIME_ARGS="--strace --debug"
+    agents:
+      queue: gpu
+  - <<: *common
+    <<: *source_test_continuous
+    label: ":female_supervillain: COS GPU Tests"
+    commands:
+      - make cos-gpu-all-tests RUNTIME_ARGS="--strace --debug"
+    agents:
+      queue: cos-canary-gpu
+  - <<: *common
+    <<: *source_test_continuous
+    label: ":screwdriver: All GPU Drivers Test"
+    commands:
+      - tools/gpu/all_drivers_test.sh
+    agents:
+      queue: gpu
+
   # Release workflow.
   - <<: *common
     <<: *source_test
@@ -190,7 +223,7 @@ steps:
     label: ":docker: Images (aarch64)"
     command: make ARCH=aarch64 load-all-images
     agents:
-      arch: "amd64"
+      arch: "arm64"
 
   # Basic unit tests.
   - <<: *common
@@ -443,7 +476,6 @@ steps:
     parallelism: 10
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -452,7 +484,6 @@ steps:
     parallelism: 40
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -461,7 +492,6 @@ steps:
     parallelism: 10
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -470,7 +500,6 @@ steps:
     parallelism: 10
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -479,7 +508,6 @@ steps:
     parallelism: 10
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
 
   # Runtime tests (goferfs). Continuous only.
@@ -491,7 +519,6 @@ steps:
     if: build.branch == "master"
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -501,7 +528,6 @@ steps:
     if: build.branch == "master"
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -511,7 +537,6 @@ steps:
     if: build.branch == "master"
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -521,7 +546,6 @@ steps:
     if: build.branch == "master"
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
   - <<: *common
     <<: *docker
@@ -531,7 +555,6 @@ steps:
     if: build.branch == "master"
     agents:
       <<: *platform_specific_agents
-      <<: *ubuntu_agents
       arch: "amd64"
 
   # Run basic benchmarks smoke tests (no upload).
@@ -561,12 +584,18 @@ steps:
   # but for tmpfs mounts, the size can grow to more memory than the machine
   # has available. Fix the runs to 1GB written/read for the benchmark.
   - <<: *benchmarks
-    label: ":floppy_disk: FIO benchmarks (read/write)"
-    command: make -i benchmark-platforms BENCHMARKS_SUITE=fio BENCHMARKS_TARGETS=test/benchmarks/fs:fio_test BENCHMARKS_FILTER=Fio/operation\.[rw][er] BENCHMARKS_OPTIONS=--test.benchtime=1000x
+    label: ":floppy_disk: FIO benchmarks (write :nest_with_eggs:)"
+    command: make -i benchmark-platforms BENCHMARKS_SUITE=fio BENCHMARKS_TARGETS=test/benchmarks/fs:fio_test BENCHMARKS_FILTER='BenchmarkFioWrite' BENCHMARKS_OPTIONS=--test.benchtime=1000x
   # For rand(read|write) fio benchmarks, running 15s does not overwhelm the system for tmpfs mounts.
   - <<: *benchmarks
-    label: ":cd: FIO benchmarks (randread/randwrite)"
-    command: make -i benchmark-platforms BENCHMARKS_SUITE=fio BENCHMARKS_TARGETS=test/benchmarks/fs:fio_test BENCHMARKS_FILTER=Fio/operation\.rand BENCHMARKS_OPTIONS=--test.benchtime=1000x
+    label: ":cd: FIO benchmarks (read :nest_with_eggs:)"
+    command: make -i benchmark-platforms BENCHMARKS_SUITE=fio BENCHMARKS_TARGETS=test/benchmarks/fs:fio_test BENCHMARKS_FILTER='BenchmarkFioRead' BENCHMARKS_OPTIONS=--test.benchtime=1000x
+  - <<: *benchmarks
+    label: ":floppy_disk: FIO benchmarks (randwrte :empty_nest:)"
+    command: make -i benchmark-platforms BENCHMARKS_SUITE=fio BENCHMARKS_TARGETS=test/benchmarks/fs:fio_test BENCHMARKS_FILTER='BenchmarkFioRandWrite' BENCHMARKS_OPTIONS=--test.benchtime=1000x
+  - <<: *benchmarks
+    label: ":cd: FIO benchmarks (randread :empty_nest:)"
+    command: make -i benchmark-platforms BENCHMARKS_SUITE=fio BENCHMARKS_TARGETS=test/benchmarks/fs:fio_test BENCHMARKS_FILTER='BenchmarkFioRandRead' BENCHMARKS_OPTIONS=--test.benchtime=1000x
   - <<: *benchmarks
     label: ":cd: Ruby CI/CD benchmarks"
     command: make -i benchmark-platforms BENCHMARKS_SUITE=fio BENCHMARKS_TARGETS=test/benchmarks/fs:rubydev_test BENCHMARKS_OPTIONS=-test.benchtime=1ns

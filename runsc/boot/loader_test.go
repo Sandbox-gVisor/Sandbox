@@ -139,8 +139,9 @@ func createLoader(conf *config.Config, spec *specs.Spec) (*Loader, func(), error
 		Conf:            conf,
 		ControllerFD:    fd,
 		GoferFDs:        []int{sandEnd},
+		DevGoferFD:      -1,
 		StdioFDs:        stdio,
-		OverlayMediums:  []OverlayMedium{NoOverlay},
+		GoferMountConfs: []GoferMountConf{{Lower: Lisafs, Upper: NoOverlay}},
 		PodInitConfigFD: -1,
 		ExecFD:          -1,
 	}
@@ -475,20 +476,15 @@ func TestCreateMountNamespace(t *testing.T) {
 			defer l.Destroy()
 			defer loaderCleanup()
 
-			mntr := newContainerMounter(&l.root, l.k, l.mountHints, "", l.sandboxID)
-			if err := mntr.processHints(l.root.conf, l.root.procArgs.Credentials); err != nil {
-				t.Fatalf("failed process hints: %v", err)
-			}
-
+			mntr := newContainerMounter(&l.root, l.k, l.mountHints, l.sharedMounts, "", l.sandboxID, l.cgroupMounts)
 			ctx := l.k.SupervisorContext()
 			creds := auth.NewRootCredentials(l.root.procArgs.Credentials.UserNamespace)
-			mns, err := mntr.mountAll(ctx, creds, l.root.conf, &l.root.procArgs)
+			mns, err := mntr.mountAll(ctx, creds, l.root.spec, l.root.conf, &l.root.procArgs)
 			if err != nil {
 				t.Fatalf("mountAll: %v", err)
 			}
 
-			root := mns.Root()
-			root.IncRef()
+			root := mns.Root(ctx)
 			defer root.DecRef(ctx)
 			for _, p := range tc.expectedPaths {
 				target := &vfs.PathOperation{

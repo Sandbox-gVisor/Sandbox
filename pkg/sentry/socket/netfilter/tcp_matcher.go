@@ -19,7 +19,6 @@ import (
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/marshal"
-	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -38,6 +37,10 @@ func (tcpMarshaler) name() string {
 	return matcherNameTCP
 }
 
+func (tcpMarshaler) revision() uint8 {
+	return 0
+}
+
 // marshal implements matchMaker.marshal.
 func (tcpMarshaler) marshal(mr matcher) []byte {
 	matcher := mr.(*TCPMatcher)
@@ -46,12 +49,14 @@ func (tcpMarshaler) marshal(mr matcher) []byte {
 		SourcePortEnd:        matcher.sourcePortEnd,
 		DestinationPortStart: matcher.destinationPortStart,
 		DestinationPortEnd:   matcher.destinationPortEnd,
+		FlagMask:             matcher.flagMask,
+		FlagCompare:          matcher.flagCompare,
 	}
 	return marshalEntryMatch(matcherNameTCP, marshal.Marshal(&xttcp))
 }
 
 // unmarshal implements matchMaker.unmarshal.
-func (tcpMarshaler) unmarshal(_ *kernel.Task, buf []byte, filter stack.IPHeaderFilter) (stack.Matcher, error) {
+func (tcpMarshaler) unmarshal(_ IDMapper, buf []byte, filter stack.IPHeaderFilter) (stack.Matcher, error) {
 	if len(buf) < linux.SizeOfXTTCP {
 		return nil, fmt.Errorf("buf has insufficient size for TCP match: %d", len(buf))
 	}
@@ -62,10 +67,7 @@ func (tcpMarshaler) unmarshal(_ *kernel.Task, buf []byte, filter stack.IPHeaderF
 	matchData.UnmarshalUnsafe(buf)
 	nflog("parseMatchers: parsed XTTCP: %+v", matchData)
 
-	if matchData.Option != 0 ||
-		matchData.FlagMask != 0 ||
-		matchData.FlagCompare != 0 ||
-		matchData.InverseFlags != 0 {
+	if matchData.Option != 0 || matchData.InverseFlags != 0 {
 		return nil, fmt.Errorf("unsupported TCP matcher flags set")
 	}
 
@@ -78,6 +80,8 @@ func (tcpMarshaler) unmarshal(_ *kernel.Task, buf []byte, filter stack.IPHeaderF
 		sourcePortEnd:        matchData.SourcePortEnd,
 		destinationPortStart: matchData.DestinationPortStart,
 		destinationPortEnd:   matchData.DestinationPortEnd,
+		flagMask:             matchData.FlagMask,
+		flagCompare:          matchData.FlagCompare,
 	}, nil
 }
 
@@ -87,11 +91,17 @@ type TCPMatcher struct {
 	sourcePortEnd        uint16
 	destinationPortStart uint16
 	destinationPortEnd   uint16
+	flagMask             uint8
+	flagCompare          uint8
 }
 
 // name implements matcher.name.
 func (*TCPMatcher) name() string {
 	return matcherNameTCP
+}
+
+func (*TCPMatcher) revision() uint8 {
+	return 0
 }
 
 // Match implements Matcher.Match.
@@ -136,6 +146,11 @@ func (tm *TCPMatcher) Match(hook stack.Hook, pkt stack.PacketBufferPtr, _, _ str
 		return false, false
 	}
 	if destinationPort := tcpHeader.DestinationPort(); destinationPort < tm.destinationPortStart || tm.destinationPortEnd < destinationPort {
+		return false, false
+	}
+
+	// Check the flags.
+	if uint8(tcpHeader.Flags())&tm.flagMask != tm.flagCompare {
 		return false, false
 	}
 

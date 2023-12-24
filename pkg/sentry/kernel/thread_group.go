@@ -250,6 +250,21 @@ type ThreadGroup struct {
 	// currently not used but is maintained for consistency.
 	// TODO(gvisor.dev/issue/1967)
 	oomScoreAdj atomicbitops.Int32
+
+	// isChildSubreaper and hasChildSubreaper correspond to Linux's
+	// signal_struct::is_child_subreaper and has_child_subreaper.
+	//
+	// Both fields are protected by the TaskSet mutex.
+	//
+	// Quoting from signal.h:
+	// "PR_SET_CHILD_SUBREAPER marks a process, like a service manager, to
+	// re-parent orphan (double-forking) child processes to this process
+	// instead of 'init'. The service manager is able to receive SIGCHLD
+	// signals and is able to investigate the process until it calls
+	// wait(). All children of this process will inherit a flag if they
+	// should look for a child_subreaper process at exit"
+	isChildSubreaper  bool
+	hasChildSubreaper bool
 }
 
 // NewThreadGroup returns a new, empty thread group in PID namespace pidns. The
@@ -306,7 +321,14 @@ func (tg *ThreadGroup) Release(ctx context.Context) {
 	for _, it := range tg.timers {
 		its = append(its, it)
 	}
-	tg.timers = make(map[linux.TimerID]*IntervalTimer) // nil maps can't be saved
+	clear(tg.timers) // nil maps can't be saved
+	// Disassociate from the tty if we have one.
+	if tg.tty != nil {
+		tg.tty.mu.Lock()
+		tg.tty.tg = nil
+		tg.tty.mu.Unlock()
+		tg.tty = nil
+	}
 	tg.signalHandlers.mu.Unlock()
 	tg.pidns.owner.mu.Unlock()
 	for _, it := range its {
@@ -318,10 +340,30 @@ func (tg *ThreadGroup) Release(ctx context.Context) {
 //
 // Precondition: TaskSet.mu must be held.
 func (tg *ThreadGroup) forEachChildThreadGroupLocked(fn func(*ThreadGroup)) {
+	tg.walkDescendantThreadGroupsLocked(func(child *ThreadGroup) bool {
+		fn(child)
+		// Don't recurse below the immediate children.
+		return false
+	})
+}
+
+// walkDescendantThreadGroupsLocked recursively walks all descendent
+// ThreadGroups and executes the visitor function. If visitor returns false for
+// a given ThreadGroup, then that ThreadGroups descendants are excluded from
+// further iteration.
+//
+// This corresponds to Linux's walk_process_tree.
+//
+// Precondition: TaskSet.mu must be held.
+func (tg *ThreadGroup) walkDescendantThreadGroupsLocked(visitor func(*ThreadGroup) bool) {
 	for t := tg.tasks.Front(); t != nil; t = t.Next() {
 		for child := range t.children {
 			if child == child.tg.leader {
-				fn(child.tg)
+				if !visitor(child.tg) {
+					// Don't recurse below child.
+					continue
+				}
+				child.tg.walkDescendantThreadGroupsLocked(visitor)
 			}
 		}
 	}
@@ -341,7 +383,12 @@ func (tg *ThreadGroup) SetControllingTTY(tty *TTY, steal bool, isReadable bool) 
 
 	// "The calling process must be a session leader and not have a
 	// controlling terminal already." - tty_ioctl(4)
-	if tg.processGroup.session.leader != tg || tg.tty != nil {
+	if tg.processGroup.session.leader != tg {
+		return linuxerr.EINVAL
+	}
+	if tg.tty == tty {
+		return nil
+	} else if tg.tty != nil {
 		return linuxerr.EINVAL
 	}
 
@@ -510,6 +557,53 @@ func (tg *ThreadGroup) SetForegroundProcessGroupID(tty *TTY, pgid ProcessGroupID
 
 	tg.processGroup.session.foreground = pg
 	return nil
+}
+
+// SetChildSubreaper marks this ThreadGroup sets the isChildSubreaper field on
+// this ThreadGroup, and marks all child ThreadGroups as having a subreaper.
+// Recursion stops if we find another subreaper process, which is either a
+// ThreadGroup with isChildSubreaper bit set, or a ThreadGroup with PID=1
+// inside a PID namespace.
+func (tg *ThreadGroup) SetChildSubreaper(isSubreaper bool) {
+	ts := tg.TaskSet()
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	tg.isChildSubreaper = isSubreaper
+	tg.walkDescendantThreadGroupsLocked(func(child *ThreadGroup) bool {
+		// Is this child PID 1 in its PID namespace, or already a
+		// subreaper?
+		if child.isInitInLocked(child.PIDNamespace()) || child.isChildSubreaper {
+			// Don't set hasChildSubreaper, and don't recurse.
+			return false
+		}
+		child.hasChildSubreaper = isSubreaper
+		return true // Recurse.
+	})
+}
+
+// IsChildSubreaper returns whether this ThreadGroup is a child subreaper.
+func (tg *ThreadGroup) IsChildSubreaper() bool {
+	ts := tg.TaskSet()
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return tg.isChildSubreaper
+}
+
+// IsInitIn returns whether this ThreadGroup has TID 1 int the given
+// PIDNamespace.
+func (tg *ThreadGroup) IsInitIn(pidns *PIDNamespace) bool {
+	ts := tg.TaskSet()
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return tg.isInitInLocked(pidns)
+}
+
+// isInitInLocked returns whether this ThreadGroup has TID 1 in the given
+// PIDNamespace.
+//
+// Preconditions: TaskSet.mu must be locked.
+func (tg *ThreadGroup) isInitInLocked(pidns *PIDNamespace) bool {
+	return pidns.tgids[tg] == initTID
 }
 
 // itimerRealListener implements ktime.Listener for ITIMER_REAL expirations.

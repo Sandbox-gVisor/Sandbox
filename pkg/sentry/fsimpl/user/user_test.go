@@ -120,13 +120,12 @@ func TestGetExecUserHome(t *testing.T) {
 			vfsObj.MustRegisterFilesystemType("tmpfs", tmpfs.FilesystemType{}, &vfs.RegisterFilesystemTypeOptions{
 				AllowUserMount: true,
 			})
-			mns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{})
+			mns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{}, nil)
 			if err != nil {
 				t.Fatalf("failed to create tmpfs root mount: %v", err)
 			}
 			defer mns.DecRef(ctx)
-			root := mns.Root()
-			root.IncRef()
+			root := mns.Root(ctx)
 			defer root.DecRef(ctx)
 
 			if err := createEtcPasswd(ctx, &vfsObj, creds, root, tc.passwdContents, tc.passwdMode); err != nil {

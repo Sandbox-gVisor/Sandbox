@@ -16,11 +16,10 @@ package ports
 
 import (
 	"math"
-	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
+	cryptorand "gvisor.dev/gvisor/pkg/rand"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/testutil"
 )
@@ -332,7 +331,7 @@ func TestPortReservation(t *testing.T) {
 		t.Run(test.tname, func(t *testing.T) {
 			pm := NewPortManager()
 			net := []tcpip.NetworkProtocolNumber{fakeNetworkNumber}
-			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+			rng := cryptorand.RNGFrom(cryptorand.Reader)
 
 			for _, test := range test.actions {
 				first, _ := pm.PortRange()
@@ -419,75 +418,11 @@ func TestPickEphemeralPort(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			pm := NewPortManager()
-			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+			rng := cryptorand.RNGFrom(cryptorand.Reader)
 			if err := pm.SetPortRange(firstEphemeral, firstEphemeral+numEphemeralPorts); err != nil {
 				t.Fatalf("failed to set ephemeral port range: %s", err)
 			}
 			port, err := pm.PickEphemeralPort(rng, test.f)
-			if diff := cmp.Diff(test.wantErr, err); diff != "" {
-				t.Fatalf("unexpected error from PickEphemeralPort(..), (-want, +got):\n%s", diff)
-			}
-			if port != test.wantPort {
-				t.Errorf("got PickEphemeralPort(..) = (%d, nil); want (%d, nil)", port, test.wantPort)
-			}
-		})
-	}
-}
-
-func TestPickEphemeralPortStable(t *testing.T) {
-	const (
-		firstEphemeral    = 32000
-		numEphemeralPorts = 1000
-	)
-
-	for _, test := range []struct {
-		name     string
-		f        func(port uint16) (bool, tcpip.Error)
-		wantErr  tcpip.Error
-		wantPort uint16
-	}{
-		{
-			name: "no-port-available",
-			f: func(port uint16) (bool, tcpip.Error) {
-				return false, nil
-			},
-			wantErr: &tcpip.ErrNoPortAvailable{},
-		},
-		{
-			name: "port-tester-error",
-			f: func(port uint16) (bool, tcpip.Error) {
-				return false, &tcpip.ErrBadBuffer{}
-			},
-			wantErr: &tcpip.ErrBadBuffer{},
-		},
-		{
-			name: "only-port-16042-available",
-			f: func(port uint16) (bool, tcpip.Error) {
-				if port == firstEphemeral+42 {
-					return true, nil
-				}
-				return false, nil
-			},
-			wantPort: firstEphemeral + 42,
-		},
-		{
-			name: "only-port-under-16000-available",
-			f: func(port uint16) (bool, tcpip.Error) {
-				if port < firstEphemeral {
-					return true, nil
-				}
-				return false, nil
-			},
-			wantErr: &tcpip.ErrNoPortAvailable{},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			pm := NewPortManager()
-			if err := pm.SetPortRange(firstEphemeral, firstEphemeral+numEphemeralPorts); err != nil {
-				t.Fatalf("failed to set ephemeral port range: %s", err)
-			}
-			portOffset := uint32(rand.Int31n(int32(numEphemeralPorts)))
-			port, err := pm.PickEphemeralPortStable(portOffset, test.f)
 			if diff := cmp.Diff(test.wantErr, err); diff != "" {
 				t.Fatalf("unexpected error from PickEphemeralPort(..), (-want, +got):\n%s", diff)
 			}

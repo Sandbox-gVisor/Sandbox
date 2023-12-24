@@ -59,7 +59,7 @@ type FileDescription struct {
 	// processed. This is either 0 for not running, or 1 for running.
 	running atomicbitops.Uint32
 	// runC is used to wake up serialized task goroutines waiting for any
-	// concurrent processors of the submisison queue.
+	// concurrent processors of the submission queue.
 	runC chan struct{} `state:"nosave"`
 
 	ioRings linux.IORings
@@ -124,8 +124,8 @@ func New(ctx context.Context, vfsObj *vfs.VirtualFilesystem, entries uint32, par
 	ringsBufferSize = uint64(hostarch.Addr(ringsBufferSize).MustRoundUp())
 
 	mf := mfp.MemoryFile()
-
-	rbfr, err := mf.Allocate(ringsBufferSize, pgalloc.AllocOpts{Kind: usage.Anonymous})
+	memCgID := pgalloc.MemoryCgroupIDFromContext(ctx)
+	rbfr, err := mf.Allocate(ringsBufferSize, pgalloc.AllocOpts{Kind: usage.Anonymous, MemCgID: memCgID})
 	if err != nil {
 		return nil, linuxerr.ENOMEM
 	}
@@ -133,7 +133,7 @@ func New(ctx context.Context, vfsObj *vfs.VirtualFilesystem, entries uint32, par
 	// Allocate enough space to store the given number of submission queue entries.
 	sqEntriesSize := uint64(numSqEntries * uint32((*linux.IOUringSqe)(nil).SizeBytes()))
 	sqEntriesSize = uint64(hostarch.Addr(sqEntriesSize).MustRoundUp())
-	sqefr, err := mf.Allocate(sqEntriesSize, pgalloc.AllocOpts{Kind: usage.Anonymous})
+	sqefr, err := mf.Allocate(sqEntriesSize, pgalloc.AllocOpts{Kind: usage.Anonymous, MemCgID: memCgID})
 	if err != nil {
 		return nil, linuxerr.ENOMEM
 	}
@@ -299,7 +299,7 @@ func (fd *FileDescription) ProcessSubmissions(t *kernel.Task, toSubmit uint32, m
 	// Task B (entering, sleeping)                        | Task A (active, releasing)
 	// ---------------------------------------------------+-------------------------
 	//                                                    | fd.running.Store(0)
-	// for !fd.running.CompareAndSwap(0, 1) { // Succeess |
+	// for !fd.running.CompareAndSwap(0, 1) { // Success |
 	//                                                    | nonblockingSend(runC) // Missed!
 	//     t.Block(fd.runC) // Will block forever         |
 	// }
@@ -382,7 +382,7 @@ func (fd *FileDescription) ProcessSubmissions(t *kernel.Task, toSubmit uint32, m
 		overflowPtr := atomicUint32AtOffset(view, int(cqOff.Overflow))
 
 		// Load the pointers once, so we work with a stable value. Particularly,
-		// usersapce can update the SQ tail at any time.
+		// userspace can update the SQ tail at any time.
 		sqHead := sqHeadPtr.Load()
 		sqTail := sqTailPtr.Load()
 

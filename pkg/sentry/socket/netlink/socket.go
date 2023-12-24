@@ -18,6 +18,7 @@ package netlink
 import (
 	"io"
 	"math"
+	"time"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/abi/linux/errno"
@@ -387,6 +388,20 @@ func (s *Socket) GetSockOpt(t *kernel.Task, level int, name int, outPtr hostarch
 				passcred = 1
 			}
 			return &passcred, nil
+
+		case linux.SO_SNDTIMEO:
+			if outLen < linux.SizeOfTimeval {
+				return nil, syserr.ErrInvalidArgument
+			}
+			sendTimeout := linux.NsecToTimeval(s.SendTimeout())
+			return &sendTimeout, nil
+
+		case linux.SO_RCVTIMEO:
+			if outLen < linux.SizeOfTimeval {
+				return nil, syserr.ErrInvalidArgument
+			}
+			recvTimeout := linux.NsecToTimeval(s.RecvTimeout())
+			return &recvTimeout, nil
 		}
 	case linux.SOL_NETLINK:
 		switch name {
@@ -471,6 +486,32 @@ func (s *Socket) SetSockOpt(t *kernel.Task, level int, name int, opt []byte) *sy
 				return errNoFilter
 			}
 
+			return nil
+
+		case linux.SO_SNDTIMEO:
+			if len(opt) < linux.SizeOfTimeval {
+				return syserr.ErrInvalidArgument
+			}
+
+			var v linux.Timeval
+			v.UnmarshalBytes(opt)
+			if v.Usec < 0 || v.Usec >= int64(time.Second/time.Microsecond) {
+				return syserr.ErrDomain
+			}
+			s.SetSendTimeout(v.ToNsecCapped())
+			return nil
+
+		case linux.SO_RCVTIMEO:
+			if len(opt) < linux.SizeOfTimeval {
+				return syserr.ErrInvalidArgument
+			}
+
+			var v linux.Timeval
+			v.UnmarshalBytes(opt)
+			if v.Usec < 0 || v.Usec >= int64(time.Second/time.Microsecond) {
+				return syserr.ErrDomain
+			}
+			s.SetRecvTimeout(v.ToNsecCapped())
 			return nil
 		}
 	case linux.SOL_NETLINK:
@@ -663,7 +704,7 @@ func (s *Socket) sendResponse(ctx context.Context, ms *MessageSet) *syserr.Error
 	return nil
 }
 
-func dumpErrorMesage(hdr linux.NetlinkMessageHeader, ms *MessageSet, err *syserr.Error) {
+func dumpErrorMessage(hdr linux.NetlinkMessageHeader, ms *MessageSet, err *syserr.Error) {
 	m := ms.AddMessage(linux.NetlinkMessageHeader{
 		Type: linux.NLMSG_ERROR,
 	})
@@ -673,7 +714,7 @@ func dumpErrorMesage(hdr linux.NetlinkMessageHeader, ms *MessageSet, err *syserr
 	})
 }
 
-func dumpAckMesage(hdr linux.NetlinkMessageHeader, ms *MessageSet) {
+func dumpAckMessage(hdr linux.NetlinkMessageHeader, ms *MessageSet) {
 	m := ms.AddMessage(linux.NetlinkMessageHeader{
 		Type: linux.NLMSG_ERROR,
 	})
@@ -703,9 +744,9 @@ func (s *Socket) processMessages(ctx context.Context, buf []byte) *syserr.Error 
 
 		ms := NewMessageSet(s.portID, hdr.Seq)
 		if err := s.protocol.ProcessMessage(ctx, msg, ms); err != nil {
-			dumpErrorMesage(hdr, ms, err)
+			dumpErrorMessage(hdr, ms, err)
 		} else if hdr.Flags&linux.NLM_F_ACK == linux.NLM_F_ACK {
-			dumpAckMesage(hdr, ms)
+			dumpAckMessage(hdr, ms)
 		}
 
 		if err := s.sendResponse(ctx, ms); err != nil {

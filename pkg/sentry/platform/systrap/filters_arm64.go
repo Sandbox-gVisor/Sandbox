@@ -23,20 +23,26 @@ import (
 	"gvisor.dev/gvisor/pkg/seccomp"
 )
 
-// SyscallFilters returns syscalls made exclusively by the systrap platform.
-func (*Systrap) archSyscallFilters() seccomp.SyscallRules {
-	return seccomp.SyscallRules{
-		unix.SYS_PTRACE: {
-			{
+// archSyscallFilters returns architecture-specific syscalls made exclusively
+// by the systrap platform.
+func archSyscallFilters() seccomp.SyscallRules {
+	return seccomp.MakeSyscallRules(map[uintptr]seccomp.SyscallRule{
+		unix.SYS_PTRACE: seccomp.Or{
+			seccomp.PerArg{
 				seccomp.EqualTo(unix.PTRACE_GETREGSET),
-				seccomp.MatchAny{},
+				seccomp.AnyValue{},
 				seccomp.EqualTo(linux.NT_ARM_TLS),
 			},
-			{
+			seccomp.PerArg{
 				seccomp.EqualTo(unix.PTRACE_SETREGSET),
-				seccomp.MatchAny{},
+				seccomp.AnyValue{},
 				seccomp.EqualTo(linux.NT_ARM_TLS),
 			},
 		},
-	}
+	})
+}
+
+// hottestSyscalls returns the hottest syscalls used by the Systrap platform.
+func hottestSyscalls() []uintptr {
+	return nil
 }

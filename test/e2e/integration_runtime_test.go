@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -208,33 +207,53 @@ func TestOverlayRootfsWhiteout(t *testing.T) {
 	opts := dockerutil.RunOpts{
 		Image: "basic/ubuntu",
 	}
-	if got, err := d.Run(ctx, opts, "bash", "-c", fmt.Sprintf("ls -al / | grep %q || true", boot.SelfOverlayFilestorePrefix)); err != nil {
+	if got, err := d.Run(ctx, opts, "bash", "-c", fmt.Sprintf("ls -al / | grep %q || true", boot.SelfFilestorePrefix)); err != nil {
 		t.Fatalf("docker run failed: %s, %v", got, err)
 	} else if got != "" {
-		t.Errorf("root directory contains a file/directory whose name contains %q: output = %q", boot.SelfOverlayFilestorePrefix, got)
+		t.Errorf("root directory contains a file/directory whose name contains %q: output = %q", boot.SelfFilestorePrefix, got)
 	}
 }
 
-// TODO(b/271612187): Once S/R support is added for file-backed overlays, move
-// this test to integration_test.go so it can run with the default runsc
-// configuration which uses file-backed overlay.
-func TestCheckpointRestore(t *testing.T) {
+func TestOverlayCheckpointRestore(t *testing.T) {
 	if !testutil.IsCheckpointSupported() {
-		t.Skip("Pause/resume is not supported.")
+		t.Skip("Checkpoint is not supported.")
 	}
 	dockerutil.EnsureDockerExperimentalEnabled()
 
+	dir, err := os.MkdirTemp(testutil.TmpDir(), "submount")
+	if err != nil {
+		t.Fatalf("MkdirTemp(): %v", err)
+	}
+	defer os.RemoveAll(dir)
+
 	ctx := context.Background()
-	d := dockerutil.MakeContainerWithRuntime(ctx, t, "-no-overlay")
+	d := dockerutil.MakeContainerWithRuntime(ctx, t, "-overlay")
 	defer d.CleanUp(ctx)
 
-	// Start the container.
-	port := 8080
-	if err := d.Spawn(ctx, dockerutil.RunOpts{
-		Image: "basic/python",
-		Ports: []int{port}, // See Dockerfile.
-	}); err != nil {
+	opts := dockerutil.RunOpts{
+		Image: "basic/alpine",
+		Mounts: []mount.Mount{
+			{
+				Type:   mount.TypeBind,
+				Source: dir,
+				Target: "/submount",
+			},
+		},
+	}
+	if err := d.Spawn(ctx, opts, "sleep", "infinity"); err != nil {
 		t.Fatalf("docker run failed: %v", err)
+	}
+
+	// Create files in rootfs and submount.
+	if _, err := d.Exec(ctx, dockerutil.ExecOpts{}, "/bin/sh", "-c", "echo rootfs > /file"); err != nil {
+		t.Fatalf("docker exec failed: %v", err)
+	}
+	if _, err := d.Exec(ctx, dockerutil.ExecOpts{}, "/bin/sh", "-c", "echo submount > /submount/file"); err != nil {
+		t.Fatalf("docker exec failed: %v", err)
+	}
+	// Check that the file was not created on host.
+	if _, err := os.Stat(filepath.Join(dir, "file")); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("file was created on host, expected err = ENOENT, got %v", err)
 	}
 
 	// Create a snapshot.
@@ -245,25 +264,17 @@ func TestCheckpointRestore(t *testing.T) {
 		t.Fatalf("wait failed: %v", err)
 	}
 
+	// Restore the snapshot.
 	// TODO(b/143498576): Remove Poll after github.com/moby/moby/issues/38963 is fixed.
 	if err := testutil.Poll(func() error { return d.Restore(ctx, "test") }, defaultWait); err != nil {
 		t.Fatalf("docker restore failed: %v", err)
 	}
 
-	// Find container IP address.
-	ip, err := d.FindIP(ctx, false)
-	if err != nil {
-		t.Fatalf("docker.FindIP failed: %v", err)
+	// Make sure the files are restored in the overlay.
+	if got, err := d.Exec(ctx, dockerutil.ExecOpts{}, "cat", "/file"); err != nil || got != "rootfs\n" {
+		t.Errorf("cat /file returned: output = %q, err = %v", got, err)
 	}
-
-	// Wait until it's up and running.
-	if err := testutil.WaitForHTTP(ip.String(), port, defaultWait); err != nil {
-		t.Fatalf("WaitForHTTP() timeout: %v", err)
-	}
-
-	// Check if container is working again.
-	client := http.Client{Timeout: defaultWait}
-	if err := testutil.HTTPRequestSucceeds(client, ip.String(), port); err != nil {
-		t.Error("http request failed:", err)
+	if got, err := d.Exec(ctx, dockerutil.ExecOpts{}, "cat", "/submount/file"); err != nil || got != "submount\n" {
+		t.Errorf("cat /submount/file returned: output = %q, err = %v", got, err)
 	}
 }

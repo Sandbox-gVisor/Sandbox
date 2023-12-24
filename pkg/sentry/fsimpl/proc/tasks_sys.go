@@ -17,12 +17,15 @@ package proc
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"math"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
+	"gvisor.dev/gvisor/pkg/atomicbitops"
 	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/hostarch"
+	"gvisor.dev/gvisor/pkg/rand"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
 	"gvisor.dev/gvisor/pkg/sentry/inet"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
@@ -45,17 +48,26 @@ const (
 func (fs *filesystem) newSysDir(ctx context.Context, root *auth.Credentials, k *kernel.Kernel) kernfs.Inode {
 	return fs.newStaticDir(ctx, root, map[string]kernfs.Inode{
 		"kernel": fs.newStaticDir(ctx, root, map[string]kernfs.Inode{
-			"hostname": fs.newInode(ctx, root, 0444, &hostnameData{}),
-			"sem":      fs.newInode(ctx, root, 0444, newStaticFile(fmt.Sprintf("%d\t%d\t%d\t%d\n", linux.SEMMSL, linux.SEMMNS, linux.SEMOPM, linux.SEMMNI))),
-			"shmall":   fs.newInode(ctx, root, 0444, ipcData(linux.SHMALL)),
-			"shmmax":   fs.newInode(ctx, root, 0444, ipcData(linux.SHMMAX)),
-			"shmmni":   fs.newInode(ctx, root, 0444, ipcData(linux.SHMMNI)),
-			"msgmni":   fs.newInode(ctx, root, 0444, ipcData(linux.MSGMNI)),
-			"msgmax":   fs.newInode(ctx, root, 0444, ipcData(linux.MSGMAX)),
-			"msgmnb":   fs.newInode(ctx, root, 0444, ipcData(linux.MSGMNB)),
+			"cap_last_cap": fs.newInode(ctx, root, 0444, newStaticFile(fmt.Sprintf("%d\n", linux.CAP_LAST_CAP))),
+			"hostname":     fs.newInode(ctx, root, 0444, &hostnameData{}),
+			"overflowgid":  fs.newInode(ctx, root, 0444, newStaticFile(fmt.Sprintf("%d\n", auth.OverflowGID))),
+			"overflowuid":  fs.newInode(ctx, root, 0444, newStaticFile(fmt.Sprintf("%d\n", auth.OverflowUID))),
+			"random": fs.newStaticDir(ctx, root, map[string]kernfs.Inode{
+				"boot_id": fs.newInode(ctx, root, 0444, newStaticFile(randUUID())),
+			}),
+			"sem":    fs.newInode(ctx, root, 0444, newStaticFile(fmt.Sprintf("%d\t%d\t%d\t%d\n", linux.SEMMSL, linux.SEMMNS, linux.SEMOPM, linux.SEMMNI))),
+			"shmall": fs.newInode(ctx, root, 0444, ipcData(linux.SHMALL)),
+			"shmmax": fs.newInode(ctx, root, 0444, ipcData(linux.SHMMAX)),
+			"shmmni": fs.newInode(ctx, root, 0444, ipcData(linux.SHMMNI)),
+			"msgmni": fs.newInode(ctx, root, 0444, ipcData(linux.MSGMNI)),
+			"msgmax": fs.newInode(ctx, root, 0444, ipcData(linux.MSGMAX)),
+			"msgmnb": fs.newInode(ctx, root, 0444, ipcData(linux.MSGMNB)),
 			"yama": fs.newStaticDir(ctx, root, map[string]kernfs.Inode{
 				"ptrace_scope": fs.newYAMAPtraceScopeFile(ctx, k, root),
 			}),
+		}),
+		"fs": fs.newStaticDir(ctx, root, map[string]kernfs.Inode{
+			"nr_open": fs.newInode(ctx, root, 0644, &atomicInt32File{val: &k.MaxFDLimit, min: 8, max: kernel.MaxFdLimit}),
 		}),
 		"vm": fs.newStaticDir(ctx, root, map[string]kernfs.Inode{
 			"max_map_count":     fs.newInode(ctx, root, 0444, newStaticFile("2147483647\n")),
@@ -169,6 +181,7 @@ var _ dynamicInode = (*hostnameData)(nil)
 // Generate implements vfs.DynamicBytesSource.Generate.
 func (*hostnameData) Generate(ctx context.Context, buf *bytes.Buffer) error {
 	utsns := kernel.UTSNamespaceFromContext(ctx)
+	defer utsns.DecRef(ctx)
 	buf.WriteString(utsns.HostName())
 	buf.WriteString("\n")
 	return nil
@@ -483,4 +496,62 @@ func (pr *portRange) Write(ctx context.Context, _ *vfs.FileDescription, src user
 	*pr.start = uint16(ports[0])
 	*pr.end = uint16(ports[1])
 	return n, nil
+}
+
+// atomicInt32File implements vfs.WritableDynamicBytesSource sysctls
+// represented by int32 atomic objects.
+//
+// +stateify savable
+type atomicInt32File struct {
+	kernfs.DynamicBytesFile
+
+	val      *atomicbitops.Int32
+	min, max int32
+}
+
+var _ vfs.WritableDynamicBytesSource = (*atomicInt32File)(nil)
+
+// Generate implements vfs.DynamicBytesSource.Generate.
+func (f *atomicInt32File) Generate(ctx context.Context, buf *bytes.Buffer) error {
+	_, err := fmt.Fprintf(buf, "%d\n", f.val.Load())
+	return err
+}
+
+// Write implements vfs.WritableDynamicBytesSource.Write.
+func (f *atomicInt32File) Write(ctx context.Context, _ *vfs.FileDescription, src usermem.IOSequence, offset int64) (int64, error) {
+	if offset != 0 {
+		// Ignore partial writes.
+		return 0, linuxerr.EINVAL
+	}
+	if src.NumBytes() == 0 {
+		return 0, nil
+	}
+
+	// Limit the amount of memory allocated.
+	src = src.TakeFirst(hostarch.PageSize - 1)
+
+	var v int32
+	n, err := usermem.CopyInt32StringInVec(ctx, src.IO, src.Addrs, &v, src.Opts)
+	if err != nil {
+		return 0, err
+	}
+
+	if v < f.min || v > f.max {
+		return 0, linuxerr.EINVAL
+	}
+
+	f.val.Store(v)
+	return n, nil
+}
+
+// randUUID returns a string containing a randomly-generated UUID followed by a
+// newline.
+func randUUID() string {
+	var uuid [16]byte
+	if _, err := io.ReadFull(rand.Reader, uuid[:]); err != nil {
+		panic(fmt.Sprintf("failed to read random bytes for UUID: %v", err))
+	}
+	uuid[8] = (uuid[8] & 0x3f) | 0x80 // RFC 4122 UUID
+	uuid[6] = (uuid[6] & 0x0f) | 0x40 // Version 4 (random)
+	return fmt.Sprintf("%x-%x-%x-%x-%x\n", uuid[:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
 }

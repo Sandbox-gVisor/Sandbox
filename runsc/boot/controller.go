@@ -18,24 +18,24 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	gtime "time"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/unix"
+	"gvisor.dev/gvisor/pkg/cleanup"
+	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/control/server"
 	"gvisor.dev/gvisor/pkg/fd"
+	"gvisor.dev/gvisor/pkg/fspath"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/sentry/control"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/erofs"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/sentry/seccheck"
 	"gvisor.dev/gvisor/pkg/sentry/socket/netstack"
-	"gvisor.dev/gvisor/pkg/sentry/state"
-	"gvisor.dev/gvisor/pkg/sentry/time"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
-	"gvisor.dev/gvisor/pkg/sentry/watchdog"
-	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/urpc"
-	"gvisor.dev/gvisor/runsc/boot/pprof"
 	"gvisor.dev/gvisor/runsc/boot/procfs"
 	"gvisor.dev/gvisor/runsc/config"
 	"gvisor.dev/gvisor/runsc/specutils"
@@ -95,6 +95,9 @@ const (
 
 	// ContMgrProcfsDump dumps sandbox procfs state.
 	ContMgrProcfsDump = "containerManager.ProcfsDump"
+
+	// ContMgrMount mounts a filesystem in a container.
+	ContMgrMount = "containerManager.Mount"
 )
 
 const (
@@ -180,7 +183,10 @@ func newController(fd int, l *Loader) (*controller, error) {
 	ctrl.srv.Register(&debug{})
 
 	if eps, ok := l.k.RootNetworkNamespace().Stack().(*netstack.Stack); ok {
-		ctrl.srv.Register(&Network{Stack: eps.Stack})
+		ctrl.srv.Register(&Network{
+			Stack:  eps.Stack,
+			Kernel: l.k,
+		})
 	}
 	if l.root.conf.ProfileEnable {
 		ctrl.srv.Register(control.NewProfile(l.k))
@@ -265,18 +271,21 @@ type StartArgs struct {
 	// CID is the ID of the container to start.
 	CID string
 
-	// NumOverlayFilestoreFDs is the number of overlay filestore FDs donated.
-	// Optionally configured with the overlay2 flag.
-	NumOverlayFilestoreFDs int
+	// NumGoferFilestoreFDs is the number of gofer filestore FDs donated.
+	NumGoferFilestoreFDs int
 
-	// OverlayMediums contains information about how the gofer mounts have been
-	// overlaid. The first entry is for rootfs and the following entries are for
-	// bind mounts in Spec.Mounts (in the same order).
-	OverlayMediums []OverlayMedium
+	// IsDevIoFilePresent indicates whether the dev gofer FD is present.
+	IsDevIoFilePresent bool
+
+	// GoferMountConfs contains information about how the gofer mounts have been
+	// configured. The first entry is for rootfs and the following entries are
+	// for bind mounts in Spec.Mounts (in the same order).
+	GoferMountConfs []GoferMountConf
 
 	// FilePayload contains, in order:
 	//   * stdin, stdout, and stderr (optional: if terminal is disabled).
-	//   * file descriptors to overlay-backing host files (optional: for overlay2).
+	//   * file descriptors to gofer-backing host files (optional).
+	//   * file descriptor for /dev gofer connection (optional)
 	//   * file descriptors to connect to gofer to serve the root filesystem.
 	urpc.FilePayload
 }
@@ -298,7 +307,10 @@ func (cm *containerManager) StartSubcontainer(args *StartArgs, _ *struct{}) erro
 		return errors.New("start argument missing container ID")
 	}
 	expectedFDs := 1 // At least one FD for the root filesystem.
-	expectedFDs += args.NumOverlayFilestoreFDs
+	expectedFDs += args.NumGoferFilestoreFDs
+	if args.IsDevIoFilePresent {
+		expectedFDs++
+	}
 	if !args.Spec.Process.Terminal {
 		expectedFDs += 3
 	}
@@ -327,15 +339,31 @@ func (cm *containerManager) StartSubcontainer(args *StartArgs, _ *struct{}) erro
 		}
 	}()
 
-	var overlayFilestoreFDs []*fd.FD
-	for i := 0; i < args.NumOverlayFilestoreFDs; i++ {
-		overlayFilestoreFD, err := fd.NewFromFile(goferFiles[i])
+	var goferFilestoreFDs []*fd.FD
+	for i := 0; i < args.NumGoferFilestoreFDs; i++ {
+		goferFilestoreFD, err := fd.NewFromFile(goferFiles[i])
 		if err != nil {
-			return fmt.Errorf("error dup'ing overlay filestore file: %w", err)
+			return fmt.Errorf("error dup'ing gofer filestore file: %w", err)
 		}
-		overlayFilestoreFDs = append(overlayFilestoreFDs, overlayFilestoreFD)
+		goferFilestoreFDs = append(goferFilestoreFDs, goferFilestoreFD)
 	}
-	goferFiles = goferFiles[args.NumOverlayFilestoreFDs:]
+	goferFiles = goferFiles[args.NumGoferFilestoreFDs:]
+	defer func() {
+		for _, fd := range goferFilestoreFDs {
+			_ = fd.Close()
+		}
+	}()
+
+	var devGoferFD *fd.FD
+	if args.IsDevIoFilePresent {
+		var err error
+		devGoferFD, err = fd.NewFromFile(goferFiles[0])
+		if err != nil {
+			return fmt.Errorf("error dup'ing dev gofer file: %w", err)
+		}
+		goferFiles = goferFiles[1:]
+		defer devGoferFD.Close()
+	}
 
 	goferFDs, err := fd.NewFromFiles(goferFiles)
 	if err != nil {
@@ -347,7 +375,7 @@ func (cm *containerManager) StartSubcontainer(args *StartArgs, _ *struct{}) erro
 		}
 	}()
 
-	if err := cm.l.startSubcontainer(args.Spec, args.Conf, args.CID, stdios, goferFDs, overlayFilestoreFDs, args.OverlayMediums); err != nil {
+	if err := cm.l.startSubcontainer(args.Spec, args.Conf, args.CID, stdios, goferFDs, goferFilestoreFDs, devGoferFD, args.GoferMountConfs); err != nil {
 		log.Debugf("containerManager.StartSubcontainer failed, cid: %s, args: %+v, err: %v", args.CID, args, err)
 		return err
 	}
@@ -430,7 +458,7 @@ type RestoreOpts struct {
 func (cm *containerManager) Restore(o *RestoreOpts, _ *struct{}) error {
 	log.Debugf("containerManager.Restore")
 
-	var specFile, deviceFile *os.File
+	r := restorer{container: &cm.l.root}
 	switch numFiles := len(o.Files); numFiles {
 	case 2:
 		// The device file is donated to the platform.
@@ -439,10 +467,16 @@ func (cm *containerManager) Restore(o *RestoreOpts, _ *struct{}) error {
 		if err != nil {
 			return fmt.Errorf("failed to dup file: %v", err)
 		}
-		deviceFile = os.NewFile(uintptr(fd), "platform device")
+		r.deviceFile = os.NewFile(uintptr(fd), "platform device")
 		fallthrough
 	case 1:
-		specFile = o.Files[0]
+		r.stateFile = o.Files[0]
+		if info, err := r.stateFile.Stat(); err != nil {
+			return err
+		} else if info.Size() == 0 {
+			return fmt.Errorf("file cannot be empty")
+		}
+
 	case 0:
 		return fmt.Errorf("at least one file must be passed to Restore")
 	default:
@@ -452,80 +486,9 @@ func (cm *containerManager) Restore(o *RestoreOpts, _ *struct{}) error {
 	// Pause the kernel while we build a new one.
 	cm.l.k.Pause()
 
-	p, err := createPlatform(cm.l.root.conf, deviceFile)
-	if err != nil {
-		return fmt.Errorf("creating platform: %v", err)
-	}
-	k := &kernel.Kernel{
-		Platform: p,
-	}
-	mf, err := createMemoryFile()
-	if err != nil {
-		return fmt.Errorf("creating memory file: %v", err)
-	}
-	k.SetMemoryFile(mf)
-	networkStack := cm.l.k.RootNetworkNamespace().Stack()
-	cm.l.k = k
-
-	// Set up the restore environment.
-	ctx := k.SupervisorContext()
-	mntr := newContainerMounter(&cm.l.root, cm.l.k, cm.l.mountHints, cm.l.productName, o.SandboxID)
-	ctx, err = mntr.configureRestore(ctx)
-	if err != nil {
-		return fmt.Errorf("configuring filesystem restore: %v", err)
-	}
-
-	// Prepare to load from the state file.
-	if eps, ok := networkStack.(*netstack.Stack); ok {
-		stack.StackFromEnv = eps.Stack // FIXME(b/36201077)
-	}
-	info, err := specFile.Stat()
-	if err != nil {
+	if err := r.restore(cm.l); err != nil {
 		return err
 	}
-	if info.Size() == 0 {
-		return fmt.Errorf("file cannot be empty")
-	}
-
-	if cm.l.root.conf.ProfileEnable {
-		// pprof.Initialize opens /proc/self/maps, so has to be called before
-		// installing seccomp filters.
-		pprof.Initialize()
-	}
-
-	// Seccomp filters have to be applied before parsing the state file.
-	if err := cm.l.installSeccompFilters(); err != nil {
-		return err
-	}
-
-	// Load the state.
-	loadOpts := state.LoadOpts{Source: specFile}
-	if err := loadOpts.Load(ctx, k, nil, networkStack, time.NewCalibratedClocks(), &vfs.CompleteRestoreOptions{}); err != nil {
-		return err
-	}
-
-	// Since we have a new kernel we also must make a new watchdog.
-	dogOpts := watchdog.DefaultOpts
-	dogOpts.TaskTimeoutAction = cm.l.root.conf.WatchdogAction
-	dog := watchdog.New(k, dogOpts)
-
-	// Change the loader fields to reflect the changes made when restoring.
-	cm.l.k = k
-	cm.l.watchdog = dog
-	cm.l.root.procArgs = kernel.CreateProcessArgs{}
-	cm.l.restore = true
-
-	// Reinitialize the sandbox ID and processes map. Note that it doesn't
-	// restore the state of multiple containers, nor exec processes.
-	cm.l.sandboxID = o.SandboxID
-	cm.l.mu.Lock()
-	eid := execID{cid: o.SandboxID}
-	cm.l.processes = map[execID]*execProcess{
-		eid: {
-			tg: cm.l.k.GlobalInit(),
-		},
-	}
-	cm.l.mu.Unlock()
 
 	// Tell the root container to start and wait for the result.
 	cm.startChan <- struct{}{}
@@ -670,5 +633,97 @@ func (cm *containerManager) ProcfsDump(_ *struct{}, out *[]procfs.ProcessProcfsD
 		}
 		*out = append(*out, procDump)
 	}
+	return nil
+}
+
+// MountArgs contains arguments to the Mount method.
+type MountArgs struct {
+	// ContainerID is the container in which we will mount the filesystem.
+	ContainerID string
+
+	// Source is the mount source.
+	Source string
+
+	// Destination is the mount target.
+	Destination string
+
+	// FsType is the filesystem type.
+	FsType string
+
+	// FilePayload contains the source image FD, if required by the filesystem.
+	urpc.FilePayload
+}
+
+const initTID kernel.ThreadID = 1
+
+// Mount mounts a filesystem in a container.
+func (cm *containerManager) Mount(args *MountArgs, _ *struct{}) error {
+	log.Debugf("containerManager.Mount, cid: %s, args: %+v", args.ContainerID, args)
+
+	var cu cleanup.Cleanup
+	defer cu.Clean()
+
+	eid := execID{cid: args.ContainerID}
+	ep, ok := cm.l.processes[eid]
+	if !ok {
+		return fmt.Errorf("container %v is deleted", args.ContainerID)
+	}
+	if ep.tg == nil {
+		return fmt.Errorf("container %v isn't started", args.ContainerID)
+	}
+
+	t := ep.tg.PIDNamespace().TaskWithID(initTID)
+	if t == nil {
+		return fmt.Errorf("failed to find init process")
+	}
+
+	source := args.Source
+	dest := path.Clean(args.Destination)
+	fstype := args.FsType
+
+	if dest[0] != '/' {
+		return fmt.Errorf("absolute path must be provided for destination")
+	}
+
+	var opts vfs.MountOptions
+	switch fstype {
+	case erofs.Name:
+		if len(args.FilePayload.Files) != 1 {
+			return fmt.Errorf("exactly one image file must be provided")
+		}
+
+		imageFD, err := unix.Dup(int(args.FilePayload.Files[0].Fd()))
+		if err != nil {
+			return fmt.Errorf("failed to dup image FD: %v", err)
+		}
+		cu.Add(func() { unix.Close(imageFD) })
+
+		opts = vfs.MountOptions{
+			ReadOnly: true,
+			GetFilesystemOptions: vfs.GetFilesystemOptions{
+				InternalMount: true,
+				Data:          fmt.Sprintf("ifd=%d", imageFD),
+			},
+		}
+
+	default:
+		return fmt.Errorf("unsupported filesystem type: %v", fstype)
+	}
+
+	ctx := context.Background()
+	root := t.FSContext().RootDirectory()
+	defer root.DecRef(ctx)
+
+	pop := vfs.PathOperation{
+		Root:  root,
+		Start: root,
+		Path:  fspath.Parse(dest),
+	}
+
+	if _, err := t.Kernel().VFS().MountAt(ctx, t.Credentials(), source, &pop, fstype, &opts); err != nil {
+		return err
+	}
+	log.Infof("Mounted %q to %q type: %s, internal-options: %q, in container %q", source, dest, fstype, opts.GetFilesystemOptions.Data, args.ContainerID)
+	cu.Release()
 	return nil
 }

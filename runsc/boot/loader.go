@@ -21,6 +21,7 @@ import (
 	mrand "math/rand"
 	"os"
 	"runtime"
+	"strconv"
 	gtime "time"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -38,8 +39,10 @@ import (
 	"gvisor.dev/gvisor/pkg/rand"
 	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sentry/control"
+	"gvisor.dev/gvisor/pkg/sentry/devices/nvproxy"
 	"gvisor.dev/gvisor/pkg/sentry/fdimport"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/host"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/tmpfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/user"
 	"gvisor.dev/gvisor/pkg/sentry/inet"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
@@ -90,6 +93,8 @@ import (
 )
 
 type containerInfo struct {
+	cid string
+
 	conf *config.Config
 
 	// spec is the base configuration for the root container.
@@ -110,17 +115,23 @@ type containerInfo struct {
 	// goferFDs are the FDs that attach the sandbox to the gofers.
 	goferFDs []*fd.FD
 
-	// overlayFilestoreFDs are the FDs to the regular files that will back the
-	// tmpfs upper mount in the overlay mounts.
-	overlayFilestoreFDs []*fd.FD
+	// devGoferFD is the FD to attach the sandbox to the dev gofer.
+	devGoferFD *fd.FD
 
-	// overlayMediums contains information about how the gofer mounts have been
-	// overlaid. The first entry is for rootfs and the following entries are for
-	// bind mounts in spec.Mounts (in the same order).
-	overlayMediums []OverlayMedium
+	// goferFilestoreFDs are FDs to the regular files that will back the tmpfs or
+	// overlayfs mount for certain gofer mounts.
+	goferFilestoreFDs []*fd.FD
+
+	// goferMountConfs contains information about how the gofer mounts have been
+	// configured. The first entry is for rootfs and the following entries are
+	// for bind mounts in Spec.Mounts (in the same order).
+	goferMountConfs []GoferMountConf
 
 	// nvidiaUVMDevMajor is the device major number used for nvidia-uvm.
 	nvidiaUVMDevMajor uint32
+
+	// nvidiaDriverVersion is the Nvidia driver version on the host.
+	nvidiaDriverVersion string
 }
 
 // Loader keeps state needed to start the kernel and run the container.
@@ -157,15 +168,20 @@ type Loader struct {
 	// apply to the entire pod.
 	mountHints *PodMountHints
 
+	// cgroupMounts is a map of cgroup mounts that can be reused across
+	// containers. It is mapped by cgroup controller name.
+	cgroupMounts map[string]*cgroupMount
+
 	// productName is the value to show in
 	// /sys/devices/virtual/dmi/id/product_name.
 	productName string
 
-	// nvidiaUVMDevMajor is the device major number used for nvidia-uvm.
-	nvidiaUVMDevMajor uint32
-
-	// mu guards processes and porForwardProxies.
+	// mu guards the fields below.
 	mu sync.Mutex
+
+	// sharedMounts holds VFS mounts that may be shared between containers within
+	// the same pod. It is mapped by mount source.
+	sharedMounts map[string]*vfs.Mount
 
 	// processes maps containers init process and invocation of exec. Root
 	// processes are keyed with container ID and pid=0, while exec invocations
@@ -240,6 +256,9 @@ type Args struct {
 	// GoferFDs is an array of FDs used to connect with the Gofer. The Loader
 	// takes ownership of these FDs and may close them at any time.
 	GoferFDs []int
+	// DevGoferFD is the FD for the dev gofer connection. The Loader takes
+	// ownership of this FD and may close it at any time.
+	DevGoferFD int
 	// StdioFDs is the stdio for the application. The Loader takes ownership of
 	// these FDs and may close them at any time.
 	StdioFDs []int
@@ -248,18 +267,20 @@ type Args struct {
 	PassFDs []FDMapping
 	// ExecFD is the host file descriptor used for program execution.
 	ExecFD int
-	// OverlayFilestoreFDs are the FDs to the regular files that will back the
-	// tmpfs upper mount in the overlay mounts.
-	OverlayFilestoreFDs []int
-	// OverlayMediums contains information about how the gofer mounts have been
-	// overlaid. The first entry is for rootfs and the following entries are for
-	// bind mounts in Spec.Mounts (in the same order).
-	OverlayMediums []OverlayMedium
+	// GoferFilestoreFDs are FDs to the regular files that will back the tmpfs or
+	// overlayfs mount for certain gofer mounts.
+	GoferFilestoreFDs []int
+	// GoferMountConfs contains information about how the gofer mounts have been
+	// configured. The first entry is for rootfs and the following entries are
+	// for bind mounts in Spec.Mounts (in the same order).
+	GoferMountConfs []GoferMountConf
 	// NumCPU is the number of CPUs to create inside the sandbox.
 	NumCPU int
 	// TotalMem is the initial amount of total memory to report back to the
 	// container.
 	TotalMem uint64
+	// TotalHostMem is the total memory reported by host /proc/meminfo.
+	TotalHostMem uint64
 	// UserLogFD is the file descriptor to write user logs to.
 	UserLogFD int
 	// ProductName is the value to show in
@@ -274,6 +295,9 @@ type Args struct {
 	// ProfileOpts contains the set of profiles to enable and the
 	// corresponding FDs where profile data will be written.
 	ProfileOpts profile.Opts
+
+	// NvidiaDriverVersion is the Nvidia driver version on the host.
+	NvidiaDriverVersion string
 
 	SyscallCallbacksInitConfigFD int
 
@@ -301,12 +325,18 @@ func New(args Args) (*Loader, error) {
 		return nil, fmt.Errorf("setting up memory usage: %w", err)
 	}
 
+	if specutils.NVProxyEnabled(args.Spec, args.Conf) {
+		nvproxy.Init()
+	}
+
 	kernel.IOUringEnabled = args.Conf.IOUring
 
 	info := containerInfo{
-		conf:           args.Conf,
-		spec:           args.Spec,
-		overlayMediums: args.OverlayMediums,
+		cid:                 args.ID,
+		conf:                args.Conf,
+		spec:                args.Spec,
+		goferMountConfs:     args.GoferMountConfs,
+		nvidiaDriverVersion: args.NvidiaDriverVersion,
 	}
 
 	// Make host FDs stable between invocations. Host FDs must map to the exact
@@ -334,10 +364,12 @@ func New(args Args) (*Loader, error) {
 	for _, goferFD := range args.GoferFDs {
 		info.goferFDs = append(info.goferFDs, fd.New(goferFD))
 	}
-	for _, overlayFD := range args.OverlayFilestoreFDs {
-		info.overlayFilestoreFDs = append(info.overlayFilestoreFDs, fd.New(overlayFD))
+	for _, filestoreFD := range args.GoferFilestoreFDs {
+		info.goferFilestoreFDs = append(info.goferFilestoreFDs, fd.New(filestoreFD))
 	}
-
+	if args.DevGoferFD >= 0 {
+		info.devGoferFD = fd.New(args.DevGoferFD)
+	}
 	if args.ExecFD >= 0 {
 		info.execFD = fd.New(args.ExecFD)
 	}
@@ -354,7 +386,7 @@ func New(args Args) (*Loader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating platform: %w", err)
 	}
-	if args.Conf.NVProxy && p.OwnsPageTables() {
+	if specutils.NVProxyEnabled(args.Spec, args.Conf) && p.OwnsPageTables() {
 		return nil, fmt.Errorf("--nvproxy is incompatible with platform %s: owns page tables", args.Conf.Platform)
 	}
 	k := &kernel.Kernel{
@@ -384,12 +416,6 @@ func New(args Args) (*Loader, error) {
 		return nil, fmt.Errorf("enabling strace: %w", err)
 	}
 
-	// Create root network namespace/stack.
-	netns, err := newRootNetworkNamespace(args.Conf, tk, k)
-	if err != nil {
-		return nil, fmt.Errorf("creating network: %w", err)
-	}
-
 	// Create capabilities.
 	caps, err := specutils.Capabilities(args.Conf.EnableRaw, args.Spec.Process.Capabilities)
 	if err != nil {
@@ -410,11 +436,23 @@ func New(args Args) (*Loader, error) {
 		caps,
 		auth.NewRootUserNamespace())
 
+	// Create root network namespace/stack.
+	netns, err := newRootNetworkNamespace(args.Conf, tk, k, creds.UserNamespace)
+	if err != nil {
+		return nil, fmt.Errorf("creating network: %w", err)
+	}
+
 	if args.NumCPU == 0 {
 		args.NumCPU = runtime.NumCPU()
 	}
 	log.Infof("CPUs: %d", args.NumCPU)
 	runtime.GOMAXPROCS(args.NumCPU)
+
+	if args.TotalHostMem > 0 {
+		// As per tmpfs(5), the default size limit is 50% of total physical RAM.
+		// See mm/shmem.c:shmem_default_max_blocks().
+		tmpfs.SetDefaultSizeLimit(args.TotalHostMem / 2)
+	}
 
 	if args.TotalMem > 0 {
 		// Adjust the total memory returned by the Sentry so that applications that
@@ -424,19 +462,32 @@ func New(args Args) (*Loader, error) {
 		log.Infof("Setting total memory to %.2f GB", float64(args.TotalMem)/(1<<30))
 	}
 
+	maxFDLimit := kernel.MaxFdLimit
+	if args.Spec.Linux != nil && args.Spec.Linux.Sysctl != nil {
+		if val, ok := args.Spec.Linux.Sysctl["fs.nr_open"]; ok {
+			nrOpen, err := strconv.Atoi(val)
+			if err != nil {
+				return nil, fmt.Errorf("setting fs.nr_open=%s: %w", val, err)
+			}
+			if nrOpen <= 0 || nrOpen > int(kernel.MaxFdLimit) {
+				return nil, fmt.Errorf("setting fs.nr_open=%s", val)
+			}
+			maxFDLimit = int32(nrOpen)
+		}
+	}
 	// Initiate the Kernel object, which is required by the Context passed
 	// to createVFS in order to mount (among other things) procfs.
 	if err = k.Init(kernel.InitKernelArgs{
-		FeatureSet:                   cpuid.HostFeatureSet().Fixed(),
-		Timekeeper:                   tk,
-		RootUserNamespace:            creds.UserNamespace,
-		RootNetworkNamespace:         netns,
-		ApplicationCores:             uint(args.NumCPU),
-		Vdso:                         vdso,
-		RootUTSNamespace:             kernel.NewUTSNamespace(args.Spec.Hostname, args.Spec.Hostname, creds.UserNamespace),
-		RootIPCNamespace:             kernel.NewIPCNamespace(creds.UserNamespace),
-		RootAbstractSocketNamespace:  kernel.NewAbstractSocketNamespace(),
-		PIDNamespace:                 kernel.NewRootPIDNamespace(creds.UserNamespace),
+		FeatureSet:           cpuid.HostFeatureSet().Fixed(),
+		Timekeeper:           tk,
+		RootUserNamespace:    creds.UserNamespace,
+		RootNetworkNamespace: netns,
+		ApplicationCores:     uint(args.NumCPU),
+		Vdso:                 vdso,
+		RootUTSNamespace:     kernel.NewUTSNamespace(args.Spec.Hostname, args.Spec.Hostname, creds.UserNamespace),
+		RootIPCNamespace:     kernel.NewIPCNamespace(creds.UserNamespace),
+		PIDNamespace:         kernel.NewRootPIDNamespace(creds.UserNamespace),
+		MaxFDLimit:           maxFDLimit,
 		SyscallCallbacksInitConfigFD: args.SyscallCallbacksInitConfigFD,
 		RuntimeSocketFD:              args.RuntimeSocketFD,
 	}); err != nil {
@@ -492,15 +543,15 @@ func New(args Args) (*Loader, error) {
 
 	eid := execID{cid: args.ID}
 	l := &Loader{
-		k:                 k,
-		watchdog:          dog,
-		sandboxID:         args.ID,
-		processes:         map[execID]*execProcess{eid: {}},
-		mountHints:        mountHints,
-		root:              info,
-		stopProfiling:     stopProfiling,
-		productName:       args.ProductName,
-		nvidiaUVMDevMajor: info.nvidiaUVMDevMajor,
+		k:             k,
+		watchdog:      dog,
+		sandboxID:     args.ID,
+		processes:     map[execID]*execProcess{eid: {}},
+		mountHints:    mountHints,
+		sharedMounts:  make(map[string]*vfs.Mount),
+		root:          info,
+		stopProfiling: stopProfiling,
+		productName:   args.ProductName,
 	}
 
 	// We don't care about child signals; some platforms can generate a
@@ -547,18 +598,17 @@ func createProcessArgs(id string, spec *specs.Spec, creds *auth.Credentials, k *
 
 	// Create the process arguments.
 	procArgs := kernel.CreateProcessArgs{
-		Argv:                    spec.Process.Args,
-		Envv:                    env,
-		WorkingDirectory:        wd,
-		Credentials:             creds,
-		Umask:                   0022,
-		Limits:                  ls,
-		MaxSymlinkTraversals:    linux.MaxSymlinkTraversals,
-		UTSNamespace:            k.RootUTSNamespace(),
-		IPCNamespace:            k.RootIPCNamespace(),
-		AbstractSocketNamespace: k.RootAbstractSocketNamespace(),
-		ContainerID:             id,
-		PIDNamespace:            pidns,
+		Argv:                 spec.Process.Args,
+		Envv:                 env,
+		WorkingDirectory:     wd,
+		Credentials:          creds,
+		Umask:                0022,
+		Limits:               ls,
+		MaxSymlinkTraversals: linux.MaxSymlinkTraversals,
+		UTSNamespace:         k.RootUTSNamespace(),
+		IPCNamespace:         k.RootIPCNamespace(),
+		ContainerID:          id,
+		PIDNamespace:         pidns,
 	}
 
 	return procArgs, nil
@@ -587,9 +637,9 @@ func (l *Loader) Destroy() {
 	// Release any dangling tcp connections.
 	tcpip.ReleaseDanglingEndpoints()
 
-	// In the success case, stdioFDs and goferFDs will only contain
-	// released/closed FDs that ownership has been passed over to host FDs and
-	// gofer sessions. Close them here in case of failure.
+	// In the success case, all FDs in l.root will only contain released/closed
+	// FDs whose ownership has been passed over to host FDs and gofer sessions.
+	// Close them here in case of failure.
 	for _, f := range l.root.stdioFDs {
 		_ = f.Close()
 	}
@@ -598,6 +648,12 @@ func (l *Loader) Destroy() {
 	}
 	for _, f := range l.root.goferFDs {
 		_ = f.Close()
+	}
+	for _, f := range l.root.goferFilestoreFDs {
+		_ = f.Close()
+	}
+	if l.root.devGoferFD != nil {
+		_ = l.root.devGoferFD.Close()
 	}
 
 	l.stopProfiling()
@@ -636,17 +692,18 @@ func (l *Loader) installSeccompFilters() error {
 		l.PreSeccompCallback()
 	}
 	if l.root.conf.DisableSeccomp {
-		filter.Report("syscall filter is DISABLED. Running in less secure mode.")
+		log.Warningf("*** SECCOMP WARNING: syscall filter is DISABLED. Running in less secure mode.")
 	} else {
 		hostnet := l.root.conf.Network == config.NetworkHost
 		opts := filter.Options{
-			Platform:              l.k.Platform,
+			Platform:              l.k.Platform.SeccompInfo(),
 			HostNetwork:           hostnet,
 			HostNetworkRawSockets: hostnet && l.root.conf.EnableRaw,
 			HostFilesystem:        l.root.conf.DirectFS,
 			ProfileEnable:         l.root.conf.ProfileEnable,
-			NVProxy:               l.root.conf.NVProxy,
-			ControllerFD:          l.ctrl.srv.FD(),
+			NVProxy:               specutils.NVProxyEnabled(l.root.spec, l.root.conf),
+			TPUProxy:              specutils.TPUProxyIsEnabled(l.root.spec, l.root.conf),
+			ControllerFD:          uint32(l.ctrl.srv.FD()),
 		}
 		if err := filter.Install(opts); err != nil {
 			return fmt.Errorf("installing seccomp filters: %w", err)
@@ -709,7 +766,7 @@ func (l *Loader) run() error {
 			tg  *kernel.ThreadGroup
 			err error
 		)
-		tg, ep.tty, err = l.createContainerProcess(true, l.sandboxID, &l.root)
+		tg, ep.tty, err = l.createContainerProcess(&l.root)
 		if err != nil {
 			return err
 		}
@@ -783,7 +840,7 @@ func (l *Loader) createSubcontainer(cid string, tty *fd.FD) error {
 // startSubcontainer starts a child container. It returns the thread group ID of
 // the newly created process. Used FDs are either closed or released. It's safe
 // for the caller to close any remaining files upon return.
-func (l *Loader) startSubcontainer(spec *specs.Spec, conf *config.Config, cid string, stdioFDs, goferFDs, overlayFilestoreFDs []*fd.FD, overlayMediums []OverlayMedium) error {
+func (l *Loader) startSubcontainer(spec *specs.Spec, conf *config.Config, cid string, stdioFDs, goferFDs, goferFilestoreFDs []*fd.FD, devGoferFD *fd.FD, goferMountConfs []GoferMountConf) error {
 	// Create capabilities.
 	caps, err := specutils.Capabilities(conf.EnableRaw, spec.Process.Capabilities)
 	if err != nil {
@@ -836,12 +893,15 @@ func (l *Loader) startSubcontainer(spec *specs.Spec, conf *config.Config, cid st
 	}
 
 	info := &containerInfo{
+		cid:                 cid,
 		conf:                conf,
 		spec:                spec,
 		goferFDs:            goferFDs,
-		overlayFilestoreFDs: overlayFilestoreFDs,
-		overlayMediums:      overlayMediums,
-		nvidiaUVMDevMajor:   l.nvidiaUVMDevMajor,
+		devGoferFD:          devGoferFD,
+		goferFilestoreFDs:   goferFilestoreFDs,
+		goferMountConfs:     goferMountConfs,
+		nvidiaUVMDevMajor:   l.root.nvidiaUVMDevMajor,
+		nvidiaDriverVersion: l.root.nvidiaDriverVersion,
 	}
 	info.procArgs, err = createProcessArgs(cid, spec, creds, l.k, pidns)
 	if err != nil {
@@ -862,7 +922,18 @@ func (l *Loader) startSubcontainer(spec *specs.Spec, conf *config.Config, cid st
 		info.stdioFDs = stdioFDs
 	}
 
-	ep.tg, ep.tty, err = l.createContainerProcess(false, cid, info)
+	var cu cleanup.Cleanup
+	defer cu.Clean()
+	if devGoferFD != nil {
+		cu.Add(func() {
+			// createContainerProcess() will consume devGoferFD and initialize a gofer
+			// connection. This connection is owned by l.k. In case of failure, we want
+			// to clean up this gofer connection so that the gofer process can exit.
+			l.k.RemoveDevGofer(cid)
+		})
+	}
+
+	ep.tg, ep.tty, err = l.createContainerProcess(info)
 	if err != nil {
 		return err
 	}
@@ -888,10 +959,13 @@ func (l *Loader) startSubcontainer(spec *specs.Spec, conf *config.Config, cid st
 	}
 
 	l.k.StartProcess(ep.tg)
+	// No more failures from this point on.
+	cu.Release()
 	return nil
 }
 
-func (l *Loader) createContainerProcess(root bool, cid string, info *containerInfo) (*kernel.ThreadGroup, *host.TTYFileDescription, error) {
+// +checklocks:l.mu
+func (l *Loader) createContainerProcess(info *containerInfo) (*kernel.ThreadGroup, *host.TTYFileDescription, error) {
 	// Create the FD map, which will set stdin, stdout, and stderr.
 	ctx := info.procArgs.NewContext(l.k)
 	fdTable, ttyFile, err := createFDTable(ctx, info.spec.Process.Terminal, info.stdioFDs, info.passFDs, info.spec.Process.User)
@@ -926,14 +1000,17 @@ func (l *Loader) createContainerProcess(root bool, cid string, info *containerIn
 	if len(info.goferFDs) < 1 {
 		return nil, nil, fmt.Errorf("rootfs gofer FD not found")
 	}
-	l.startGoferMonitor(cid, int32(info.goferFDs[0].FD()))
+	l.startGoferMonitor(info)
 
-	mntr := newContainerMounter(info, l.k, l.mountHints, l.productName, l.sandboxID)
-	if root {
-		if err := mntr.processHints(info.conf, info.procArgs.Credentials); err != nil {
+	if l.root.cid == l.sandboxID {
+		// Mounts cgroups for all the controllers.
+		if err := l.mountCgroupMounts(info.conf, info.procArgs.Credentials); err != nil {
 			return nil, nil, err
 		}
 	}
+	// We can share l.sharedMounts with containerMounter since l.mu is locked.
+	// Hence, mntr must only be used within this function (while l.mu is locked).
+	mntr := newContainerMounter(info, l.k, l.mountHints, l.sharedMounts, l.productName, l.sandboxID, l.cgroupMounts)
 	if err := setupContainerVFS(ctx, info, mntr, &info.procArgs); err != nil {
 		return nil, nil, err
 	}
@@ -989,23 +1066,34 @@ func (l *Loader) createContainerProcess(root bool, cid string, info *containerIn
 
 // startGoferMonitor runs a goroutine to monitor gofer's health. It polls on
 // the gofer FD looking for disconnects, and kills the container processes if
-// the rootfs FD disconnects.
-//
-// Note that other gofer mounts are allowed to be unmounted and disconnected.
-func (l *Loader) startGoferMonitor(cid string, rootfsGoferFD int32) {
-	if rootfsGoferFD < 0 {
-		panic(fmt.Sprintf("invalid FD: %d", rootfsGoferFD))
+// the gofer connection disconnects.
+func (l *Loader) startGoferMonitor(info *containerInfo) {
+	// We need to pick a suitable gofer connection that is expected to be alive
+	// for the entire container lifecycle. Only the following can be used:
+	// 1. Rootfs gofer connection
+	// 2. Device gofer connection
+	//
+	// Note that other gofer mounts are allowed to be unmounted and disconnected.
+	goferFD := -1
+	if info.goferMountConfs[0].ShouldUseLisafs() {
+		goferFD = info.goferFDs[0].FD()
+	} else if info.devGoferFD != nil {
+		goferFD = info.devGoferFD.FD()
+	}
+	if goferFD < 0 {
+		log.Warningf("could not find a suitable gofer FD to monitor")
+		return
 	}
 	go func() {
-		log.Debugf("Monitoring gofer health for container %q", cid)
+		log.Debugf("Monitoring gofer health for container %q", info.cid)
 		events := []unix.PollFd{
 			{
-				Fd:     rootfsGoferFD,
+				Fd:     int32(goferFD),
 				Events: unix.POLLHUP | unix.POLLRDHUP,
 			},
 		}
 		_, _, err := specutils.RetryEintr(func() (uintptr, uintptr, error) {
-			// Use ppoll instead of poll because it's already whilelisted in seccomp.
+			// Use ppoll instead of poll because it's already allowed in seccomp.
 			n, err := unix.Ppoll(events, nil, nil)
 			return uintptr(n), 0, err
 		})
@@ -1018,10 +1106,10 @@ func (l *Loader) startGoferMonitor(cid string, rootfsGoferFD int32) {
 
 		// The gofer could have been stopped due to a normal container shutdown.
 		// Check if the container has not stopped yet.
-		if tg, _ := l.tryThreadGroupFromIDLocked(execID{cid: cid}); tg != nil {
-			log.Infof("Gofer socket disconnected, killing container %q", cid)
-			if err := l.signalAllProcesses(cid, int32(linux.SIGKILL)); err != nil {
-				log.Warningf("Error killing container %q after gofer stopped: %s", cid, err)
+		if tg, _ := l.tryThreadGroupFromIDLocked(execID{cid: info.cid}); tg != nil {
+			log.Infof("Gofer socket disconnected, killing container %q", info.cid)
+			if err := l.signalAllProcesses(info.cid, int32(linux.SIGKILL)); err != nil {
+				log.Warningf("Error killing container %q after gofer stopped: %s", info.cid, err)
 			}
 		}
 	}()
@@ -1053,13 +1141,16 @@ func (l *Loader) destroySubcontainer(cid string) error {
 		}
 	}
 
-	// No more failure from this point on. Remove all container thread groups
-	// from the map.
+	// No more failure from this point on.
+
+	// Remove all container thread groups from the map.
 	for key := range l.processes {
 		if key.cid == cid {
 			delete(l.processes, key)
 		}
 	}
+	// Cleanup the device gofer.
+	l.k.RemoveDevGofer(cid)
 
 	log.Debugf("Container destroyed, cid: %s", cid)
 	return nil
@@ -1093,7 +1184,10 @@ func (l *Loader) executeAsync(args *control.ExecArgs) (kernel.ThreadID, error) {
 	}
 
 	// Add the HOME environment variable if it is not already set.
-	ctx := vfs.WithRoot(l.k.SupervisorContext(), args.MountNamespace.Root())
+	sctx := l.k.SupervisorContext()
+	root := args.MountNamespace.Root(sctx)
+	defer root.DecRef(sctx)
+	ctx := vfs.WithRoot(sctx, root)
 	defer args.MountNamespace.DecRef(ctx)
 	args.Envv, err = user.MaybeAddExecUserHome(ctx, args.MountNamespace, args.KUID, args.Envv)
 	if err != nil {
@@ -1208,7 +1302,7 @@ func (l *Loader) WaitExit() linux.WaitStatus {
 	return l.k.GlobalInit().ExitStatus()
 }
 
-func newRootNetworkNamespace(conf *config.Config, clock tcpip.Clock, uniqueID stack.UniqueID) (*inet.Namespace, error) {
+func newRootNetworkNamespace(conf *config.Config, clock tcpip.Clock, uniqueID stack.UniqueID, userns *auth.UserNamespace) (*inet.Namespace, error) {
 	// Create an empty network stack because the network namespace may be empty at
 	// this point. Netns is configured before Run() is called. Netstack is
 	// configured using a control uRPC message. Host network is configured inside
@@ -1222,7 +1316,7 @@ func newRootNetworkNamespace(conf *config.Config, clock tcpip.Clock, uniqueID st
 			return nil, fmt.Errorf("configuring network=host with raw sockets requires CAP_NET_RAW capability")
 		}
 		// No network namespacing support for hostinet yet, hence creator is nil.
-		return inet.NewRootNamespace(hostinet.NewStack(), nil), nil
+		return inet.NewRootNamespace(hostinet.NewStack(), nil, userns), nil
 
 	case config.NetworkNone, config.NetworkSandbox:
 		s, err := newEmptySandboxNetworkStack(clock, uniqueID, conf.AllowPacketEndpointWrite)
@@ -1234,7 +1328,7 @@ func newRootNetworkNamespace(conf *config.Config, clock tcpip.Clock, uniqueID st
 			uniqueID:                 uniqueID,
 			allowPacketEndpointWrite: conf.AllowPacketEndpointWrite,
 		}
-		return inet.NewRootNamespace(s, creator), nil
+		return inet.NewRootNamespace(s, creator, userns), nil
 
 	default:
 		panic(fmt.Sprintf("invalid network configuration: %v", conf.Network))
@@ -1410,23 +1504,15 @@ func (l *Loader) signalForegrondProcessGroup(cid string, tgid kernel.ThreadID, s
 		return fmt.Errorf("no TTY attached")
 	}
 	pg := tty.ForegroundProcessGroup()
+	si := &linux.SignalInfo{Signo: signo}
 	if pg == nil {
 		// No foreground process group has been set. Signal the
 		// original thread group.
 		log.Warningf("No foreground process group for container %q and PID %d. Sending signal directly to PID %d.", cid, tgid, tgid)
-		return l.k.SendExternalSignalThreadGroup(tg, &linux.SignalInfo{Signo: signo})
+		return l.k.SendExternalSignalThreadGroup(tg, si)
 	}
 	// Send the signal to all processes in the process group.
-	var lastErr error
-	for _, tg := range l.k.TaskSet().Root.ThreadGroups() {
-		if tg.ProcessGroup() != pg {
-			continue
-		}
-		if err := l.k.SendExternalSignalThreadGroup(tg, &linux.SignalInfo{Signo: signo}); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return l.k.SendExternalSignalProcessGroup(pg, si)
 }
 
 // signalAllProcesses that belong to specified container. It's a noop if the
@@ -1603,4 +1689,30 @@ func (l *Loader) importFD(ctx context.Context, f *os.File) (*vfs.FileDescription
 	}
 	hostFD.Release()
 	return fd, nil
+}
+
+func (l *Loader) containerCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	containers := 0
+	for id := range l.processes {
+		if id.pid == 0 {
+			// pid==0 represents the init process of a container. There is
+			// only one of such process per container.
+			containers++
+		}
+	}
+	return containers
+}
+
+func (l *Loader) pidsCount(cid string) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if _, err := l.tryThreadGroupFromIDLocked(execID{cid: cid}); err != nil {
+		// Container doesn't exist.
+		return 0, err
+	}
+	return l.k.TaskSet().Root.NumTasksPerContainer(cid), nil
 }

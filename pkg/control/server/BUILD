@@ -10,9 +10,10 @@ go_library(
     srcs = ["server.go"],
     visibility = ["//:sandbox"],
     deps = [
-        "//pkg/log",
+        "//pkg/abi/linux",
         "//pkg/sync",
         "//pkg/unet",
         "//pkg/urpc",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )

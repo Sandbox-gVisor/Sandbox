@@ -98,6 +98,10 @@ type Options struct {
 
 	// InterfaceIndex is the interface index of the underlying device.
 	InterfaceIndex int
+
+	// Bind is true when we're responsible for binding the AF_XDP socket to
+	// a device. When false, another process is expected to bind for us.
+	Bind bool
 }
 
 // New creates a new endpoint from an AF_XDP socket.
@@ -147,12 +151,13 @@ func New(opts *Options) (stack.LinkEndpoint, error) {
 		umemSize  = 1 << 21
 		nFrames   = umemSize / frameSize
 	)
-	xdpOpts := xdp.ReadOnlySocketOpts{
+	xdpOpts := xdp.Opts{
 		NFrames:      nFrames,
 		FrameSize:    frameSize,
 		NDescriptors: nFrames / 2,
+		Bind:         opts.Bind,
 	}
-	ep.control, err = xdp.ReadOnlyFromSocket(opts.FD, uint32(opts.InterfaceIndex), 0 /* queueID */, xdpOpts)
+	ep.control, err = xdp.NewFromSocket(opts.FD, uint32(opts.InterfaceIndex), 0 /* queueID */, xdpOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AF_XDP dispatcher: %v", err)
 	}
@@ -284,14 +289,13 @@ func (ep *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 	}
 
 	// Allocate UMEM space. In order to release the UMEM lock as soon as
-	// possible, we allocate up-front and copy data in after releasing.
+	// possible we allocate up-front.
 	for _, pkt := range pkts.AsSlice() {
 		batch = append(batch, unix.XDPDesc{
 			Addr: ep.control.UMEM.AllocFrame(),
 			Len:  uint32(pkt.Size()),
 		})
 	}
-	ep.control.UMEM.Unlock()
 
 	for i, pkt := range pkts.AsSlice() {
 		// Copy packets into UMEM frame.
@@ -305,6 +309,10 @@ func (ep *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 
 	// Notify the kernel that there're packets to write.
 	ep.control.TX.Notify()
+
+	// TODO(b/240191988): Explore more fine-grained locking. We shouldn't
+	// need to hold the UMEM lock for the whole duration of packet copying.
+	ep.control.UMEM.Unlock()
 
 	return pkts.Len(), nil
 }

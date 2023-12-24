@@ -135,7 +135,7 @@ func TestGiveUpConnect(t *testing.T) {
 	// Wait for ep to become writable.
 	<-notifyCh
 
-	// Call Connect again to retreive the handshake failure status
+	// Call Connect again to retrieve the handshake failure status
 	// and stats updates.
 	{
 		err := ep.Connect(tcpip.FullAddress{Addr: context.TestAddr, Port: context.TestPort})
@@ -1380,7 +1380,7 @@ func TestNoSynCookieOnFailedHandshakes(t *testing.T) {
 }
 
 // TestTCPAckBeforeAcceptV4 tests that once the 3-way handshake is complete,
-// peers can send data and expect a response within a reasonable ammount of time
+// peers can send data and expect a response within a reasonable amount of time
 // without calling Accept on the listening endpoint first.
 //
 // This test uses IPv4.
@@ -1428,7 +1428,7 @@ func TestTCPAckBeforeAcceptV4(t *testing.T) {
 }
 
 // TestTCPAckBeforeAcceptV6 tests that once the 3-way handshake is complete,
-// peers can send data and expect a response within a reasonable ammount of time
+// peers can send data and expect a response within a reasonable amount of time
 // without calling Accept on the listening endpoint first.
 //
 // This test uses IPv6.
@@ -2099,7 +2099,8 @@ func TestOutOfOrderFlood(t *testing.T) {
 	ept := endpointTester{c.EP}
 	ept.CheckReadError(t, &tcpip.ErrWouldBlock{})
 
-	// Send 100 packets before the actual one that is expected.
+	// Send 100 packets with seqnum iss + 6 before the actual one that is
+	// expected.
 	data := []byte{1, 2, 3, 4, 5, 6}
 	iss := seqnum.Value(context.TestInitialSequenceNumber).Add(1)
 	for i := 0; i < 100; i++ {
@@ -2123,8 +2124,11 @@ func TestOutOfOrderFlood(t *testing.T) {
 		)
 	}
 
-	// Send packet with seqnum as initial + 3. It must be discarded because the
-	// out-of-order buffer was filled by the previous packets.
+	// Send packet with seqnum as initial + 3. It won't be discarded
+	// because the receive window limits the sender to rcvBufSize/2 bytes,
+	// but we allow (3/4)*rcvBufSize to be used for out-of-order bytes. So
+	// the sender hasn't filled the buffer and we still have space to
+	// receive it.
 	c.SendPacket(data[3:], &context.Headers{
 		SrcPort: context.TestPort,
 		DstPort: c.Port,
@@ -2154,13 +2158,13 @@ func TestOutOfOrderFlood(t *testing.T) {
 		RcvWnd:  30000,
 	})
 
-	// Check that only packet with initial sequence number is acknowledged.
+	// Check that all packets are acknowledged.
 	v = c.GetPacket()
 	defer v.Release()
 	checker.IPv4(t, v, checker.TCP(
 		checker.DstPort(context.TestPort),
 		checker.TCPSeqNum(uint32(c.IRS)+1),
-		checker.TCPAckNum(uint32(iss)+3),
+		checker.TCPAckNum(uint32(iss)+9),
 		checker.TCPFlags(header.TCPFlagAck),
 	),
 	)
@@ -4173,7 +4177,14 @@ func TestMaxRTO(t *testing.T) {
 			checker.TCPFlagsMatch(header.TCPFlagAck, ^header.TCPFlagPsh),
 		))
 		if elapsed := time.Since(start); elapsed.Round(time.Second).Seconds() != rto.Seconds() {
-			t.Errorf("Retransmit interval not capped to MaxRTO(%s). %s", rto, elapsed)
+			newRto := float64(rto / time.Millisecond)
+			if i == 0 {
+				newRto /= 2
+			}
+			curRto := float64(elapsed.Round(time.Millisecond).Milliseconds())
+			if math.Abs(newRto-curRto) > 10 {
+				t.Errorf("Retransmit interval not capped to RTO(%v). %v", newRto, curRto)
+			}
 		}
 	}
 }
@@ -6062,7 +6073,7 @@ func TestKeepalive(t *testing.T) {
 		)
 	}
 
-	// Sleep for a litte over the KeepAlive interval to make sure
+	// Sleep for a little over the KeepAlive interval to make sure
 	// the timer has time to fire after the last ACK and close the
 	// close the socket.
 	time.Sleep(keepAliveInterval + keepAliveInterval/2)
@@ -7230,7 +7241,7 @@ func TestReceiveBufferAutoTuningApplicationLimited(t *testing.T) {
 				return
 			}
 			// We use 10% here as the error margin upwards as the initial window we
-			// got was afer 1 segment was already in the receive buffer queue.
+			// got was after 1 segment was already in the receive buffer queue.
 			tolerance := 1.1
 			if w := tcp.WindowSize(); w == 0 || w > uint16(float64(rcvWnd)*tolerance) {
 				t.Errorf("expected a non-zero window: got %d, want <= %d", w, uint16(float64(rcvWnd)*tolerance))
@@ -8377,7 +8388,7 @@ func TestKeepaliveWithUserTimeout(t *testing.T) {
 		),
 	)
 
-	// Sleep for a litte over the KeepAlive interval to make sure
+	// Sleep for a little over the KeepAlive interval to make sure
 	// the timer has time to fire after the last ACK and close the
 	// close the socket.
 	time.Sleep(keepAliveInterval + keepAliveInterval/2)
@@ -8712,7 +8723,7 @@ func TestResetDuringClose(t *testing.T) {
 
 	// Close in a separate goroutine so that we can trigger
 	// a race with the RST we send below. This should not
-	// panic due to the route being released depeding on
+	// panic due to the route being released depending on
 	// whether Close() sends an active RST or the RST sent
 	// below is processed by the worker first.
 	var wg sync.WaitGroup
@@ -9282,6 +9293,130 @@ func TestReleaseDanglingEndpoints(t *testing.T) {
 		checker.TCPAckNum(0),
 		checker.TCPFlags(header.TCPFlagRst),
 	))
+}
+
+// TestLateSynCookieAck ensures that we properly handle the following case
+// rather than sending a RST on a valid connection:
+//
+//   - We receive a SYN while under load and issue a SYN/ACK with cookie S.
+//   - We receive a retransmitted SYN while space exists in the SYN queue, and
+//     issue a SYN/ACK with seqnum S'.
+//   - We receive an ACK based on S.
+//   - We respond with an RST because we expected an ACK based on S'.
+func TestLateSynCookieAck(t *testing.T) {
+	c := context.New(t, e2e.DefaultMTU)
+	defer c.Cleanup()
+	stats := c.Stack().Stats()
+	wq := &waiter.Queue{}
+	ep, err := c.Stack().NewEndpoint(tcp.ProtocolNumber, ipv4.ProtocolNumber, wq)
+	if err != nil {
+		t.Fatalf("NewEndpoint failed: %s", err)
+	}
+
+	initial := stats.TCP.CurrentEstablished.Value()
+
+	if err := ep.Bind(tcpip.FullAddress{Port: context.StackPort}); err != nil {
+		t.Fatalf("Bind failed: %s", err)
+	}
+
+	// With a backlog of 2, we get one slot in the SYN queue before we
+	// start using SYN cookies. See
+	// //pkg/tcpip/transport/tcp/accept.go:handleListenSegment:useSynCookies
+	// for an explanation.
+	if err := ep.Listen(2); err != nil {
+		t.Fatalf("Listen failed: %s", err)
+	}
+
+	// To reach our desired state, we're gonna do the following:
+	//
+	//   - Send SYN S1 to force subsequent SYNs to return cookies.
+	//   - Send SYN S2, which returns a cookie SYN/ACK.
+	//   - Finish S1's handshake, opening space in the SYN queue.
+	//   - Retransmit S2, which will give use a different seqnum.
+	//   - Finish S2's handshake with the cookie SYN/ACK.
+
+	// Send S1.
+	const otherTestPort = context.TestPort + 1
+	iss := seqnum.Value(context.TestInitialSequenceNumber)
+	c.SendPacket(nil, &context.Headers{
+		SrcPort: otherTestPort,
+		DstPort: context.StackPort,
+		Flags:   header.TCPFlagSyn,
+		SeqNum:  iss,
+	})
+	// Receive the SYN-ACK reply.
+	s1Reply := c.GetPacket()
+	defer s1Reply.Release()
+	s1ReplyHdr := header.TCP(header.IPv4(s1Reply.AsSlice()).Payload())
+
+	// Send S2.
+	c.SendPacket(nil, &context.Headers{
+		SrcPort: context.TestPort,
+		DstPort: context.StackPort,
+		Flags:   header.TCPFlagSyn,
+		SeqNum:  iss,
+	})
+	// Receive the SYN-ACK reply.
+	s2CookieReply := c.GetPacket()
+	defer s2CookieReply.Release()
+	s2CookieReplyHdr := header.TCP(header.IPv4(s2CookieReply.AsSlice()).Payload())
+
+	// Finish the S1 handshake.
+	ackHeaders := &context.Headers{
+		SrcPort: otherTestPort,
+		DstPort: context.StackPort,
+		Flags:   header.TCPFlagAck,
+		SeqNum:  iss + 1,
+		AckNum:  seqnum.Value(s1ReplyHdr.SequenceNumber()) + 1,
+	}
+	c.SendPacket(nil, ackHeaders)
+
+	// Wait for S1's connection to move from the SYN to the accept queue.
+	metricPollFn := func() error {
+		if got, want := stats.TCP.CurrentEstablished.Value(), initial+1; got != want {
+			return fmt.Errorf("connection never established: got stats.TCP.CurrentEstablished.Value() = %d, want = %d", got, want)
+		}
+		return nil
+	}
+	if err := testutil.Poll(metricPollFn, 1*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retransmit S2.
+	c.SendPacket(nil, &context.Headers{
+		SrcPort: context.TestPort,
+		DstPort: context.StackPort,
+		Flags:   header.TCPFlagSyn,
+		SeqNum:  iss,
+	})
+	// Receive the SYN-ACK reply.
+	s2QueueReply := c.GetPacket()
+	defer s2QueueReply.Release()
+	s2QueueReplyHdr := header.TCP(header.IPv4(s2QueueReply.AsSlice()).Payload())
+	if s2CookieReplyHdr.SequenceNumber() == s2QueueReplyHdr.SequenceNumber() {
+		t.Fatalf("the SYN cookie and regular seqnum are equal; is the backlog too large?")
+	}
+
+	// Finish S2's handshake using the cookie.
+	ackHeaders = &context.Headers{
+		SrcPort: context.TestPort,
+		DstPort: context.StackPort,
+		Flags:   header.TCPFlagAck,
+		SeqNum:  iss + 1,
+		AckNum:  seqnum.Value(s2CookieReplyHdr.SequenceNumber()) + 1,
+	}
+	c.SendPacket(nil, ackHeaders)
+
+	// Verify that we've completed two connections.
+	metricPollFn = func() error {
+		if got, want := stats.TCP.CurrentEstablished.Value(), initial+2; got != want {
+			return fmt.Errorf("got stats.TCP.CurrentEstablished.Value() = %d, want = %d", got, want)
+		}
+		return nil
+	}
+	if err := testutil.Poll(metricPollFn, 1*time.Second); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestMain(m *testing.M) {

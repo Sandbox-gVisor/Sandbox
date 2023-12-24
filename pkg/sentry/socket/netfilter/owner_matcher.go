@@ -19,7 +19,6 @@ import (
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
 	"gvisor.dev/gvisor/pkg/marshal"
-	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -36,6 +35,10 @@ type ownerMarshaler struct{}
 // name implements matchMaker.name.
 func (ownerMarshaler) name() string {
 	return matcherNameOwner
+}
+
+func (ownerMarshaler) revision() uint8 {
+	return 0
 }
 
 // marshal implements matchMaker.marshal.
@@ -65,7 +68,7 @@ func (ownerMarshaler) marshal(mr matcher) []byte {
 }
 
 // unmarshal implements matchMaker.unmarshal.
-func (ownerMarshaler) unmarshal(task *kernel.Task, buf []byte, filter stack.IPHeaderFilter) (stack.Matcher, error) {
+func (ownerMarshaler) unmarshal(mapper IDMapper, buf []byte, filter stack.IPHeaderFilter) (stack.Matcher, error) {
 	if len(buf) < linux.SizeOfIPTOwnerInfo {
 		return nil, fmt.Errorf("buf has insufficient size for owner match: %d", len(buf))
 	}
@@ -77,9 +80,8 @@ func (ownerMarshaler) unmarshal(task *kernel.Task, buf []byte, filter stack.IPHe
 	nflog("parsed IPTOwnerInfo: %+v", matchData)
 
 	var owner OwnerMatcher
-	creds := task.Credentials()
-	owner.uid = creds.UserNamespace.MapToKUID(auth.UID(matchData.UID))
-	owner.gid = creds.UserNamespace.MapToKGID(auth.GID(matchData.GID))
+	owner.uid = mapper.MapToKUID(auth.UID(matchData.UID))
+	owner.gid = mapper.MapToKGID(auth.GID(matchData.GID))
 
 	// Check flags.
 	if matchData.Match&linux.XT_OWNER_UID != 0 {
@@ -111,6 +113,10 @@ type OwnerMatcher struct {
 // name implements matcher.name.
 func (*OwnerMatcher) name() string {
 	return matcherNameOwner
+}
+
+func (*OwnerMatcher) revision() uint8 {
+	return 0
 }
 
 // Match implements Matcher.Match.

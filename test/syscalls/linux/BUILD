@@ -151,6 +151,8 @@ cc_library(
     hdrs = ["socket_netlink_route_util.h"],
     deps = [
         ":socket_netlink_util",
+        "//test/util:file_descriptor",
+        "//test/util:posix_error",
     ],
 )
 
@@ -489,6 +491,7 @@ cc_binary(
         "//test/util:logging",
         "//test/util:mount_util",
         "//test/util:multiprocess_util",
+        "//test/util:posix_error",
         "//test/util:temp_path",
         "//test/util:test_main",
         "//test/util:test_util",
@@ -618,7 +621,9 @@ cc_binary(
         "//test/util:eventfd_util",
         "//test/util:file_descriptor",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/strings",
         gtest,
+        "//test/util:capability_util",
         "//test/util:fs_util",
         "//test/util:posix_error",
         "//test/util:temp_path",
@@ -927,7 +932,7 @@ cc_binary(
     testonly = 1,
     srcs = select_arch(
         amd64 = ["fpsig_mut_amd64.cc"],
-        arm64 = [],
+        default = [],
     ),
     linkstatic = 1,
     deps = [
@@ -1174,6 +1179,23 @@ cc_binary(
 )
 
 cc_binary(
+    name = "keys_test",
+    testonly = 1,
+    srcs = ["keys.cc"],
+    linkstatic = 1,
+    deps = [
+        gtest,
+        "//test/util:posix_error",
+        "//test/util:test_main",
+        "//test/util:thread_util",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
+cc_binary(
     name = "kill_test",
     testonly = 1,
     srcs = ["kill.cc"],
@@ -1384,11 +1406,14 @@ cc_binary(
     linkstatic = 1,
     deps = [
         "//test/util:capability_util",
+        "//test/util:cleanup",
         "//test/util:file_descriptor",
         "//test/util:fs_util",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         gtest,
+        "//test/util:eventfd_util",
+        "//test/util:logging",
         "//test/util:mount_util",
         "//test/util:multiprocess_util",
         "//test/util:posix_error",
@@ -1397,6 +1422,8 @@ cc_binary(
         "//test/util:test_main",
         "//test/util:test_util",
         "//test/util:thread_util",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings:str_format",
     ],
 )
 
@@ -1425,6 +1452,7 @@ cc_binary(
     srcs = ["msync.cc"],
     linkstatic = 1,
     deps = [
+        gtest,
         "//test/util:file_descriptor",
         "//test/util:memory_util",
         "//test/util:posix_error",
@@ -1503,6 +1531,7 @@ cc_binary(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:endian",
         gtest,
+        "//test/util:posix_error",
         "//test/util:test_main",
         "//test/util:test_util",
     ],
@@ -1523,6 +1552,7 @@ cc_binary(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:endian",
         gtest,
+        "//test/util:posix_error",
         "//test/util:test_main",
         "//test/util:test_util",
     ],
@@ -1557,9 +1587,12 @@ cc_binary(
         "@com_google_absl//absl/time",
         gtest,
         "//test/util:cleanup",
+        "//test/util:fs_util",
+        "//test/util:mount_util",
         "//test/util:posix_error",
         "//test/util:pty_util",
         "//test/util:signal_util",
+        "//test/util:temp_path",
         "//test/util:test_main",
         "//test/util:test_util",
         "//test/util:thread_util",
@@ -1699,7 +1732,7 @@ cc_binary(
     testonly = 1,
     srcs = select_arch(
         amd64 = ["arch_prctl.cc"],
-        arm64 = [],
+        default = [],
     ),
     linkstatic = 1,
     deps = [
@@ -1714,6 +1747,7 @@ cc_binary(
     name = "prctl_test",
     testonly = 1,
     srcs = ["prctl.cc"],
+    data = ["//test/cmd/test_app"],
     linkstatic = 1,
     deps = [
         "//test/util:capability_util",
@@ -1722,6 +1756,7 @@ cc_binary(
         gtest,
         "//test/util:multiprocess_util",
         "//test/util:posix_error",
+        "//test/util:signal_util",
         "//test/util:test_util",
         "//test/util:thread_util",
     ],
@@ -2322,6 +2357,21 @@ cc_binary(
 )
 
 cc_binary(
+    name = "setns_test",
+    testonly = 1,
+    srcs = ["setns.cc"],
+    linkstatic = 1,
+    deps = [
+        "//test/util:capability_util",
+        "//test/util:file_descriptor",
+        "//test/util:posix_error",
+        "//test/util:test_main",
+        "//test/util:test_util",
+        gtest,
+    ],
+)
+
+cc_binary(
     name = "splice_test",
     testonly = 1,
     srcs = ["splice.cc"],
@@ -2381,6 +2431,7 @@ cc_binary(
     srcs = select_arch(
         amd64 = ["sigreturn_amd64.cc"],
         arm64 = ["sigreturn_arm64.cc"],
+        riscv64 = [],
     ),
     linkstatic = 1,
     deps = [
@@ -2390,8 +2441,8 @@ cc_binary(
         "//test/util:test_util",
         "//test/util:timer_util",
     ] + select_arch(
-        amd64 = [],
         arm64 = ["//test/util:test_main"],
+        default = [],
     ),
 )
 
@@ -3338,6 +3389,7 @@ cc_binary(
         "//test/util:file_descriptor",
         "//test/util:socket_util",
         gtest,
+        "//test/util:posix_error",
         "//test/util:test_main",
         "//test/util:test_util",
     ],
@@ -3354,6 +3406,8 @@ cc_binary(
         "//test/util:capability_util",
         "//test/util:cleanup",
         "//test/util:file_descriptor",
+        "//test/util:posix_error",
+        "//test/util:save_util",
         "//test/util:socket_util",
         "@com_google_absl//absl/strings:str_format",
         gtest,
@@ -3625,6 +3679,9 @@ cc_binary(
         ":unix_domain_socket_test_util",
         "//test/util:socket_util",
         gtest,
+        "//test/util:capability_util",
+        "//test/util:cleanup",
+        "//test/util:file_descriptor",
         "//test/util:test_main",
         "//test/util:test_util",
     ],
@@ -3824,7 +3881,9 @@ cc_binary(
         "//test/util:file_descriptor",
         "@com_google_absl//absl/strings",
         gtest,
+        "//test/util:capability_util",
         "//test/util:fs_util",
+        "//test/util:mount_util",
         "//test/util:posix_error",
         "//test/util:temp_path",
         "//test/util:test_main",
@@ -4279,6 +4338,8 @@ cc_binary(
         gtest,
         ":ip_socket_test_util",
         "//test/util:capability_util",
+        "//test/util:file_descriptor",
+        "//test/util:temp_path",
         "//test/util:test_main",
         "//test/util:test_util",
         "//test/util:thread_util",
@@ -4585,18 +4646,19 @@ cc_binary(
 )
 
 cc_binary(
-    name = "process_vm_read_write",
+    name = "process_vm_read_write_test",
     testonly = 1,
     srcs = ["process_vm_read_write.cc"],
     linkstatic = 1,
+    # tcmalloc isn't fork-safe.
+    tcmalloc = False,
     deps = [
         gtest,
-        "//test/util:capability_util",
         "//test/util:logging",
-        "//test/util:multiprocess_util",
         "//test/util:posix_error",
         "//test/util:test_main",
         "//test/util:test_util",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/strings",
     ],
 )

@@ -62,7 +62,7 @@ func BenchmarkTmpfsStat(b *testing.B) {
 			vfsObj.MustRegisterFilesystemType("tmpfs", tmpfs.FilesystemType{}, &vfs.RegisterFilesystemTypeOptions{
 				AllowUserMount: true,
 			})
-			mntns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{})
+			mntns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{}, nil)
 			if err != nil {
 				b.Fatalf("failed to create tmpfs root mount: %v", err)
 			}
@@ -72,8 +72,7 @@ func BenchmarkTmpfsStat(b *testing.B) {
 			filePathBuilder.WriteByte('/')
 
 			// Create nested directories with given depth.
-			root := mntns.Root()
-			root.IncRef()
+			root := mntns.Root(ctx)
 			defer root.DecRef(ctx)
 			vd := root
 			vd.IncRef()
@@ -154,7 +153,7 @@ func BenchmarkTmpfsMountStat(b *testing.B) {
 			vfsObj.MustRegisterFilesystemType("tmpfs", tmpfs.FilesystemType{}, &vfs.RegisterFilesystemTypeOptions{
 				AllowUserMount: true,
 			})
-			mntns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{})
+			mntns, err := vfsObj.NewMountNamespace(ctx, creds, "", "tmpfs", &vfs.MountOptions{}, nil)
 			if err != nil {
 				b.Fatalf("failed to create tmpfs root mount: %v", err)
 			}
@@ -164,8 +163,7 @@ func BenchmarkTmpfsMountStat(b *testing.B) {
 			filePathBuilder.WriteByte('/')
 
 			// Create the mount point.
-			root := mntns.Root()
-			root.IncRef()
+			root := mntns.Root(ctx)
 			defer root.DecRef(ctx)
 			pop := vfs.PathOperation{
 				Root:  root,

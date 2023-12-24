@@ -356,9 +356,7 @@ type MMapOpts struct {
 	// downward on guard page faults.
 	GrowsDown bool
 
-	// Precommit is true if the platform should eagerly commit resources to the
-	// mapping (see platform.AddressSpace.MapFile).
-	Precommit bool
+	PlatformEffect MMapPlatformEffect
 
 	// MLockMode specifies the memory locking behavior of the mapping.
 	MLockMode MLockMode
@@ -382,11 +380,32 @@ type MMapOpts struct {
 	SentryOwnedContent bool
 }
 
+// MMapPlatformEffect is the type of MMapOpts.PlatformEffect.
+type MMapPlatformEffect uint8
+
+// Possible values for MMapOpts.PlatformEffect:
+const (
+	// PlatformEffectDefault indicates that no specific behavior is requested
+	// from the platform.
+	PlatformEffectDefault MMapPlatformEffect = iota
+
+	// PlatformEffectPopulate indicates that platform mappings should be
+	// established for all pages in the mapping.
+	PlatformEffectPopulate
+
+	// PlatformEffectCommit is like PlatformEffectPopulate, but also requests
+	// that the platform eagerly commit resources to the mapping, as in
+	// platform.AddressSpace.MapFile(precommit=true).
+	PlatformEffectCommit
+)
+
 // File represents a host file that may be mapped into an platform.AddressSpace.
 type File interface {
 	// All pages in a File are reference-counted.
 
-	// IncRef increments the reference count on all pages in fr.
+	// IncRef increments the reference count on all pages in fr and
+	// associates each page with a memCgID (memory cgroup id) to which it
+	// belongs. memCgID will not be changed if the page already exists.
 	//
 	// Preconditions:
 	//	* fr.Start and fr.End must be page-aligned.
@@ -394,7 +413,7 @@ type File interface {
 	//	* At least one reference must be held on all pages in fr. (The File
 	//		interface does not provide a way to acquire an initial reference;
 	//		implementors may define mechanisms for doing so.)
-	IncRef(fr FileRange)
+	IncRef(fr FileRange, memCgID uint32)
 
 	// DecRef decrements the reference count on all pages in fr.
 	//

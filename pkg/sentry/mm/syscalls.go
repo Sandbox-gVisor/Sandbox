@@ -131,9 +131,9 @@ func (mm *MemoryManager) MMap(ctx context.Context, opts memmap.MMapOpts) (hostar
 	// mm/util.c:vm_mmap_pgoff() => mm/gup.c:__mm_populate() =>
 	// populate_vma_page_range(). Confirm this behavior.
 	switch {
-	case opts.Precommit || opts.MLockMode == memmap.MLockEager:
-		// Get pmas and map with precommit as requested.
-		mm.populateVMAAndUnlock(ctx, vseg, ar, true)
+	case opts.PlatformEffect >= memmap.PlatformEffectPopulate || opts.MLockMode == memmap.MLockEager:
+		// Get pmas and map as requested.
+		mm.populateVMAAndUnlock(ctx, vseg, ar, opts.PlatformEffect == memmap.PlatformEffectCommit)
 
 	case opts.Mappable == nil && length <= privateAllocUnit:
 		// NOTE(b/63077076, b/63360184): Get pmas and map eagerly in the hope
@@ -657,10 +657,10 @@ func (mm *MemoryManager) MProtect(addr hostarch.Addr, length uint64, realPerms h
 	mm.activeMu.Lock()
 	defer mm.activeMu.Unlock()
 	defer func() {
-		mm.vmas.MergeRange(ar)
-		mm.vmas.MergeAdjacent(ar)
-		mm.pmas.MergeRange(ar)
-		mm.pmas.MergeAdjacent(ar)
+		mm.vmas.MergeInsideRange(ar)
+		mm.vmas.MergeOutsideRange(ar)
+		mm.pmas.MergeInsideRange(ar)
+		mm.pmas.MergeOutsideRange(ar)
 	}()
 	pseg := mm.pmas.LowerBoundSegment(ar.Start)
 	var didUnmapAS bool
@@ -869,8 +869,8 @@ func (mm *MemoryManager) MLock(ctx context.Context, addr hostarch.Addr, length u
 		}
 		vseg, _ = vseg.NextNonEmpty()
 	}
-	mm.vmas.MergeRange(ar)
-	mm.vmas.MergeAdjacent(ar)
+	mm.vmas.MergeInsideRange(ar)
+	mm.vmas.MergeOutsideRange(ar)
 	if unmapped {
 		mm.mappingMu.Unlock()
 		return linuxerr.ENOMEM
@@ -1034,8 +1034,8 @@ func (mm *MemoryManager) SetNumaPolicy(addr hostarch.Addr, length uint64, policy
 	mm.mappingMu.Lock()
 	defer mm.mappingMu.Unlock()
 	defer func() {
-		mm.vmas.MergeRange(ar)
-		mm.vmas.MergeAdjacent(ar)
+		mm.vmas.MergeInsideRange(ar)
+		mm.vmas.MergeOutsideRange(ar)
 	}()
 	vseg := mm.vmas.LowerBoundSegment(ar.Start)
 	lastEnd := ar.Start
@@ -1067,8 +1067,8 @@ func (mm *MemoryManager) SetDontFork(addr hostarch.Addr, length uint64, dontfork
 	mm.mappingMu.Lock()
 	defer mm.mappingMu.Unlock()
 	defer func() {
-		mm.vmas.MergeRange(ar)
-		mm.vmas.MergeAdjacent(ar)
+		mm.vmas.MergeInsideRange(ar)
+		mm.vmas.MergeOutsideRange(ar)
 	}()
 
 	for vseg := mm.vmas.LowerBoundSegment(ar.Start); vseg.Ok() && vseg.Start() < ar.End; vseg = vseg.NextSegment() {
@@ -1119,12 +1119,9 @@ func (mm *MemoryManager) Decommit(addr hostarch.Addr, length uint64) error {
 			if !didUnmapAS {
 				// Unmap all of ar, not just pseg.Range(), to minimize host
 				// syscalls. AddressSpace mappings must be removed before
-				// mm.decPrivateRef().
+				// pma.file.DecRef().
 				mm.unmapASLocked(ar)
 				didUnmapAS = true
-			}
-			if pma.private {
-				mm.decPrivateRef(pseg.fileRange())
 			}
 			pma.file.DecRef(pseg.fileRange())
 			mm.removeRSSLocked(pseg.Range())

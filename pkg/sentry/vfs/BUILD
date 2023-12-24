@@ -54,15 +54,25 @@ go_template_instance(
 )
 
 go_template_instance(
-    name = "shared_list",
-    out = "shared_list.go",
+    name = "mount_ring",
+    out = "mount_ring.go",
     package = "vfs",
-    prefix = "shared",
+    prefix = "mount",
+    template = "//pkg/ilist:generic_ring",
+    types = {
+        "Container": "*Mount",
+    },
+)
+
+go_template_instance(
+    name = "mount_list",
+    out = "mount_list.go",
+    package = "vfs",
+    prefix = "follower",
     template = "//pkg/ilist:generic_list",
     types = {
         "Element": "*Mount",
-        "Linker": "*sharedEntry",
-        "ElementMapper": "sharedMapper",
+        "Linker": "*Mount",
     },
 )
 
@@ -93,7 +103,7 @@ go_template_instance(
     name = "mount_namespace_refs",
     out = "mount_namespace_refs.go",
     package = "vfs",
-    prefix = "MountNamespace",
+    prefix = "namespace",
     template = "//pkg/refs:refs_template",
     types = {
         "T": "MountNamespace",
@@ -143,8 +153,11 @@ go_library(
         "inotify_mutex.go",
         "lock.go",
         "mount.go",
+        "mount_list.go",
         "mount_namespace_refs.go",
+        "mount_ring.go",
         "mount_unsafe.go",
+        "namespace.go",
         "opath.go",
         "options.go",
         "pathname.go",
@@ -152,7 +165,6 @@ go_library(
         "propagation.go",
         "resolving_path.go",
         "save_restore.go",
-        "shared_list.go",
         "vfs.go",
         "virtual_filesystem_mutex.go",
     ],
@@ -162,6 +174,7 @@ go_library(
         "//pkg/abi/linux",
         "//pkg/atomicbitops",
         "//pkg/bitmap",
+        "//pkg/bits",
         "//pkg/cleanup",
         "//pkg/context",
         "//pkg/errors/linuxerr",

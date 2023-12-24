@@ -1,4 +1,4 @@
-load("//tools:defs.bzl", "go_library", "go_test")
+load("//tools:defs.bzl", "go_library")
 
 package(default_applicable_licenses = ["//:license"])
 
@@ -12,28 +12,10 @@ go_library(
     ],
     visibility = ["//pkg/sentry:internal"],
     deps = [
-        "//pkg/abi/linux",
         "//pkg/context",
-        "//pkg/fspath",
-        "//pkg/sentry/fsimpl/tmpfs",
+        "//pkg/sentry/fsimpl/dev",
         "//pkg/sentry/kernel/auth",
         "//pkg/sentry/vfs",
         "//pkg/sync",
-    ],
-)
-
-go_test(
-    name = "devtmpfs_test",
-    size = "small",
-    srcs = ["devtmpfs_test.go"],
-    library = ":devtmpfs",
-    deps = [
-        "//pkg/abi/linux",
-        "//pkg/context",
-        "//pkg/fspath",
-        "//pkg/sentry/contexttest",
-        "//pkg/sentry/fsimpl/tmpfs",
-        "//pkg/sentry/kernel/auth",
-        "//pkg/sentry/vfs",
     ],
 )

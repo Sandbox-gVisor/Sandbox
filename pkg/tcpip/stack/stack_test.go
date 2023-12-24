@@ -1310,7 +1310,7 @@ func TestRoutes(t *testing.T) {
 	testRoute(t, s, 1, tcpip.AddrFromSlice([]byte("\x03\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x05\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x03\x00\x00\x00")))
 
 	// Test routes to even address.
-	testRoute(t, s, 0, tcpip.Address{}, tcpip.AddrFromSlice([]byte("\x06\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x02\x00\x00\x00")))
+	testRoute(t, s, 0, tcpip.Address{}, tcpip.AddrFromSlice([]byte("\x06\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x04\x00\x00\x00")))
 	testRoute(t, s, 0, tcpip.AddrFromSlice([]byte("\x02\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x06\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x02\x00\x00\x00")))
 	testRoute(t, s, 2, tcpip.AddrFromSlice([]byte("\x02\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x06\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x02\x00\x00\x00")))
 	testRoute(t, s, 0, tcpip.AddrFromSlice([]byte("\x04\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x06\x00\x00\x00")), tcpip.AddrFromSlice([]byte("\x04\x00\x00\x00")))
@@ -3582,7 +3582,7 @@ func TestIPv6SourceAddressSelectionScopeAndSameAddress(t *testing.T) {
 				t.Fatal("network endpoint is not addressable")
 			}
 
-			addressEP := addressableEndpoint.AcquireOutgoingPrimaryAddress(test.remoteAddr, false /* allowExpired */)
+			addressEP := addressableEndpoint.AcquireOutgoingPrimaryAddress(test.remoteAddr, tcpip.Address{} /* srcHint */, false /* allowExpired */)
 			if addressEP == nil {
 				t.Fatal("expected a non-nil address endpoint")
 			}
@@ -4366,7 +4366,7 @@ func TestGetMainNICAddressWhenNICDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Should still get the address when the NIC is diabled.
+	// Should still get the address when the NIC is disabled.
 	if err := s.DisableNIC(nicID); err != nil {
 		t.Fatalf("DisableNIC(%d): %s", nicID, err)
 	}
@@ -4831,6 +4831,91 @@ func TestFindRouteWithForwarding(t *testing.T) {
 			}
 			if n := ep2.Drain(); n != 0 {
 				t.Errorf("got %d unexpected packets from ep2", n)
+			}
+		})
+	}
+}
+
+func TestFindRoutePrefersLocalAddrOnlyForLocallyGeneratedTraffic(t *testing.T) {
+	const (
+		nicID1 = 1
+		nicID2 = 2
+	)
+	var (
+		nic1Addr    = tcpip.AddrFromSlice([]byte("\x01\x00\x00\x00"))
+		nic2Addr    = tcpip.AddrFromSlice([]byte("\x02\x00\x00\x00"))
+		gatewayAddr = tcpip.AddrFromSlice([]byte("\x03\x00\x00\x00"))
+	)
+
+	tests := []struct {
+		name            string
+		localAddr       tcpip.Address
+		remoteAddr      tcpip.Address
+		wantOutgoingNIC tcpip.NICID
+	}{
+		{
+			name:            "locally generated traffic routed through default gateway because we prefer local address on outgoing interface",
+			localAddr:       nic1Addr,
+			remoteAddr:      nic2Addr,
+			wantOutgoingNIC: nicID1,
+		},
+		{
+			name:            "forwarded traffic routed through NIC 2 because local address preference only applies to locally generated traffic",
+			localAddr:       tcpip.Address{},
+			remoteAddr:      nic2Addr,
+			wantOutgoingNIC: nicID2,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := stack.New(stack.Options{
+				NetworkProtocols: []stack.NetworkProtocolFactory{fakeNetFactory},
+			})
+
+			ep1 := channel.New(1, defaultMTU, "")
+			if err := s.CreateNIC(nicID1, ep1); err != nil {
+				t.Fatalf("CreateNIC(%d, _): %s:", nicID1, err)
+			}
+
+			ep2 := channel.New(1, defaultMTU, "")
+			if err := s.CreateNIC(nicID2, ep2); err != nil {
+				t.Fatalf("CreateNIC(%d, _): %s:", nicID2, err)
+			}
+
+			// NB: we do *not* assign nic2Addr on NIC 2. We are exercising the scenario when we are forwarding
+			// traffic to an address that we do not own.
+			protocolAddr1 := tcpip.ProtocolAddress{
+				Protocol:          fakeNetNumber,
+				AddressWithPrefix: tcpip.AddressWithPrefix{Address: nic1Addr, PrefixLen: fakeDefaultPrefixLen},
+			}
+			if err := s.AddProtocolAddress(nicID1, protocolAddr1, stack.AddressProperties{}); err != nil {
+				t.Fatalf("AddProtocolAddress(%d, %+v, {}): %s", nicID1, protocolAddr1, err)
+			}
+
+			if err := s.SetForwardingDefaultAndAllNICs(fakeNetNumber, true); err != nil {
+				t.Fatalf("SetForwardingDefaultAndAllNICs(%d, %t): %s", fakeNetNumber, true, err)
+			}
+
+			unspecifiedSubnet := func() tcpip.Subnet {
+				unspecifiedSubnet, err := tcpip.NewSubnet(tcpip.AddrFrom4Slice([]byte("\x00\x00\x00\x00")), tcpip.MaskFrom("\x00\x00\x00\x00"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return unspecifiedSubnet
+			}()
+			s.SetRouteTable([]tcpip.Route{{Destination: nic2Addr.WithPrefix().Subnet(), NIC: nicID2}, {Destination: unspecifiedSubnet, Gateway: gatewayAddr, NIC: nicID1}})
+
+			r, err := s.FindRoute(0, test.localAddr, test.remoteAddr, fakeNetNumber, false /* multicastLoop */)
+			if err != nil {
+				t.Fatalf("FindRoute(0, %s, %s, %d, false): got %s, want nil", test.localAddr, test.remoteAddr, fakeNetNumber, err)
+			}
+			if r.NICID() != test.wantOutgoingNIC {
+				t.Errorf("got r.NICID() = %d, want = %d", r.NICID(), test.wantOutgoingNIC)
+			}
+
+			if t.Failed() {
+				t.FailNow()
 			}
 		})
 	}
@@ -5457,6 +5542,253 @@ func TestStaticGetLinkAddress(t *testing.T) {
 
 			if diff := cmp.Diff(stack.LinkResolutionResult{LinkAddress: test.expectedLinkAddr, Err: nil}, <-ch); diff != "" {
 				t.Fatalf("link resolution result mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TODO(b/221146133): Test with:
+//   - Multiple NICs
+//   - Gateway first route tables
+//   - IPv6
+//   - Set local address
+//   - Set NIC
+func TestFindRoute(t *testing.T) {
+	// Just use a consistent prefix length throughout tests for simplicity.
+	const prefixLen = 24
+
+	type nic struct {
+		id        tcpip.NICID
+		addresses []string
+	}
+	type route struct {
+		gateway string
+		subnet  string
+		nic     tcpip.NICID
+		srcHint string
+	}
+	type query struct {
+		name        string
+		remote      string
+		wantID      tcpip.NICID
+		wantLocal   string
+		wantNextHop string
+		wantErr     bool
+	}
+	stacks := []struct {
+		name    string
+		nics    []nic
+		routes  []route
+		queries []query
+	}{
+		{
+			name: "one NIC, multiple addresses, partially overlapping addresses",
+			nics: []nic{{id: 1, addresses: []string{"169.254.9.1", "169.254.169.1"}}},
+			routes: []route{
+				{gateway: "1.1.1.1", subnet: "0.0.0.0/0", nic: 1},
+				{gateway: "1.1.1.1", subnet: "169.254.169.0/25", nic: 1},
+			},
+			queries: []query{
+				{
+					name:        "match default only",
+					remote:      "2.2.2.2",
+					wantID:      1,
+					wantLocal:   "169.254.9.1",
+					wantNextHop: "1.1.1.1",
+				},
+				{
+					name:        "match both, but prefer non-default",
+					remote:      "169.254.169.2",
+					wantID:      1,
+					wantLocal:   "169.254.169.1",
+					wantNextHop: "1.1.1.1",
+				},
+			},
+		},
+		{
+			name: "one NIC, multiple addresses, addresses swapped",
+			nics: []nic{{id: 1, addresses: []string{"192.168.2.1", "192.168.1.1"}}},
+			routes: []route{
+				{gateway: "192.168.2.22", subnet: "192.168.2.0/24", nic: 1},
+				{gateway: "192.168.1.11", subnet: "0.0.0.0/0", nic: 1},
+			},
+			queries: []query{
+				{
+					name:        "match default only",
+					remote:      "1.1.1.1",
+					wantID:      1,
+					wantLocal:   "192.168.2.1",
+					wantNextHop: "192.168.1.11",
+				},
+				{
+					name:        "match both, but prefer non-default",
+					remote:      "192.168.2.2",
+					wantID:      1,
+					wantLocal:   "192.168.2.1",
+					wantNextHop: "192.168.2.22",
+				},
+			},
+		},
+		{
+			name: "one NIC, multiple addresses, gateway last",
+			nics: []nic{{id: 1, addresses: []string{"192.168.1.1", "192.168.2.1"}}},
+			routes: []route{
+				{gateway: "192.168.2.22", subnet: "192.168.2.0/24", nic: 1},
+				{gateway: "192.168.1.11", subnet: "0.0.0.0/0", nic: 1},
+			},
+			queries: []query{
+				{
+					name:        "match default only",
+					remote:      "1.1.1.1",
+					wantID:      1,
+					wantLocal:   "192.168.1.1",
+					wantNextHop: "192.168.1.11",
+				},
+				{
+					name:        "match both, but prefer non-default",
+					remote:      "192.168.2.2",
+					wantID:      1,
+					wantLocal:   "192.168.2.1",
+					wantNextHop: "192.168.2.22",
+				},
+			},
+		},
+		{
+			name: "one NIC, multiple addresses, no default gateway",
+			nics: []nic{{id: 1, addresses: []string{"192.168.1.1", "192.168.2.1"}}},
+			routes: []route{
+				{gateway: "192.168.2.22", subnet: "192.168.2.0/24", nic: 1},
+				{gateway: "192.168.1.11", subnet: "192.168.1.0/24", nic: 1},
+			},
+			queries: []query{
+				{
+					name:        "match single A",
+					remote:      "192.168.1.2",
+					wantID:      1,
+					wantLocal:   "192.168.1.1",
+					wantNextHop: "192.168.1.11",
+				},
+				{
+					name:        "match single B",
+					remote:      "192.168.2.2",
+					wantID:      1,
+					wantLocal:   "192.168.2.1",
+					wantNextHop: "192.168.2.22",
+				},
+				{
+					name:    "match none",
+					remote:  "3.3.3.3",
+					wantErr: true,
+				},
+			},
+		},
+		{
+			name: "one NIC, multiple addresses, no gateways",
+			nics: []nic{{id: 1, addresses: []string{"169.254.169.1", "169.254.9.1"}}},
+			routes: []route{
+				{subnet: "10.0.0.0/8", nic: 1},
+			},
+			queries: []query{
+				{
+					name:        "match first",
+					remote:      "10.132.0.4",
+					wantID:      1,
+					wantLocal:   "169.254.169.1",
+					wantNextHop: "", // No gateway, so no next hop.
+				},
+			},
+		},
+		{
+			name: "one NIC, multiple addresses, source hints, no gateways",
+			nics: []nic{{id: 1, addresses: []string{"169.254.169.1", "169.254.9.1", "10.132.1.1"}}},
+			routes: []route{
+				{subnet: "10.0.0.0/8", nic: 1, srcHint: "169.254.9.1"},
+			},
+			queries: []query{
+				{
+					name:        "match hint",
+					remote:      "10.132.0.4",
+					wantID:      1,
+					wantLocal:   "169.254.9.1",
+					wantNextHop: "", // No gateway, so no next hop.
+				},
+			},
+		},
+	}
+
+	for _, stackConfig := range stacks {
+		t.Run(stackConfig.name, func(t *testing.T) {
+			// Create the stack. The channel endpoint is unused, but necessary for creation.
+			ep := channel.New(1, defaultMTU, "")
+			stk := stack.New(stack.Options{
+				NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol /*, arp.NewProtocol*/},
+			})
+
+			// Create NICs and assign addresses to them.
+			for _, nic := range stackConfig.nics {
+				if err := stk.CreateNIC(nic.id, ep); err != nil {
+					t.Fatal("NewNIC failed:", err)
+				}
+				for _, addr := range nic.addresses {
+					protocolAddr := tcpip.ProtocolAddress{
+						Protocol: header.IPv4ProtocolNumber,
+						AddressWithPrefix: tcpip.AddressWithPrefix{
+							Address:   testutil.MustParse4(addr),
+							PrefixLen: prefixLen,
+						},
+					}
+					if err := stk.AddProtocolAddress(nic.id, protocolAddr, stack.AddressProperties{}); err != nil {
+						t.Fatalf("AddProtocolAddress(%d, %+v, {}): %s", 1, protocolAddr, err)
+					}
+				}
+			}
+
+			// Setup the route table.
+			var routeTable []tcpip.Route
+			for _, route := range stackConfig.routes {
+				rt := tcpip.Route{
+					Destination: testutil.MustParseSubnet4(route.subnet),
+					NIC:         route.nic,
+				}
+				if len(route.gateway) > 0 {
+					rt.Gateway = testutil.MustParse4(route.gateway)
+				}
+				if len(route.srcHint) > 0 {
+					rt.SourceHint = testutil.MustParse4(route.srcHint)
+				}
+				routeTable = append(routeTable, rt)
+			}
+			stk.SetRouteTable(routeTable)
+
+			for _, query := range stackConfig.queries {
+				t.Run(query.name, func(t *testing.T) {
+					route, err := stk.FindRoute(
+						0,
+						tcpip.Address{},
+						testutil.MustParse4(query.remote),
+						header.IPv4ProtocolNumber,
+						false, /* multicastLoop */
+					)
+					if err != nil {
+						if _, ok := err.(*tcpip.ErrHostUnreachable); query.wantErr && ok {
+							return
+						}
+						t.Fatalf("FoundRoute failed: %v", err)
+					}
+					if got, want := route.OutgoingNIC(), query.wantID; got != want {
+						t.Errorf("got outgoing NIC %d, but wanted %d", got, want)
+					}
+					if got, want := route.LocalAddress(), testutil.MustParse4(query.wantLocal); got != want {
+						t.Errorf("got local address %s, but wanted %s", got, want)
+					}
+					var nextHop tcpip.Address
+					if len(query.wantNextHop) > 0 {
+						nextHop = testutil.MustParse4(query.wantNextHop)
+					}
+					if got, want := route.NextHop(), nextHop; got != want {
+						t.Errorf("got next hop %s, but wanted %s", got, want)
+					}
+				})
 			}
 		})
 	}

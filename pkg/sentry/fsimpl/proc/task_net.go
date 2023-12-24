@@ -43,7 +43,12 @@ func (fs *filesystem) newTaskNetDir(ctx context.Context, task *kernel.Task) kern
 	root := auth.NewRootCredentials(pidns.UserNamespace())
 
 	var contents map[string]kernfs.Inode
-	if stack := task.NetworkNamespace().Stack(); stack != nil {
+	var stack inet.Stack
+	if netns := task.GetNetworkNamespace(); netns != nil {
+		netns.DecRef(ctx)
+		stack = netns.Stack()
+	}
+	if stack != nil {
 		const (
 			arp       = "IP address       HW type     Flags       HW address            Mask     Device\n"
 			netlink   = "sk       Eth Pid    Groups   Rmem     Wmem     Dump     Locks     Drops     Inode\n"
@@ -430,7 +435,7 @@ func commonGenerateTCP(ctx context.Context, buf *bytes.Buffer, k *kernel.Kernel,
 			fmt.Fprintf(buf, "%8d ", stat.Ino)
 		}
 
-		// Field: refcount. Don't count the ref we obtain while deferencing
+		// Field: refcount. Don't count the ref we obtain while dereferencing
 		// the weakref to this socket.
 		fmt.Fprintf(buf, "%d ", s.ReadRefs()-1)
 
@@ -590,7 +595,7 @@ func (d *netUDPData) Generate(ctx context.Context, buf *bytes.Buffer) error {
 		}
 
 		// Field: ref; reference count on the socket inode. Don't count the ref
-		// we obtain while deferencing the weakref to this socket.
+		// we obtain while dereferencing the weakref to this socket.
 		fmt.Fprintf(buf, "%d ", s.ReadRefs()-1)
 
 		// Field: Socket struct address. Redacted due to the same reason as

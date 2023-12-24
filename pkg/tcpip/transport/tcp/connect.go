@@ -15,6 +15,7 @@
 package tcp
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -23,7 +24,6 @@ import (
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
-	"gvisor.dev/gvisor/pkg/tcpip/hash/jenkins"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/seqnum"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -235,11 +235,13 @@ func (h *handshake) resetState() {
 
 // generateSecureISN generates a secure Initial Sequence number based on the
 // recommendation here https://tools.ietf.org/html/rfc6528#page-3.
-func generateSecureISN(id stack.TransportEndpointID, clock tcpip.Clock, seed uint32) seqnum.Value {
-	isnHasher := jenkins.Sum32(seed)
+func generateSecureISN(id stack.TransportEndpointID, clock tcpip.Clock, seed [16]byte) seqnum.Value {
+	isnHasher := sha256.New()
+
 	// Per hash.Hash.Writer:
 	//
 	// It never returns an error.
+	_, _ = isnHasher.Write(seed[:])
 	_, _ = isnHasher.Write(id.LocalAddress.AsSlice())
 	_, _ = isnHasher.Write(id.RemoteAddress.AsSlice())
 	portBuf := make([]byte, 2)
@@ -257,7 +259,8 @@ func generateSecureISN(id stack.TransportEndpointID, clock tcpip.Clock, seed uin
 	//
 	// Which sort of guarantees that we won't reuse the ISN for a new
 	// connection for the same tuple for at least 274s.
-	isn := isnHasher.Sum32() + uint32(clock.NowMonotonic().Sub(tcpip.MonotonicTime{}).Nanoseconds()>>6)
+	hash := binary.LittleEndian.Uint32(isnHasher.Sum(nil)[:4])
+	isn := hash + uint32(clock.NowMonotonic().Sub(tcpip.MonotonicTime{}).Nanoseconds()>>6)
 	return seqnum.Value(isn)
 }
 
@@ -287,19 +290,9 @@ func (h *handshake) resetToSynRcvd(iss seqnum.Value, irs seqnum.Value, opts head
 }
 
 // checkAck checks if the ACK number, if present, of a segment received during
-// a TCP 3-way handshake is valid. If it's not, a RST segment is sent back in
-// response.
+// a TCP 3-way handshake is valid.
 func (h *handshake) checkAck(s *segment) bool {
-	if s.flags.Contains(header.TCPFlagAck) && s.ackNumber != h.iss+1 {
-		// RFC 793, page 72 (https://datatracker.ietf.org/doc/html/rfc793#page-72):
-		//   If the segment acknowledgment is not acceptable, form a reset segment,
-		//        <SEQ=SEG.ACK><CTL=RST>
-		//   and send it.
-		h.ep.sendEmptyRaw(header.TCPFlagRst, s.ackNumber, 0, 0)
-		return false
-	}
-
-	return true
+	return !(s.flags.Contains(header.TCPFlagAck) && s.ackNumber != h.iss+1)
 }
 
 // synSentState handles a segment received when the TCP 3-way handshake is in
@@ -321,6 +314,11 @@ func (h *handshake) synSentState(s *segment) tcpip.Error {
 	}
 
 	if !h.checkAck(s) {
+		// RFC 793, page 72 (https://datatracker.ietf.org/doc/html/rfc793#page-72):
+		//   If the segment acknowledgment is not acceptable, form a reset segment,
+		//        <SEQ=SEG.ACK><CTL=RST>
+		//   and send it.
+		h.ep.sendEmptyRaw(header.TCPFlagRst, s.ackNumber, 0, 0)
 		return nil
 	}
 
@@ -402,8 +400,30 @@ func (h *handshake) synRcvdState(s *segment) tcpip.Error {
 		return nil
 	}
 
-	if !h.checkAck(s) {
-		return nil
+	// It's possible that s is an ACK of a SYN cookie. This can happen if:
+	//
+	//   - We receive a SYN while under load and issue a SYN/ACK with
+	//     cookie S.
+	//   - We receive a retransmitted SYN while space exists in the SYN
+	//     queue, and issue a SYN/ACK with seqnum S'.
+	//   - We receive the ACK based on S.
+	//
+	// If we receive a SYN cookie ACK, just use the cookie seqnum.
+	if !h.checkAck(s) && h.listenEP != nil {
+		iss := s.ackNumber - 1
+		data, ok := h.listenEP.listenCtx.isCookieValid(s.id, iss, s.sequenceNumber-1)
+		if !ok || int(data) >= len(mssTable) {
+			// This isn't a valid cookie.
+			// RFC 793, page 72 (https://datatracker.ietf.org/doc/html/rfc793#page-72):
+			//   If the segment acknowledgment is not acceptable, form a reset segment,
+			//        <SEQ=SEG.ACK><CTL=RST>
+			//   and send it.
+			h.ep.sendEmptyRaw(header.TCPFlagRst, s.ackNumber, 0, 0)
+			return nil
+		}
+		// This is a cookie that snuck its way in after we stopped using them.
+		h.mss = mssTable[data]
+		h.iss = iss
 	}
 
 	// RFC 793, Section 3.9, page 69, states that in the SYN-RCVD state, a
@@ -1087,7 +1107,7 @@ func (e *endpoint) tryDeliverSegmentFromClosedEndpoint(s *segment) {
 	}
 
 	if e == ep {
-		panic(fmt.Sprintf("current endpoint not removed from demuxer, enqueing segments to itself, endpoint in state %v", e.EndpointState()))
+		panic(fmt.Sprintf("current endpoint not removed from demuxer, enqueuing segments to itself, endpoint in state %v", e.EndpointState()))
 	}
 
 	if ep := ep.(*endpoint); ep.enqueueSegment(s) {

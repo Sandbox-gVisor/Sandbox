@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build go1.1
-// +build go1.1
+//go:build !false
+// +build !false
 
 // Package coverage provides an interface through which Go coverage data can
 // be collected, converted to kcov format, and exposed to userspace.
@@ -106,9 +106,7 @@ func ClearCoverageData() {
 	// which would drastically degrade performance. Slight discrepancies due to
 	// racing is okay for the purposes of kcov.
 	for _, counters := range coverdata.Counters {
-		for index := 0; index < len(counters); index++ {
-			counters[index] = 0
-		}
+		clear(counters)
 	}
 }
 
@@ -183,11 +181,6 @@ func ConsumeCoverageData(w io.Writer) int {
 		}
 	}
 
-	if total == 0 {
-		// An empty profile indicates that coverage is not enabled, in which case
-		// there shouldn't be any task work registered.
-		panic("kcov task work is registered, but no coverage data was found")
-	}
 	return total
 }
 

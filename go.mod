@@ -1,6 +1,6 @@
 module gvisor.dev/gvisor
 
-go 1.20
+go 1.21.1
 
 require (
 	github.com/BurntSushi/toml v1.2.1
@@ -13,13 +13,13 @@ require (
 	github.com/containerd/fifo v1.0.0
 	github.com/containerd/go-runc v1.0.0
 	github.com/containerd/typeurl v1.0.2
-	github.com/coreos/go-systemd/v22 v22.3.2
 	github.com/dop251/goja v0.0.0-20230707174833-636fdf960de1
 	github.com/dop251/goja_nodejs v0.0.0-20230602164024-804a84515562
-	github.com/godbus/dbus/v5 v5.0.4
+	github.com/coreos/go-systemd/v22 v22.5.0
+	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gofrs/flock v0.8.0
 	github.com/gogo/protobuf v1.3.2
-	github.com/google/btree v1.0.1
+	github.com/google/btree v1.1.2
 	github.com/google/subcommands v1.0.2-0.20190508160503-636abe8753b8
 	github.com/kr/pty v1.1.1
 	github.com/mattbaird/jsonpatch v0.0.0-20171005235357-81af80346b1a
@@ -28,15 +28,15 @@ require (
 
 	//our dependecies
 	github.com/robertkrimen/otto v0.2.1
-	github.com/sirupsen/logrus v1.8.1
+	github.com/sirupsen/logrus v1.9.3
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 	github.com/vishvananda/netlink v1.1.1-0.20211118161826-650dca95af54
-	golang.org/x/mod v0.8.0
-	golang.org/x/sync v0.1.0
-	golang.org/x/sys v0.8.0
-	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
-	golang.org/x/tools v0.6.0
-	google.golang.org/protobuf v1.28.2-0.20230118093459-a9481185b34d
+	golang.org/x/mod v0.13.0
+	golang.org/x/sync v0.4.0
+	golang.org/x/sys v0.13.0
+	golang.org/x/time v0.3.0
+	golang.org/x/tools v0.14.0
+	google.golang.org/protobuf v1.31.0
 	k8s.io/api v0.23.16
 	k8s.io/apimachinery v0.23.16
 	k8s.io/client-go v0.23.16
@@ -68,10 +68,11 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/net v0.10.0 // indirect
+	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090 // indirect
+	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.4.0 // indirect
-	golang.org/x/term v0.8.0 // indirect
-	golang.org/x/text v0.9.0 // indirect
+	golang.org/x/term v0.13.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect

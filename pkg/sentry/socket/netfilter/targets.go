@@ -36,11 +36,6 @@ const ErrorTargetName = "ERROR"
 // change the destination port and/or IP for packets.
 const RedirectTargetName = "REDIRECT"
 
-// SNATTargetName is used to mark targets as SNAT targets. SNAT targets should
-// be reached for only NAT table. These targets will change the source port
-// and/or IP for packets.
-const SNATTargetName = "SNAT"
-
 func init() {
 	// Standard targets include ACCEPT, DROP, RETURN, and JUMP.
 	registerTargetMaker(&standardTargetMaker{
@@ -59,6 +54,7 @@ func init() {
 		NetworkProtocol: header.IPv6ProtocolNumber,
 	})
 
+	// REDIRECT targets.
 	registerTargetMaker(&redirectTargetMaker{
 		NetworkProtocol: header.IPv4ProtocolNumber,
 	})
@@ -66,10 +62,37 @@ func init() {
 		NetworkProtocol: header.IPv6ProtocolNumber,
 	})
 
+	// SNAT targets.
 	registerTargetMaker(&snatTargetMakerV4{
 		NetworkProtocol: header.IPv4ProtocolNumber,
 	})
-	registerTargetMaker(&snatTargetMakerV6{
+	registerTargetMaker(&snatTargetMakerR1{
+		NetworkProtocol: header.IPv4ProtocolNumber,
+	})
+	registerTargetMaker(&snatTargetMakerR1{
+		NetworkProtocol: header.IPv6ProtocolNumber,
+	})
+	registerTargetMaker(&snatTargetMakerR2{
+		NetworkProtocol: header.IPv4ProtocolNumber,
+	})
+	registerTargetMaker(&snatTargetMakerR2{
+		NetworkProtocol: header.IPv6ProtocolNumber,
+	})
+
+	// DNAT targets.
+	registerTargetMaker(&dnatTargetMakerV4{
+		NetworkProtocol: header.IPv4ProtocolNumber,
+	})
+	registerTargetMaker(&dnatTargetMakerR1{
+		NetworkProtocol: header.IPv4ProtocolNumber,
+	})
+	registerTargetMaker(&dnatTargetMakerR1{
+		NetworkProtocol: header.IPv6ProtocolNumber,
+	})
+	registerTargetMaker(&dnatTargetMakerR2{
+		NetworkProtocol: header.IPv4ProtocolNumber,
+	})
+	registerTargetMaker(&dnatTargetMakerR2{
 		NetworkProtocol: header.IPv6ProtocolNumber,
 	})
 }
@@ -141,17 +164,6 @@ func (rt *redirectTarget) id() targetID {
 	return targetID{
 		name:            RedirectTargetName,
 		networkProtocol: rt.NetworkProtocol,
-	}
-}
-
-type snatTarget struct {
-	stack.SNATTarget
-}
-
-func (st *snatTarget) id() targetID {
-	return targetID{
-		name:            SNATTargetName,
-		networkProtocol: st.NetworkProtocol,
 	}
 }
 
@@ -352,14 +364,6 @@ func (*redirectTargetMaker) unmarshal(buf []byte, filter stack.IPHeaderFilter) (
 	return &target, nil
 }
 
-// +marshal
-type nfNATTarget struct {
-	Target linux.XTEntryTarget
-	Range  linux.NFNATRange
-}
-
-const nfNATMarshalledSize = linux.SizeOfXTEntryTarget + linux.SizeOfNFNATRange
-
 type nfNATTargetMaker struct {
 	NetworkProtocol tcpip.NetworkProtocolNumber
 }
@@ -373,9 +377,9 @@ func (rm *nfNATTargetMaker) id() targetID {
 
 func (*nfNATTargetMaker) marshal(target target) []byte {
 	rt := target.(*redirectTarget)
-	nt := nfNATTarget{
+	nt := linux.XTNATTargetV1{
 		Target: linux.XTEntryTarget{
-			TargetSize: nfNATMarshalledSize,
+			TargetSize: linux.SizeOfXTNATTargetV1,
 		},
 		Range: linux.NFNATRange{
 			Flags: linux.NF_NAT_RANGE_PROTO_SPECIFIED,
@@ -392,7 +396,7 @@ func (*nfNATTargetMaker) marshal(target target) []byte {
 }
 
 func (*nfNATTargetMaker) unmarshal(buf []byte, filter stack.IPHeaderFilter) (target, *syserr.Error) {
-	if size := nfNATMarshalledSize; len(buf) < size {
+	if size := linux.SizeOfXTNATTargetV1; len(buf) < size {
 		nflog("nfNATTargetMaker: buf has insufficient size (%d) for nfNAT target (%d)", len(buf), size)
 		return nil, syserr.ErrInvalidArgument
 	}
@@ -427,156 +431,6 @@ func (*nfNATTargetMaker) unmarshal(buf []byte, filter stack.IPHeaderFilter) (tar
 			Port:            ntohs(natRange.MinProto),
 		},
 		addr: tcpip.AddrFrom16(natRange.MinAddr),
-	}
-
-	return &target, nil
-}
-
-type snatTargetMakerV4 struct {
-	NetworkProtocol tcpip.NetworkProtocolNumber
-}
-
-func (st *snatTargetMakerV4) id() targetID {
-	return targetID{
-		name:            SNATTargetName,
-		networkProtocol: st.NetworkProtocol,
-	}
-}
-
-func (*snatTargetMakerV4) marshal(target target) []byte {
-	st := target.(*snatTarget)
-	// This is a snat target named snat.
-	xt := linux.XTSNATTarget{
-		Target: linux.XTEntryTarget{
-			TargetSize: linux.SizeOfXTSNATTarget,
-		},
-	}
-	copy(xt.Target.Name[:], SNATTargetName)
-
-	xt.NfRange.RangeSize = 1
-	xt.NfRange.RangeIPV4.Flags |= linux.NF_NAT_RANGE_MAP_IPS | linux.NF_NAT_RANGE_PROTO_SPECIFIED
-	xt.NfRange.RangeIPV4.MinPort = htons(st.Port)
-	xt.NfRange.RangeIPV4.MaxPort = xt.NfRange.RangeIPV4.MinPort
-	copy(xt.NfRange.RangeIPV4.MinIP[:], st.Addr.AsSlice())
-	copy(xt.NfRange.RangeIPV4.MaxIP[:], st.Addr.AsSlice())
-	return marshal.Marshal(&xt)
-}
-
-func (*snatTargetMakerV4) unmarshal(buf []byte, filter stack.IPHeaderFilter) (target, *syserr.Error) {
-	if len(buf) < linux.SizeOfXTSNATTarget {
-		nflog("snatTargetMakerV4: buf has insufficient size for snat target %d", len(buf))
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	if p := filter.Protocol; p != header.TCPProtocolNumber && p != header.UDPProtocolNumber {
-		nflog("snatTargetMakerV4: bad proto %d", p)
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	var st linux.XTSNATTarget
-	st.UnmarshalUnsafe(buf)
-
-	// Copy linux.XTSNATTarget to stack.SNATTarget.
-	target := snatTarget{SNATTarget: stack.SNATTarget{
-		NetworkProtocol: filter.NetworkProtocol(),
-	}}
-
-	// RangeSize should be 1.
-	nfRange := st.NfRange
-	if nfRange.RangeSize != 1 {
-		nflog("snatTargetMakerV4: bad rangesize %d", nfRange.RangeSize)
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	// TODO(gvisor.dev/issue/5772): If the rule doesn't specify the source port,
-	// choose one automatically.
-	if nfRange.RangeIPV4.MinPort == 0 {
-		nflog("snatTargetMakerV4: snat target needs to specify a non-zero port")
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	if nfRange.RangeIPV4.MinPort != nfRange.RangeIPV4.MaxPort {
-		nflog("snatTargetMakerV4: MinPort != MaxPort (%d, %d)", nfRange.RangeIPV4.MinPort, nfRange.RangeIPV4.MaxPort)
-		return nil, syserr.ErrInvalidArgument
-	}
-	if nfRange.RangeIPV4.MinIP != nfRange.RangeIPV4.MaxIP {
-		nflog("snatTargetMakerV4: MinIP != MaxIP (%d, %d)", nfRange.RangeIPV4.MinPort, nfRange.RangeIPV4.MaxPort)
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	target.Addr = tcpip.AddrFrom4(nfRange.RangeIPV4.MinIP)
-	target.Port = ntohs(nfRange.RangeIPV4.MinPort)
-
-	return &target, nil
-}
-
-type snatTargetMakerV6 struct {
-	NetworkProtocol tcpip.NetworkProtocolNumber
-}
-
-func (st *snatTargetMakerV6) id() targetID {
-	return targetID{
-		name:            SNATTargetName,
-		networkProtocol: st.NetworkProtocol,
-		revision:        1,
-	}
-}
-
-func (*snatTargetMakerV6) marshal(target target) []byte {
-	st := target.(*snatTarget)
-	nt := nfNATTarget{
-		Target: linux.XTEntryTarget{
-			TargetSize: nfNATMarshalledSize,
-		},
-		Range: linux.NFNATRange{
-			Flags: linux.NF_NAT_RANGE_MAP_IPS | linux.NF_NAT_RANGE_PROTO_SPECIFIED,
-		},
-	}
-	copy(nt.Target.Name[:], SNATTargetName)
-	copy(nt.Range.MinAddr[:], st.Addr.AsSlice())
-	copy(nt.Range.MaxAddr[:], st.Addr.AsSlice())
-	nt.Range.MinProto = htons(st.Port)
-	nt.Range.MaxProto = nt.Range.MinProto
-
-	return marshal.Marshal(&nt)
-}
-
-func (*snatTargetMakerV6) unmarshal(buf []byte, filter stack.IPHeaderFilter) (target, *syserr.Error) {
-	if size := nfNATMarshalledSize; len(buf) < size {
-		nflog("snatTargetMakerV6: buf has insufficient size (%d) for SNAT V6 target (%d)", len(buf), size)
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	if p := filter.Protocol; p != header.TCPProtocolNumber && p != header.UDPProtocolNumber {
-		nflog("snatTargetMakerV6: bad proto %d", p)
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	var natRange linux.NFNATRange
-	natRange.UnmarshalUnsafe(buf[linux.SizeOfXTEntryTarget:])
-
-	// TODO(gvisor.dev/issue/5697): Support port or address ranges.
-	if natRange.MinAddr != natRange.MaxAddr {
-		nflog("snatTargetMakerV6: MinAddr and MaxAddr are different")
-		return nil, syserr.ErrInvalidArgument
-	}
-	if natRange.MinProto != natRange.MaxProto {
-		nflog("snatTargetMakerV6: MinProto and MaxProto are different")
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	// TODO(gvisor.dev/issue/5698): Support other NF_NAT_RANGE flags.
-	if natRange.Flags != linux.NF_NAT_RANGE_MAP_IPS|linux.NF_NAT_RANGE_PROTO_SPECIFIED {
-		nflog("snatTargetMakerV6: invalid range flags %d", natRange.Flags)
-		return nil, syserr.ErrInvalidArgument
-	}
-
-	target := snatTarget{
-		SNATTarget: stack.SNATTarget{
-			NetworkProtocol: filter.NetworkProtocol(),
-			Addr:            tcpip.AddrFrom16(natRange.MinAddr),
-			Port:            ntohs(natRange.MinProto),
-		},
 	}
 
 	return &target, nil
