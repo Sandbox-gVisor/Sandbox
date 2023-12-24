@@ -450,13 +450,10 @@ func (b *Boot) Execute(_ context.Context, f *flag.FlagSet, args ...any) subcomma
 		PodInitConfigFD:     b.podInitConfigFD,
 		SinkFDs:             b.sinkFDs.GetArray(),
 		ProfileOpts:         b.profileFDs.ToOpts(),
-<<<<<<< HEAD
+		NvidiaDriverVersion: b.nvidiaDriverVersion,
 		// our fds
 		SyscallCallbacksInitConfigFD: b.SyscallCallbacksInitConfigFD,
 		RuntimeSocketFD:              b.RuntimeSocketFD,
-=======
-		NvidiaDriverVersion: b.nvidiaDriverVersion,
->>>>>>> gvisor/master
 	}
 
 	l, err := boot.New(bootArgs)
