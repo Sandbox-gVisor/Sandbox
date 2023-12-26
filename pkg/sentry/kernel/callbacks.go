@@ -232,6 +232,17 @@ func (ct *CallbackTable) getCallbackAfter(sysno uintptr) CallbackAfter {
 	}
 }
 
+func (ct *CallbackTable) hasAnyCallback(sysno uintptr) bool {
+	var hasBefore, hasAfter bool
+	ct.mutexBefore.Lock()
+	ct.mutexAfter.Lock()
+	_, hasBefore = ct.callbackBefore[sysno]
+	_, hasAfter = ct.callbackAfter[sysno]
+	ct.mutexAfter.Unlock()
+	ct.mutexBefore.Unlock()
+	return hasAfter || hasBefore
+}
+
 // js callback staff bellow
 
 type JsCallback interface {
