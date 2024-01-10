@@ -66,13 +66,13 @@ func ExtractInt64FromValue(vm *goja.Runtime, value goja.Value) (int64, error) {
 }
 
 func ExtractByteBufferFromValue(vm *goja.Runtime, value goja.Value) ([]byte, error) {
-	var arrBuf goja.ArrayBuffer
+	var arrBuf []byte
 	err := vm.ExportTo(value, &arrBuf)
 	if err != nil {
 		return nil, err
 	}
 
-	return arrBuf.Bytes(), nil
+	return arrBuf, nil
 }
 
 func ExtractStringFromValue(vm *goja.Runtime, value goja.Value) (string, error) {
