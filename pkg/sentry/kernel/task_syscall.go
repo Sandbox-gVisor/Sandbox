@@ -145,7 +145,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		threadsCount := t.tg.tasksCount
 		t.Debugf("for sysno %v hasAnyCb = %v threadsCount = %v", sysno, hasAnyCb, threadsCount)
 		if hasAnyCb && threadsCount > 1 {
-			// TODO: dump memory
+			// stopping other threads
 			t.stopOtherTreadsInTg()
 		}
 		callbackBefore := ct.getCallbackBefore(sysno)
@@ -188,7 +188,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		}
 
 		if hasAnyCb && threadsCount > 1 {
-			// TODO: restore memory
+			// resume other threads
 			t.resumeOtherTreadsInTg()
 		}
 

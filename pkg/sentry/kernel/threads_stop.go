@@ -25,7 +25,7 @@ func (t *Task) resumeOtherTreadsInTg() {
 	defer t.tg.signalHandlers.mu.Unlock()
 
 	for thread := t.tg.tasks.Front(); thread != nil; thread = thread.Next() {
-		if selfTID != t.tg.pidns.tids[thread] {
+		if selfTID != t.tg.pidns.tids[thread] && thread.stopCount.Load() != 0 {
 			thread.endStopLocked()
 		}
 	}
