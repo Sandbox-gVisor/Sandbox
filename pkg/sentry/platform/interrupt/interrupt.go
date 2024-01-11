@@ -17,6 +17,8 @@ package interrupt
 
 import (
 	"fmt"
+	"github.com/prometheus/procfs"
+	"log"
 
 	"gvisor.dev/gvisor/pkg/sync"
 )
@@ -25,6 +27,9 @@ import (
 type Receiver interface {
 	// NotifyInterrupt is called when the Receiver receives an interrupt.
 	NotifyInterrupt()
+
+	// NotifyInterruptAndWait works like NotifyInterrupt and will wait for thread to stop
+	NotifyInterruptAndWait()
 }
 
 // Forwarder is a helper for delivering delayed signal interruptions.
@@ -96,4 +101,37 @@ func (f *Forwarder) NotifyInterrupt() {
 		f.pending = true
 	}
 	f.mu.Unlock()
+}
+
+func (f *Forwarder) NotifyInterruptAndWait() {
+	f.mu.Lock()
+	if f.dst != nil {
+		f.dst.NotifyInterruptAndWait()
+	} else {
+		f.pending = true
+	}
+	f.mu.Unlock()
+}
+
+func WaitForThread(tg int32, tid int32) {
+	p, err := procfs.NewProc(int(tg))
+	if err != nil {
+		log.Printf("failed to get info from procfs: %s", err)
+		return
+	}
+	thread, err := p.Thread(int(tid))
+	if err != nil {
+		log.Printf("failed to get thread from process: %s", err)
+		return
+	}
+	for {
+		stat, err := thread.Stat()
+		if err != nil {
+			log.Printf("failed to get stat from thread: %s", err)
+			return
+		}
+		if stat.State == "T" {
+			return
+		}
+	}
 }

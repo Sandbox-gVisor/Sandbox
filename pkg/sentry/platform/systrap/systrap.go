@@ -276,6 +276,10 @@ func (c *context) Interrupt() {
 	c.interrupt.NotifyInterrupt()
 }
 
+func (c *context) InterruptAndWait() {
+	c.interrupt.NotifyInterruptAndWait()
+}
+
 // Release releases all platform resources used by the context.
 func (c *context) Release() {
 	if c.sharedContext != nil {

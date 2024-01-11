@@ -16,6 +16,7 @@ package systrap
 
 import (
 	"fmt"
+	"gvisor.dev/gvisor/pkg/sentry/platform/interrupt"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -143,6 +144,31 @@ func (sc *sharedContext) NotifyInterrupt() {
 	if _, _, e := unix.RawSyscall(unix.SYS_TGKILL, uintptr(t.tgid), uintptr(t.tid), uintptr(platform.SignalInterrupt)); e != 0 {
 		panic(fmt.Sprintf("failed to interrupt the child process %d: %v", t.tid, e))
 	}
+}
+
+func (sc *sharedContext) NotifyInterruptAndWait() {
+	// If this context is not being worked on right now we need to mark it as
+	// interrupted so the next executor does not start working on it.
+	atomic.StoreUint32(&sc.shared.Interrupt, 1)
+	if sc.threadID() == invalidThreadID {
+		return
+	}
+	sc.subprocess.sysmsgThreadsMu.Lock()
+	defer sc.subprocess.sysmsgThreadsMu.Unlock()
+
+	threadID := atomic.LoadUint32(&sc.shared.ThreadID)
+	sysmsgThread, ok := sc.subprocess.sysmsgThreads[threadID]
+	if !ok {
+		// This is either an invalidThreadID or another garbage value; either way we
+		// don't know which thread to interrupt; best we can do is mark the context.
+		return
+	}
+
+	t := sysmsgThread.thread
+	if _, _, e := unix.RawSyscall(unix.SYS_TGKILL, uintptr(t.tgid), uintptr(t.tid), uintptr(platform.SignalInterrupt)); e != 0 {
+		panic(fmt.Sprintf("failed to interrupt the child process %d: %v", t.tid, e))
+	}
+	interrupt.WaitForThread(t.tgid, t.tid)
 }
 
 func (sc *sharedContext) state() sysmsg.ContextState {
