@@ -196,6 +196,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&SignalSendingHook{},
 		&ThreadsStoppingHook{},
 		&ThreadsResumingHook{},
+		&ThreadInfoHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{

@@ -67,6 +67,7 @@ Some API functions have object as return value. The structure of such objects yo
 | getMmaps          | -                                       | `string`                 | **Returns** string, that represents mappings of the task (looks like mappings from procfs)                             |
 | getPidInfo        | -                                       | `object (PidInfoDto)`    | **Returns** the dto, which provides info about task's PID, GID, UID, session                                           |
 | getSignalInfo     | -                                       | `object (SignalInfoDto)` | **Returns** the dto, which provides info about task's signal masks and sigactions                                      |
+| getThreadInfo     | - <br/> **or** <br/> tid `number`       | `object (ThreadInfoDto)` | **Returns** the dto, which provides TID, TGID (PID) and list of other TIDs in thread group.                            |
 | logJson           | msg `any`                               | `null`                   | Sends the given **msg** to log socket                                                                                  |
 | munmap            | addr `number`<br/> length `number`      | `null`                   | Delete the mappings from the specified address range by given **addr** and **length** of the region                    |
 | nameToSignal      | name `string`                           | `number`                 | **Returns** the number of the signal by provided **name**                                                              |
