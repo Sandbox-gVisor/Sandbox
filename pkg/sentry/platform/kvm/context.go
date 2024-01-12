@@ -118,6 +118,10 @@ func (c *context) Interrupt() {
 	c.interrupt.NotifyInterrupt()
 }
 
+func (c *context) InterruptAndWait() {
+	c.interrupt.NotifyInterruptAndWait()
+}
+
 // Release implements platform.Context.Release().
 func (c *context) Release() {}
 

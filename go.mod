@@ -13,9 +13,9 @@ require (
 	github.com/containerd/fifo v1.0.0
 	github.com/containerd/go-runc v1.0.0
 	github.com/containerd/typeurl v1.0.2
+	github.com/coreos/go-systemd/v22 v22.5.0
 	github.com/dop251/goja v0.0.0-20230707174833-636fdf960de1
 	github.com/dop251/goja_nodejs v0.0.0-20230602164024-804a84515562
-	github.com/coreos/go-systemd/v22 v22.5.0
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gofrs/flock v0.8.0
 	github.com/gogo/protobuf v1.3.2
@@ -66,6 +66,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090 // indirect

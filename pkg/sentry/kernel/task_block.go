@@ -262,3 +262,8 @@ func (t *Task) interruptSelf() {
 func (t *Task) Interrupt() {
 	t.interrupt()
 }
+
+func (t *Task) interruptAndWait() {
+	t.interruptSelf()
+
+}

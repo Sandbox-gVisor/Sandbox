@@ -309,7 +309,8 @@ go_library(
         "hooks.go",
         "hooks_functions.go",
         "hooks_impl.go",
-        "runtime_cmd.go"
+        "runtime_cmd.go",
+        "threads_stop.go"
     ],
     imports = [
         "gvisor.dev/gvisor/pkg/bpf",

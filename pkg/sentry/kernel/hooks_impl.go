@@ -751,6 +751,103 @@ func (s SignalSendingHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+// ThreadsStoppingHook is used for stopping all threads except the caller
+type ThreadsStoppingHook struct{}
+
+func (hook *ThreadsStoppingHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Stops all threads except the caller. May be useful for preventing TOCTOU attack.",
+		Args:        "\nno args;\n",
+		ReturnValue: "null\n",
+	}
+}
+
+func (hook *ThreadsStoppingHook) jsName() string {
+	return "stopThreads"
+}
+
+func (hook *ThreadsStoppingHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		t.stopOtherThreadsInTg()
+		return nil, nil
+	}
+}
+
+// ThreadsResumingHook should be used after ThreadsStoppingHook to resume stopped threads
+type ThreadsResumingHook struct{}
+
+func (hook *ThreadsResumingHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Resume threads stopped by `stopThreads`.",
+		Args:        "\nno args;\n",
+		ReturnValue: "null\n",
+	}
+}
+
+func (hook *ThreadsResumingHook) jsName() string {
+	return "resumeThreads"
+}
+
+func (hook *ThreadsResumingHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		t.resumeOtherThreadsInTg()
+		return nil, nil
+	}
+}
+
+type ThreadInfoHook struct{}
+
+func (hook *ThreadInfoHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides TID, TGID (PID) and list of other TIDs in thread group.",
+		Args: "\nno args;\n" +
+			"or\n" +
+			"tid\tnumber\t(thread id to get info);\n",
+		ReturnValue: "ThreadInfoDto json \n" +
+			"{\n" +
+			"\tTID number,\n" +
+			"\tTGID number (same as PID of process to which thread is related),\n" +
+			"\tTIDsInTg []number (array of other PGIDS in session)\n" +
+			"};\n",
+	}
+}
+
+func (hook *ThreadInfoHook) jsName() string {
+	return "getThreadInfo"
+}
+
+type ThreadInfoDto struct {
+	TID      int32
+	TGID     int32
+	TIDsInTg []int32 `json:"TIDsInTg"`
+}
+
+func (hook *ThreadInfoHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		if len(args) > 1 {
+			return nil, util.ArgsCountMismatchError(1, len(args))
+		} else if len(args) == 0 {
+			return fillThreadInfoDto(t), nil
+		} else {
+			runtime := GetJsRuntime()
+			val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
+			if err != nil {
+				return nil, err
+			}
+			tid := ThreadID(val)
+			task := t.tg.pidns.tasks[tid]
+			if task == nil {
+				return nil, fmt.Errorf("no such task")
+			}
+			return fillThreadInfoDto(task), nil
+		}
+	}
+}
+
 // hooks for dynamic callback registration
 
 type AddCbBeforeHook struct{}

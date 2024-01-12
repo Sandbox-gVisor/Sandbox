@@ -16,6 +16,7 @@ package systrap
 
 import (
 	"fmt"
+	"gvisor.dev/gvisor/pkg/sentry/platform/interrupt"
 	"os"
 	"runtime"
 	"sync"
@@ -694,6 +695,11 @@ func (t *thread) syscallIgnoreInterrupt(
 // NotifyInterrupt implements interrupt.Receiver.NotifyInterrupt.
 func (t *thread) NotifyInterrupt() {
 	unix.Tgkill(int(t.tgid), int(t.tid), unix.Signal(platform.SignalInterrupt))
+}
+
+func (t *thread) NotifyInterruptAndWait() {
+	t.NotifyInterrupt()
+	interrupt.WaitForThread(t.tgid, t.tid)
 }
 
 func (s *subprocess) incAwakeContexts() {

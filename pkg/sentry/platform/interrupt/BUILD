@@ -11,7 +11,10 @@ go_library(
         "interrupt.go",
     ],
     visibility = ["//pkg/sentry:internal"],
-    deps = ["//pkg/sync"],
+    deps = [
+        "//pkg/sync",
+        "@com_github_prometheus_procfs//:procfs"
+    ],
 )
 
 go_test(
