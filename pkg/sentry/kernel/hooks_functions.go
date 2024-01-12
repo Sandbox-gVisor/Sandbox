@@ -328,7 +328,7 @@ func SendSignalToTaskWithID(t *Task, pid ThreadID, sig linux.Signal) error {
 func fillThreadInfoDto(t *Task) ThreadInfoDto {
 	tids := make([]int32, 0)
 	for thread := t.tg.tasks.Front(); thread != nil; thread = thread.Next() {
-		tids = append(tids)
+		tids = append(tids, int32(t.tg.pidns.tids[thread]))
 	}
 
 	dto := ThreadInfoDto{
