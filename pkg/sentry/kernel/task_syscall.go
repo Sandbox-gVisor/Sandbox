@@ -146,7 +146,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		t.Debugf("for sysno %v hasAnyCb = %v threadsCount = %v", sysno, hasAnyCb, threadsCount)
 		if hasAnyCb && threadsCount > 1 {
 			// stopping other threads
-			t.stopOtherThreadsInTg()
+			//t.stopOtherThreadsInTg()
 		}
 		callbackBefore := ct.getCallbackBefore(sysno)
 		if callbackBefore != nil {
@@ -189,7 +189,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 
 		if hasAnyCb && threadsCount > 1 {
 			// resume other threads
-			t.resumeOtherThreadsInTg()
+			//t.resumeOtherThreadsInTg()
 		}
 
 		if region != nil {
