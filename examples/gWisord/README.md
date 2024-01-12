@@ -75,6 +75,7 @@ Some API functions have object as return value. The structure of such objects yo
 | readString        | addr `number`<br/> count `number`       | `string`                 | Reads the string (string.length <= **count**) by given **addr**. **Returns** the read string                           |
 | sendSignal        | pid `number`<br/> signo `number`        | `null`                   | Sends to task with pid == **pid** the signal with number **signo**                                                     |
 | signalMaskToNames | mask `number`                           | `[]string`               | Parses provided signal **mask** to signal names. **Returns** array of strings - names of signals specified in the mask |
+| stopThreads       | -                                       | `null`                   | Stop all threads except the caller. May be useful for preventing TOCTOU attack.                                        |
 | writeBytes        | addr `number`<br/> buffer `ArrayBuffer` | `number`                 | Writes to memory the given **buffer** by the given **addr**. **Returns** the amount of really written bytes            |
 | writeString       | addr `number`<br/> str `string`         | `number`                 | Writes the given **str** by given **addr**. **Returns** the amount of bytes really written                             |
 

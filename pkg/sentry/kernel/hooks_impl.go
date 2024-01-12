@@ -751,6 +751,29 @@ func (s SignalSendingHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+// ThreadsStoppingHook is used for stopping all threads except the caller
+type ThreadsStoppingHook struct{}
+
+func (hook *ThreadsStoppingHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Stops all threads except the caller. May be useful for preventing TOCTOU attack.",
+		Args:        "\nno args;\n",
+		ReturnValue: "null\n",
+	}
+}
+
+func (hook *ThreadsStoppingHook) jsName() string {
+	return "stopThreads"
+}
+
+func (hook *ThreadsStoppingHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		t.stopOtherThreadsInTg()
+		return nil, nil
+	}
+}
+
 // hooks for dynamic callback registration
 
 type AddCbBeforeHook struct{}
