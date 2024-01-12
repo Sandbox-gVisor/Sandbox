@@ -141,13 +141,6 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		args_ := &args
 		var sub_ *SyscallReturnValue = nil
 		ct := GetJsRuntime().callbackTable
-		hasAnyCb := ct.hasAnyCallback(sysno)
-		threadsCount := t.tg.tasksCount
-		t.Debugf("for sysno %v hasAnyCb = %v threadsCount = %v", sysno, hasAnyCb, threadsCount)
-		if hasAnyCb && threadsCount > 1 {
-			// stopping other threads
-			//t.stopOtherThreadsInTg()
-		}
 		callbackBefore := ct.getCallbackBefore(sysno)
 		if callbackBefore != nil {
 			retArgs, retSub, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)
@@ -185,11 +178,6 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 					args = *newArgs
 				}
 			}
-		}
-
-		if hasAnyCb && threadsCount > 1 {
-			// resume other threads
-			//t.resumeOtherThreadsInTg()
 		}
 
 		if region != nil {
