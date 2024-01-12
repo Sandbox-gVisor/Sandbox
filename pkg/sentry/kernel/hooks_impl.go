@@ -774,6 +774,29 @@ func (hook *ThreadsStoppingHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+// ThreadsResumingHook should be used after ThreadsStoppingHook to resume stopped threads
+type ThreadsResumingHook struct{}
+
+func (hook *ThreadsResumingHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Resume threads stopped by `stopThreads`.",
+		Args:        "\nno args;\n",
+		ReturnValue: "null\n",
+	}
+}
+
+func (hook *ThreadsResumingHook) jsName() string {
+	return "resumeThreads"
+}
+
+func (hook *ThreadsResumingHook) createCallBack(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		t.resumeOtherThreadsInTg()
+		return nil, nil
+	}
+}
+
 // hooks for dynamic callback registration
 
 type AddCbBeforeHook struct{}

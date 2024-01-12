@@ -195,6 +195,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&MunmapHook{},
 		&SignalSendingHook{},
 		&ThreadsStoppingHook{},
+		&ThreadsResumingHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{
