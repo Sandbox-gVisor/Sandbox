@@ -410,6 +410,7 @@ go_test(
         "table_test.go",
         "task_test.go",
         "timekeeper_test.go",
+        "callback_table_test.go",
     ],
     library = ":kernel",
     deps = [
@@ -426,5 +427,19 @@ go_test(
         "//pkg/sentry/usage",
         "//pkg/sentry/vfs",
         "//pkg/sync",
+        "//pkg/sentry/kernel/callbacks",
+    ],
+)
+
+go_test(
+    name = "callbacks_test",
+    size = "small",
+    srcs = [
+        "callback_table_test.go",
+    ],
+    library = ":kernel",
+    deps = [
+        "//pkg/sentry/arch",
+        "//pkg/sentry/kernel/callbacks",
     ],
 )
