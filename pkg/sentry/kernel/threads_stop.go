@@ -1,6 +1,6 @@
 package kernel
 
-func (t *Task) stopOtherTreadsInTg() {
+func (t *Task) stopOtherThreadsInTg() {
 	selfTID := t.tg.pidns.tids[t]
 
 	t.tg.pidns.owner.mu.RLock()
@@ -16,7 +16,7 @@ func (t *Task) stopOtherTreadsInTg() {
 	}
 }
 
-func (t *Task) resumeOtherTreadsInTg() {
+func (t *Task) resumeOtherThreadsInTg() {
 	selfTID := t.tg.pidns.tids[t]
 
 	t.tg.pidns.owner.mu.RLock()
