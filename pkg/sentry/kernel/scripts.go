@@ -39,19 +39,6 @@ func (adapter *ObjectAddableAdapter) addSelfToContextObject(object *goja.Object)
 	return nil
 }
 
-// addSyscallArgsToContextObject from this context object user`s callback will take syscall args
-func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
-	for i, arg := range arguments {
-		err := object.Set(fmt.Sprintf("arg%d", i), int64(arg.Value))
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // jsCallbackInvocationTemplate generate string that represent user callback script + invocation of it with injected args
 func jsCallbackInvocationTemplate(jsCallback JsCallback) string {
 	info := jsCallback.callbackInfo()

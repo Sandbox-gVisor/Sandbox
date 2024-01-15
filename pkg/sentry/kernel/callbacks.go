@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"fmt"
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
@@ -87,4 +88,17 @@ type SyscallArgsAddableAdapter struct {
 
 func (s *SyscallArgsAddableAdapter) addSelfToContextObject(object *goja.Object) error {
 	return addSyscallArgsToContextObject(object, s.Args)
+}
+
+// addSyscallArgsToContextObject from this context object user`s callback will take syscall args
+func addSyscallArgsToContextObject(object *goja.Object, arguments *arch.SyscallArguments) error {
+	for i, arg := range arguments {
+		err := object.Set(fmt.Sprintf("arg%d", i), int64(arg.Value))
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
