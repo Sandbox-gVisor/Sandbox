@@ -436,10 +436,12 @@ go_test(
     size = "small",
     srcs = [
         "callback_table_test.go",
+        "scripts_test.go",
     ],
     library = ":kernel",
     deps = [
         "//pkg/sentry/arch",
         "//pkg/sentry/kernel/callbacks",
+        "@github_com_dop251_goja//:goja",
     ],
 )
