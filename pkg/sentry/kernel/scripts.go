@@ -6,6 +6,7 @@ import (
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"k8s.io/utils/strings/slices"
 	"strconv"
 	"strings"
 )
@@ -85,22 +86,13 @@ func extractArgsFromRetJsValue(
 	return retArgs, nil
 }
 
-func contains(slice []string, element string) bool {
-	for _, a := range slice {
-		if a == element {
-			return true
-		}
-	}
-	return false
-}
-
 func extractSubstitutionFromRetJsValue(vm *goja.Runtime, value goja.Value) (*SyscallReturnValue, error) {
 	if value == nil {
 		return nil, nil
 	}
 	obj := value.ToObject(vm)
 
-	if contains(obj.Keys(), JsSyscallReturnValue) && contains(obj.Keys(), JsSyscallErrno) {
+	if slices.Contains(obj.Keys(), JsSyscallReturnValue) && slices.Contains(obj.Keys(), JsSyscallErrno) {
 		retVal := obj.Get(JsSyscallReturnValue)
 		errnoVal := obj.Get(JsSyscallErrno)
 
