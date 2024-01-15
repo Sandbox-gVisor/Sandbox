@@ -309,11 +309,14 @@ go_library(
         # our
         "callbacks.go",
         "callback_table.go",
+        "js_callbacks.go",
+        "dynamic_js_callbacks.go",
         "hooks.go",
         "hooks_functions.go",
         "hooks_impl.go",
         "runtime_cmd.go",
         "threads_stop.go",
+        "scripts.go",
     ],
     imports = [
         "gvisor.dev/gvisor/pkg/bpf",
