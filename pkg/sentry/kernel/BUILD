@@ -305,12 +305,15 @@ go_library(
         "uts_namespace.go",
         "vdso.go",
         "version.go",
+
+        # our
         "callbacks.go",
+        "callback_table.go",
         "hooks.go",
         "hooks_functions.go",
         "hooks_impl.go",
         "runtime_cmd.go",
-        "threads_stop.go"
+        "threads_stop.go",
     ],
     imports = [
         "gvisor.dev/gvisor/pkg/bpf",
