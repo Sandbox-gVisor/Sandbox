@@ -6,7 +6,7 @@ import (
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
-	"k8s.io/utils/strings/slices"
+	"slices"
 	"strconv"
 	"strings"
 )
