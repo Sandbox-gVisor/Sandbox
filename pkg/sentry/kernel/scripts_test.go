@@ -424,3 +424,137 @@ func TestRunAbstractCallback_withNotRegisteredHook(t *testing.T) {
 		t.Fatalf("unexpected successful execution of callback with unregistered hook")
 	}
 }
+
+var cbCheckLocalStorageBefore = `
+	function cbBefore() {
+		const storage = persistence.local
+		storage.savedStr = "hello world"
+	}
+`
+
+var cbCheckLocalStorageAfter = `
+	function cbAfter() {
+		const storage = persistence.local
+		if (storage.savedStr != undefined && storage.savedStr === "hello world") {
+			return {
+				"ret": 0,
+				"errno": 0
+			}
+		}
+		return {
+			"ret": -1,
+			"errno": 1
+		}
+	}
+`
+
+func testStorage(t *testing.T, cbBefore JsCallback, cbAfter JsCallback, local bool) {
+	task := testCreateMockTask()
+	args := arch.SyscallArguments{}
+	beforeArgs, _, err := RunAbstractCallback(
+		task,
+		jsCallbackInvocationTemplate(cbBefore),
+		&args,
+		ScriptContextsBuilderOf().Build())
+	if err != nil {
+		t.Fatalf("unexpected error while executing callback before: %s", err)
+	}
+	if !local {
+		task = testCreateMockTask()
+	}
+	_, afterRval, err := RunAbstractCallback(
+		task,
+		jsCallbackInvocationTemplate(cbAfter),
+		beforeArgs,
+		ScriptContextsBuilderOf().Build())
+	if err != nil {
+		t.Fatalf("unexpected error while executing callback after: %s", err)
+	}
+	if afterRval == nil {
+		t.Fatalf("unexpected nil rval from callback")
+	}
+	if afterRval.returnValue != 0 || afterRval.errno != 0 {
+		t.Fatalf("callback executed with failure")
+	}
+}
+
+func TestRunAbstractCallback_withCheckingLocalStorage(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+
+	cbBefore := JsCallbackBefore{
+		info: callbacks.JsCallbackInfo{
+			Sysno:          1,
+			EntryPoint:     "cbBefore",
+			CallbackSource: cbCheckLocalStorageBefore,
+			CallbackBody:   cbCheckLocalStorageBefore,
+			CallbackArgs:   make([]string, 0),
+			Type:           JsCallbackTypeBefore,
+		},
+	}
+
+	cbAfter := JsCallbackAfter{
+		info: callbacks.JsCallbackInfo{
+			Sysno:          1,
+			EntryPoint:     "cbAfter",
+			CallbackSource: cbCheckLocalStorageAfter,
+			CallbackBody:   cbCheckLocalStorageAfter,
+			CallbackArgs:   make([]string, 0),
+			Type:           JsCallbackTypeAfter,
+		},
+	}
+
+	testStorage(t, &cbBefore, &cbAfter, true)
+}
+
+var cbCheckGlobalStorageBefore = `
+	function cbBefore() {
+		const storage = persistence.glb
+		storage.savedStr = "hello world"
+	}
+`
+
+var cbCheckGlobalStorageAfter = `
+	function cbAfter() {
+		const storage = persistence.glb
+		if (storage.savedStr != undefined && storage.savedStr === "hello world") {
+			return {
+				"ret": 0,
+				"errno": 0
+			}
+		}
+		return {
+			"ret": -1,
+			"errno": 1
+		}
+	}
+`
+
+func TestRunAbstractCallback_withCheckingGlobalStorage(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+
+	cbBefore := JsCallbackBefore{
+		info: callbacks.JsCallbackInfo{
+			Sysno:          1,
+			EntryPoint:     "cbBefore",
+			CallbackSource: cbCheckGlobalStorageBefore,
+			CallbackBody:   cbCheckGlobalStorageBefore,
+			CallbackArgs:   make([]string, 0),
+			Type:           JsCallbackTypeBefore,
+		},
+	}
+
+	cbAfter := JsCallbackAfter{
+		info: callbacks.JsCallbackInfo{
+			Sysno:          1,
+			EntryPoint:     "cbAfter",
+			CallbackSource: cbCheckGlobalStorageAfter,
+			CallbackBody:   cbCheckGlobalStorageAfter,
+			CallbackArgs:   make([]string, 0),
+			Type:           JsCallbackTypeAfter,
+		},
+	}
+
+	testStorage(t, &cbBefore, &cbAfter, false)
+}
