@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// Command is the interface used to configure DependentHooks
+// Command is the interface used to configure dependentHooks
 type Command interface {
 	name() string
 
@@ -176,7 +176,7 @@ func handleConnection(kernel *Kernel, conn net.Conn) {
 	}
 }
 
-// DependentHooks info command
+// dependentHooks info command
 
 type HooksInfoCommandResponse struct {
 	HooksInfo []HookInfoDto `json:"hooks"`

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// DependentHooks impls
+// dependentHooks impls
 
 type PrintHook struct{}
 

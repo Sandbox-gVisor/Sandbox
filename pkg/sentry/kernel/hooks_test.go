@@ -7,8 +7,8 @@ import (
 
 func testInitHookTable() HooksTable {
 	return HooksTable{
-		DependentHooks:   make(map[string]TaskDependentGoHook),
-		IndependentHooks: make(map[string]TaskIndependentGoHook),
+		dependentHooks:   make(map[string]TaskDependentGoHook),
+		independentHooks: make(map[string]TaskIndependentGoHook),
 		mutex:            sync.Mutex{},
 	}
 }
@@ -22,7 +22,7 @@ func TestHooksTable_registerDependentHook(t *testing.T) {
 		t.Fatalf("unexpected error while registering dependent hook: %s", err)
 	}
 
-	_, ok := ht.DependentHooks[h.jsName()]
+	_, ok := ht.dependentHooks[h.jsName()]
 	if !ok {
 		t.Fatalf("dependent hook was't registered")
 	}
@@ -37,7 +37,7 @@ func TestHooksTable_registerIndependentHook(t *testing.T) {
 		t.Fatalf("unexpected error while registering dependent hook: %s", err)
 	}
 
-	_, ok := ht.IndependentHooks[h.jsName()]
+	_, ok := ht.independentHooks[h.jsName()]
 	if !ok {
 		t.Fatalf("dependent hook was't registered")
 	}

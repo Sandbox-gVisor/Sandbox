@@ -60,7 +60,7 @@ func (cb *JsCallbackBefore) registerAtCallbackTable(ct *CallbackTable) error {
 	return ct.registerCallbackBefore(uintptr(cb.info.Sysno), cb)
 }
 
-// CallbackBeforeFunc execution of user callback for syscall on js VM with our DependentHooks
+// CallbackBeforeFunc execution of user callback for syscall on js VM with our dependentHooks
 func (cb *JsCallbackBefore) CallbackBeforeFunc(t *Task, _ uintptr,
 	args *arch.SyscallArguments) (*arch.SyscallArguments, *SyscallReturnValue, error) {
 
