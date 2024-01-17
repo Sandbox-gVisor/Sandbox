@@ -443,6 +443,7 @@ go_test(
     srcs = [
         "callback_table_test.go",
         "scripts_test.go",
+        "hooks_test.go",
     ],
     library = ":kernel",
     deps = [

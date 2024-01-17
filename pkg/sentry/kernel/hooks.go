@@ -34,13 +34,13 @@ type GoHook interface {
 	jsName() string
 }
 
-// TaskIndependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with/without task
+// TaskIndependentGoHook is an interface for hooks, that user can call from js callback when cb run with/without task
 type TaskIndependentGoHook interface {
 	GoHook
 	createCallback() HookCallback
 }
 
-// TaskDependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with task
+// TaskDependentGoHook is an interface for hooks, that user can call from js callback when cb run with task
 type TaskDependentGoHook interface {
 	GoHook
 	createCallback(*Task) HookCallback
@@ -77,7 +77,7 @@ func (decorator *GoHookDecorator) createCallback(t *Task) HookCallback {
 	return disposableDecorator(cb)
 }
 
-// HooksTable user`s js callback takes DependentHooks from this table before execution.
+// HooksTable user`s js callback takes Dependent (and/or Independent) Hooks from this table before execution.
 // Hooks from the table can be used by user in his js code to get / modify data
 type HooksTable struct {
 	DependentHooks   map[string]TaskDependentGoHook
@@ -160,7 +160,7 @@ func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task
 	return nil
 }
 
-// addIndependentHooksToContextObject from this context object user`s callback will take DependentHooks
+// addIndependentHooksToContextObject from this context object user`s callback will take IndependentHooks
 func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
@@ -176,7 +176,7 @@ func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) er
 	return nil
 }
 
-// RegisterHooks register all hooks from this file in provided table
+// RegisterHooks register all hooks from ./hooks_impl.go in provided table
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
 		&ReadBytesHook{},

@@ -5,11 +5,10 @@ import (
 	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
-	"sync"
 	"testing"
 )
 
-func testCreateMockTask() *Task {
+func testCreateEmptyTask() *Task {
 	return &Task{}
 }
 
@@ -88,7 +87,7 @@ var cbNewSyscallReturnValue = `
 `
 
 func testRunAbstractCallbackRunsAndReturnsSyscallRetValue(t *testing.T, cb JsCallback) {
-	task := testCreateMockTask()
+	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	newArgs, rval, err := RunAbstractCallback(
 		task,
@@ -202,7 +201,7 @@ var cbGetExpectedArgsReturnNewSyscallArgs = `
 `
 
 func testRunAbstractCallbackGetCorrectArguments(t *testing.T, cb JsCallback) {
-	task := testCreateMockTask()
+	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	for i := 0; i < len(args); i++ {
 		args[i] = arch.SyscallArgument{Value: uintptr(i)}
@@ -325,7 +324,7 @@ var cbHooksIsCalled = `
 `
 
 func testScriptRunsWithHookUsage(t *testing.T, cb JsCallback) {
-	task := testCreateMockTask()
+	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	newArgs, rval, err := RunAbstractCallback(
 		task,
@@ -351,11 +350,8 @@ func TestRunAbstractCallback_usesInDependentGoHook(t *testing.T) {
 	testInitJsRuntime()
 	defer testDestroyJsRuntime()
 
-	jsRuntime.hooksTable = &HooksTable{
-		DependentHooks:   make(map[string]TaskDependentGoHook),
-		IndependentHooks: make(map[string]TaskIndependentGoHook),
-		mutex:            sync.Mutex{},
-	}
+	ht := testInitHookTable()
+	jsRuntime.hooksTable = &ht
 	dHook := stubDependentGoHook{}
 	err := jsRuntime.hooksTable.registerDependentHook(&dHook)
 	if err != nil {
@@ -413,7 +409,7 @@ func TestRunAbstractCallback_withNotRegisteredHook(t *testing.T) {
 			Type:           JsCallbackTypeBefore,
 		},
 	}
-	task := testCreateMockTask()
+	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	_, _, err := RunAbstractCallback(
 		task,
@@ -449,7 +445,7 @@ var cbCheckLocalStorageAfter = `
 `
 
 func testStorage(t *testing.T, cbBefore JsCallback, cbAfter JsCallback, local bool) {
-	task := testCreateMockTask()
+	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	beforeArgs, _, err := RunAbstractCallback(
 		task,
@@ -460,7 +456,7 @@ func testStorage(t *testing.T, cbBefore JsCallback, cbAfter JsCallback, local bo
 		t.Fatalf("unexpected error while executing callback before: %s", err)
 	}
 	if !local {
-		task = testCreateMockTask()
+		task = testCreateEmptyTask()
 	}
 	_, afterRval, err := RunAbstractCallback(
 		task,
