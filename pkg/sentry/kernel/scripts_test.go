@@ -31,7 +31,7 @@ var simpleScript = `
 	}
 
 	testF()
-	`
+`
 
 func TestRunJsScript_RunsAndReturnsValue(t *testing.T) {
 	testInitJsRuntime()
@@ -61,7 +61,7 @@ var simpleBadScript = `
 	}
 
 	testF()
-	`
+`
 
 func TestRunJsScript_failsWithBadScript(t *testing.T) {
 	testInitJsRuntime()
@@ -85,7 +85,7 @@ var cbNewSyscallReturnValue = `
 			"errno": 1
 		}
 	}
-	`
+`
 
 func testRunAbstractCallbackRunsAndReturnsSyscallRetValue(t *testing.T, cb JsCallback) {
 	task := testCreateMockTask()
@@ -199,7 +199,7 @@ var cbGetExpectedArgsReturnNewSyscallArgs = `
 			"5": 25
 		}
 	}
-	`
+`
 
 func testRunAbstractCallbackGetCorrectArguments(t *testing.T, cb JsCallback) {
 	task := testCreateMockTask()
@@ -315,14 +315,14 @@ func (h *stubIndependentGoHook) createCallback() HookCallback {
 	}
 }
 
-var hooksIsCalled = `
+var cbHooksIsCalled = `
 	function cb() {
 		for (i = 0; i < 10; i++) {
 			hooks.stubD()
 			hooks.stubI()
 		}
 	}
-	`
+`
 
 func testScriptRunsWithHookUsage(t *testing.T, cb JsCallback) {
 	task := testCreateMockTask()
@@ -371,8 +371,8 @@ func TestRunAbstractCallback_usesInDependentGoHook(t *testing.T) {
 		info: callbacks.JsCallbackInfo{
 			Sysno:          1,
 			EntryPoint:     "cb",
-			CallbackSource: hooksIsCalled,
-			CallbackBody:   hooksIsCalled,
+			CallbackSource: cbHooksIsCalled,
+			CallbackBody:   cbHooksIsCalled,
 			CallbackArgs:   make([]string, 0),
 			Type:           JsCallbackTypeBefore,
 		},
@@ -390,5 +390,37 @@ func TestRunAbstractCallback_usesInDependentGoHook(t *testing.T) {
 	}
 	if iHook.callCount != 10 {
 		t.Fatalf("independent hook called: %v times, expected 10", iHook.callCount)
+	}
+}
+
+var cbWithNotRegisteredHook = `
+	function cb() {
+		hooks.abracadabra()
+	}
+`
+
+func TestRunAbstractCallback_withNotRegisteredHook(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+
+	cb := JsCallbackBefore{
+		info: callbacks.JsCallbackInfo{
+			Sysno:          1,
+			EntryPoint:     "cb",
+			CallbackSource: cbWithNotRegisteredHook,
+			CallbackBody:   cbWithNotRegisteredHook,
+			CallbackArgs:   make([]string, 0),
+			Type:           JsCallbackTypeBefore,
+		},
+	}
+	task := testCreateMockTask()
+	args := arch.SyscallArguments{}
+	_, _, err := RunAbstractCallback(
+		task,
+		jsCallbackInvocationTemplate(&cb),
+		&args,
+		ScriptContextsBuilderOf().Build())
+	if err == nil {
+		t.Fatalf("unexpected successful execution of callback with unregistered hook")
 	}
 }
