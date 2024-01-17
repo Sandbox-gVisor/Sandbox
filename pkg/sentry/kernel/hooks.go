@@ -37,13 +37,13 @@ type GoHook interface {
 // TaskIndependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with/without task
 type TaskIndependentGoHook interface {
 	GoHook
-	createCallBack() HookCallback
+	createCallback() HookCallback
 }
 
 // TaskDependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with task
 type TaskDependentGoHook interface {
 	GoHook
-	createCallBack(*Task) HookCallback
+	createCallback(*Task) HookCallback
 }
 
 // disposableDecorator is used to prevent deadlocks when same callback is called twice
@@ -72,8 +72,8 @@ func (decorator *GoHookDecorator) jsName() string {
 	return decorator.wrapped.jsName()
 }
 
-func (decorator *GoHookDecorator) createCallBack(t *Task) HookCallback {
-	cb := decorator.wrapped.createCallBack(t)
+func (decorator *GoHookDecorator) createCallback(t *Task) HookCallback {
+	cb := decorator.wrapped.createCallback(t)
 	return disposableDecorator(cb)
 }
 
@@ -150,7 +150,7 @@ func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task
 	defer ht.mutex.Unlock()
 
 	for name, hook := range ht.DependentHooks {
-		callback := hook.createCallBack(task)
+		callback := hook.createCallback(task)
 		err := object.Set(name, callback)
 		if err != nil {
 			return err
@@ -166,7 +166,7 @@ func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) er
 	defer ht.mutex.Unlock()
 
 	for name, hook := range ht.IndependentHooks {
-		callback := hook.createCallBack()
+		callback := hook.createCallback()
 		err := object.Set(name, callback)
 		if err != nil {
 			return err

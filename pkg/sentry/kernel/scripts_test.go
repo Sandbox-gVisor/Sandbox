@@ -2,8 +2,10 @@ package kernel
 
 import (
 	"fmt"
+	"github.com/dop251/goja"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
+	"sync"
 	"testing"
 )
 
@@ -269,4 +271,124 @@ func TestRunAbstractCallback_WithJsCallbackAfter_hasCorrectArgsAndReturnNewArgs(
 	}
 
 	testRunAbstractCallbackGetCorrectArguments(t, &cb)
+}
+
+type stubDependentGoHook struct {
+	createCount int
+	callCount   int
+}
+
+func (*stubDependentGoHook) description() HookInfoDto {
+	return HookInfoDto{}
+}
+
+func (*stubDependentGoHook) jsName() string {
+	return "stubD"
+}
+
+func (h *stubDependentGoHook) createCallback(_ *Task) HookCallback {
+	h.createCount += 1
+	return func(args ...goja.Value) (interface{}, error) {
+		h.callCount += 1
+		return nil, nil
+	}
+}
+
+type stubIndependentGoHook struct {
+	createCount int
+	callCount   int
+}
+
+func (*stubIndependentGoHook) description() HookInfoDto {
+	return HookInfoDto{}
+}
+
+func (*stubIndependentGoHook) jsName() string {
+	return "stubI"
+}
+
+func (h *stubIndependentGoHook) createCallback() HookCallback {
+	h.createCount += 1
+	return func(args ...goja.Value) (interface{}, error) {
+		h.callCount += 1
+		return nil, nil
+	}
+}
+
+var hooksIsCalled = `
+	function cb() {
+		for (i = 0; i < 10; i++) {
+			hooks.stubD()
+			hooks.stubI()
+		}
+	}
+	`
+
+func testScriptRunsWithHookUsage(t *testing.T, cb JsCallback) {
+	task := testCreateMockTask()
+	args := arch.SyscallArguments{}
+	newArgs, rval, err := RunAbstractCallback(
+		task,
+		jsCallbackInvocationTemplate(cb),
+		&args,
+		ScriptContextsBuilderOf().Build())
+	if err != nil {
+		t.Fatalf("unexpected error while executing callback: %s", err)
+	}
+	if len(newArgs) == len(args) {
+		for i := 0; i < len(args); i++ {
+			if newArgs[i].Value != args[i].Value {
+				t.Fatalf("unexpected new syscall argument %v", i)
+			}
+		}
+	}
+	if rval != nil {
+		t.Fatalf("unexpected new return value")
+	}
+}
+
+func TestRunAbstractCallback_usesInDependentGoHook(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+
+	jsRuntime.hooksTable = &HooksTable{
+		DependentHooks:   make(map[string]TaskDependentGoHook),
+		IndependentHooks: make(map[string]TaskIndependentGoHook),
+		mutex:            sync.Mutex{},
+	}
+	dHook := stubDependentGoHook{}
+	err := jsRuntime.hooksTable.registerDependentHook(&dHook)
+	if err != nil {
+		t.Fatalf("unexpected error while registering dependent hook to HooksTable: %s", err)
+	}
+	iHook := stubIndependentGoHook{}
+	err = jsRuntime.hooksTable.registerIndependentHook(&iHook)
+	if err != nil {
+		t.Fatalf("unexpected error while registering independent hook to HooksTable: %s", err)
+	}
+
+	cb := JsCallbackBefore{
+		info: callbacks.JsCallbackInfo{
+			Sysno:          1,
+			EntryPoint:     "cb",
+			CallbackSource: hooksIsCalled,
+			CallbackBody:   hooksIsCalled,
+			CallbackArgs:   make([]string, 0),
+			Type:           JsCallbackTypeBefore,
+		},
+	}
+
+	testScriptRunsWithHookUsage(t, &cb)
+	if dHook.createCount != 1 {
+		t.Fatalf("dependent hook created: %v times, expected 1", dHook.createCount)
+	}
+	if iHook.createCount != 1 {
+		t.Fatalf("independent hook created: %v times, expected 1", iHook.createCount)
+	}
+	if dHook.callCount != 10 {
+		t.Fatalf("dependent hook called: %v times, expected 10", dHook.callCount)
+	}
+	if iHook.callCount != 10 {
+		t.Fatalf("independent hook called: %v times, expected 10", iHook.callCount)
+	}
 }
