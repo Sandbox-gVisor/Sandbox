@@ -2,6 +2,8 @@ package kernel
 
 import (
 	"github.com/dop251/goja"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -85,4 +87,103 @@ func TestHooksTable_addDependentHooksToContextObject(t *testing.T) {
 	if h.createCount != 1 {
 		t.Fatalf("hook was not created")
 	}
+}
+
+// prepareSetOfDependentHooks should register same dependent hooks as RegisterHooks
+func prepareSetOfDependentHooks() map[string]struct{} {
+	set := make(map[string]struct{})
+
+	set[(&ReadBytesHook{}).jsName()] = struct{}{}
+	set[(&WriteBytesHook{}).jsName()] = struct{}{}
+	set[(&ReadStringHook{}).jsName()] = struct{}{}
+	set[(&WriteStringHook{}).jsName()] = struct{}{}
+	set[(&EnvvGetterHook{}).jsName()] = struct{}{}
+	set[(&MmapGetterHook{}).jsName()] = struct{}{}
+	set[(&ArgvHook{}).jsName()] = struct{}{}
+	set[(&SignalInfoHook{}).jsName()] = struct{}{}
+	set[(&PidInfoHook{}).jsName()] = struct{}{}
+	set[(&FDHook{}).jsName()] = struct{}{}
+	set[(&FDsHook{}).jsName()] = struct{}{}
+	set[(&UserJSONLogHook{}).jsName()] = struct{}{}
+	set[(&AnonMmapHook{}).jsName()] = struct{}{}
+	set[(&MunmapHook{}).jsName()] = struct{}{}
+	set[(&SignalSendingHook{}).jsName()] = struct{}{}
+	set[(&ThreadsStoppingHook{}).jsName()] = struct{}{}
+	set[(&ThreadsResumingHook{}).jsName()] = struct{}{}
+	set[(&ThreadInfoHook{}).jsName()] = struct{}{}
+
+	return set
+}
+
+// prepareSetOfIndependentHooks should register same independent hooks as RegisterHooks
+func prepareSetOfIndependentHooks() map[string]struct{} {
+	set := make(map[string]struct{})
+
+	set[(&PrintHook{}).jsName()] = struct{}{}
+	set[(&AddCbBeforeHook{}).jsName()] = struct{}{}
+	set[(&AddCbAfterHook{}).jsName()] = struct{}{}
+	set[(&SignalByNameHook{}).jsName()] = struct{}{}
+	set[(&SignalMaskToSignalNamesHook{}).jsName()] = struct{}{}
+
+	return set
+}
+
+func findUnregistered[H GoHook](prepared map[string]struct{}, registered map[string]H) []string {
+	notRegistered := make([]string, 0)
+	for hookName := range registered {
+		_, ok := prepared[hookName]
+		if !ok {
+			notRegistered = append(notRegistered, hookName)
+		}
+	}
+	for hookName := range prepared {
+		_, ok := registered[hookName]
+		if !ok {
+			notRegistered = append(notRegistered, hookName)
+		}
+	}
+	slices.Sort(notRegistered)
+	return notRegistered
+}
+
+func TestRegisterHooks(t *testing.T) {
+	ht := testInitHookTable()
+	setOfDependentHooks := prepareSetOfDependentHooks()
+	setOfIndependentHooks := prepareSetOfIndependentHooks()
+
+	err := RegisterHooks(&ht)
+	if err != nil {
+		t.Fatalf("unexpected error while registering hooks %s", err)
+	}
+
+	// testing dependent hooks
+	if len(setOfDependentHooks) != len(ht.dependentHooks) {
+		t.Fatalf("mismatch of dependent hooks count in tests (%v) and registered count (%v).\nThese hooks are not rergistered:\n%s",
+			len(setOfDependentHooks),
+			len(ht.dependentHooks),
+			strings.Join(findUnregistered(setOfDependentHooks, ht.dependentHooks), "\n"))
+	}
+
+	for hookName := range setOfDependentHooks {
+		_, ok := ht.dependentHooks[hookName]
+		if !ok {
+			t.Fatalf("dependent hook %v is missed.\nAlso check registered hooks and hooks in tests because amount is the same.", hookName)
+		}
+	}
+
+	// testing independent hooks
+	if len(setOfIndependentHooks) != len(ht.independentHooks) {
+		t.Fatalf("mismatch of independent hooks count in tests (%v) and registered count (%v).\nThese hooks are not rergistered:\n%s",
+			len(setOfIndependentHooks),
+			len(ht.independentHooks),
+			strings.Join(findUnregistered(setOfIndependentHooks, ht.independentHooks), "\n"))
+	}
+
+	for hookName := range setOfIndependentHooks {
+		_, ok := ht.independentHooks[hookName]
+		if !ok {
+			t.Fatalf("independent hook %v is missed.\nAlso check registered hooks and hooks in tests because amount is the same.", hookName)
+		}
+	}
+
 }

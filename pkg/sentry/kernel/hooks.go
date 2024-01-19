@@ -1,8 +1,11 @@
 package kernel
 
 import (
+	"cmp"
 	"errors"
 	"github.com/dop251/goja"
+	"slices"
+	"strings"
 	"sync"
 )
 
@@ -131,7 +134,6 @@ func (ht *HooksTable) getCurrentHooks() []GoHook {
 	}
 
 	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
 
 	var hooks []GoHook
 	for _, hook := range ht.dependentHooks {
@@ -140,6 +142,14 @@ func (ht *HooksTable) getCurrentHooks() []GoHook {
 	for _, hook := range ht.independentHooks {
 		hooks = append(hooks, hook)
 	}
+
+	ht.mutex.Unlock()
+
+	slices.SortFunc[[]GoHook, GoHook](hooks, func(a GoHook, b GoHook) int {
+		return cmp.Compare[string](
+			strings.ToLower(a.jsName()),
+			strings.ToLower(b.jsName()))
+	})
 
 	return hooks
 }
@@ -176,7 +186,8 @@ func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) er
 	return nil
 }
 
-// RegisterHooks register all hooks from ./hooks_impl.go in provided table
+// RegisterHooks register all hooks from ./hooks_impl.go in provided table.
+// New hooks should be registered here and in ./hooks_test.go in prepareSetOf...Hooks.
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
 		&ReadBytesHook{},
