@@ -54,7 +54,7 @@ func jsCallbackInvocationTemplate(jsCallback JsCallback) string {
 func extractArgsFromRetJsValue(
 	inputArgs *arch.SyscallArguments, vm *goja.Runtime, value goja.Value) (retArgs *arch.SyscallArguments, err error) {
 
-	if value == nil {
+	if value == nil || goja.IsUndefined(value) || goja.IsNull(value) {
 		return inputArgs, nil
 	}
 
@@ -87,7 +87,7 @@ func extractArgsFromRetJsValue(
 }
 
 func extractSubstitutionFromRetJsValue(vm *goja.Runtime, value goja.Value) (*SyscallReturnValue, error) {
-	if value == nil {
+	if value == nil || goja.IsUndefined(value) || goja.IsNull(value) {
 		return nil, nil
 	}
 	obj := value.ToObject(vm)
