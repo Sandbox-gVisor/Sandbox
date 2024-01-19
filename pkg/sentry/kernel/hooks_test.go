@@ -60,6 +60,9 @@ func TestHooksTable_addIndependentHooksToContextObject(t *testing.T) {
 	if goja.IsNull(val) || goja.IsUndefined(val) {
 		t.Fatalf("no value added to object")
 	}
+	if h.createCount != 1 {
+		t.Fatalf("hook was not created")
+	}
 }
 
 func TestHooksTable_addDependentHooksToContextObject(t *testing.T) {
@@ -78,5 +81,8 @@ func TestHooksTable_addDependentHooksToContextObject(t *testing.T) {
 	val := obj.Get(h.jsName())
 	if goja.IsNull(val) || goja.IsUndefined(val) {
 		t.Fatalf("no value added to object")
+	}
+	if h.createCount != 1 {
+		t.Fatalf("hook was not created")
 	}
 }
