@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"cmp"
 	"github.com/dop251/goja"
 	"slices"
 	"strings"
@@ -185,5 +186,36 @@ func TestRegisterHooks(t *testing.T) {
 			t.Fatalf("independent hook %v is missed.\nAlso check registered hooks and hooks in tests because amount is the same.", hookName)
 		}
 	}
+}
 
+func TestHooksTable_getCurrentHooks(t *testing.T) {
+	ht := testInitHookTable()
+	setOfDependentHooks := prepareSetOfDependentHooks()
+	setOfIndependentHooks := prepareSetOfIndependentHooks()
+
+	_ = RegisterHooks(&ht)
+	allHooks := ht.getCurrentHooks()
+
+	if testCount := len(setOfIndependentHooks) + len(setOfDependentHooks); len(allHooks) != testCount {
+		t.Fatalf("mismatch for getting current hooks. Test have %v, method returns %v", testCount, len(allHooks))
+	}
+	for _, h := range allHooks {
+		_, okD := setOfDependentHooks[h.jsName()]
+		_, okI := setOfIndependentHooks[h.jsName()]
+		if okD && okI {
+			t.Fatalf("hook %s registered as dependent and independent at the same time", h.jsName())
+		}
+		if !okD && !okI {
+			t.Fatalf("hook %s not in set of existing hooks")
+		}
+	}
+
+	if !slices.IsSortedFunc[[]GoHook, GoHook](allHooks,
+		func(a GoHook, b GoHook) int {
+			return cmp.Compare[string](
+				strings.ToLower(a.jsName()),
+				strings.ToLower(b.jsName()))
+		}) {
+		t.Fatalf("hooks are not sorted")
+	}
 }
