@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-func testCreateEmptyTask() *Task {
-	return &Task{}
+func testCreateEmptyTask() Task {
+	return Task{}
 }
 
 func testInitJsRuntime() {
@@ -90,7 +90,7 @@ func testRunAbstractCallbackRunsAndReturnsSyscallRetValue(t *testing.T, cb JsCal
 	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	newArgs, rval, err := RunAbstractCallback(
-		task,
+		&task,
 		jsCallbackInvocationTemplate(cb),
 		&args,
 		ScriptContextsBuilderOf().Build())
@@ -207,7 +207,7 @@ func testRunAbstractCallbackGetCorrectArguments(t *testing.T, cb JsCallback) {
 		args[i] = arch.SyscallArgument{Value: uintptr(i)}
 	}
 	newArgs, rval, err := RunAbstractCallback(
-		task,
+		&task,
 		jsCallbackInvocationTemplate(cb),
 		&args,
 		ScriptContextsBuilderOf().Build())
@@ -285,7 +285,7 @@ func (*stubDependentGoHook) jsName() string {
 	return "stubD"
 }
 
-func (h *stubDependentGoHook) createCallback(_ *Task) HookCallback {
+func (h *stubDependentGoHook) createCallback(t *Task) HookCallback {
 	h.createCount += 1
 	return func(args ...goja.Value) (interface{}, error) {
 		h.callCount += 1
@@ -327,7 +327,7 @@ func testScriptRunsWithHookUsage(t *testing.T, cb JsCallback) {
 	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	newArgs, rval, err := RunAbstractCallback(
-		task,
+		&task,
 		jsCallbackInvocationTemplate(cb),
 		&args,
 		ScriptContextsBuilderOf().Build())
@@ -412,7 +412,7 @@ func TestRunAbstractCallback_withNotRegisteredHook(t *testing.T) {
 	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	_, _, err := RunAbstractCallback(
-		task,
+		&task,
 		jsCallbackInvocationTemplate(&cb),
 		&args,
 		ScriptContextsBuilderOf().Build())
@@ -448,7 +448,7 @@ func testStorage(t *testing.T, cbBefore JsCallback, cbAfter JsCallback, local bo
 	task := testCreateEmptyTask()
 	args := arch.SyscallArguments{}
 	beforeArgs, _, err := RunAbstractCallback(
-		task,
+		&task,
 		jsCallbackInvocationTemplate(cbBefore),
 		&args,
 		ScriptContextsBuilderOf().Build())
@@ -459,7 +459,7 @@ func testStorage(t *testing.T, cbBefore JsCallback, cbAfter JsCallback, local bo
 		task = testCreateEmptyTask()
 	}
 	_, afterRval, err := RunAbstractCallback(
-		task,
+		&task,
 		jsCallbackInvocationTemplate(cbAfter),
 		beforeArgs,
 		ScriptContextsBuilderOf().Build())
