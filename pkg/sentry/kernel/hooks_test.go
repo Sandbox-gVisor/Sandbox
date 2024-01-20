@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"cmp"
+	"fmt"
 	"github.com/dop251/goja"
 	"slices"
 	"strings"
@@ -217,5 +218,32 @@ func TestHooksTable_getCurrentHooks(t *testing.T) {
 				strings.ToLower(b.jsName()))
 		}) {
 		t.Fatalf("hooks are not sorted")
+	}
+}
+
+func TestRegisterHooks_checkIfThereIsNoSuchObjectsInJS(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+
+	vm := jsRuntime.JsVM
+	obj := vm.NewObject()
+	err := vm.Set(HooksJsName, obj)
+	if err != nil {
+		t.Fatalf("failed to set hooks object to vm")
+	}
+
+	for k := range jsRuntime.hooksTable.dependentHooks {
+		val := vm.Get(HooksJsName).ToObject(vm).Get(k)
+		fmt.Printf("dependent hooks.%s\t\tnull: %v undefined: %v val %v\n", k, goja.IsUndefined(val), goja.IsNull(val), val)
+		if val != nil && (!goja.IsUndefined(val) || !goja.IsNull(val)) {
+			t.Fatalf("object with name %s is already defined", k)
+		}
+	}
+	for k := range jsRuntime.hooksTable.independentHooks {
+		val := vm.Get(HooksJsName).ToObject(vm).Get(k)
+		fmt.Printf("independent hooks.%s\t\tnull: %v undefined: %v val %v\n", k, goja.IsUndefined(val), goja.IsNull(val), val)
+		if val != nil && (!goja.IsUndefined(val) || !goja.IsNull(val)) {
+			t.Fatalf("object with name %s is already defined", k)
+		}
 	}
 }

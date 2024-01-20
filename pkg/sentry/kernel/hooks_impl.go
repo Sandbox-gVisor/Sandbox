@@ -879,7 +879,7 @@ func (a AddCbBeforeHook) createCallback() HookCallback {
 		}
 
 		if goja.IsNull(args[1]) || goja.IsUndefined(args[1]) {
-			return nil, errors.New("null or undefined argument")
+			return nil, util.ErrNullOrUndefined
 		}
 
 		cbObj := args[1].ToObject(runtime.JsVM)
@@ -922,7 +922,7 @@ func (a AddCbAfterHook) createCallback() HookCallback {
 		}
 
 		if goja.IsNull(args[1]) || goja.IsUndefined(args[1]) {
-			return nil, errors.New("null or undefined argument")
+			return nil, util.ErrNullOrUndefined
 		}
 
 		cbObj := args[1].ToObject(runtime.JsVM)
