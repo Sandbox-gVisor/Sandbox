@@ -20,6 +20,16 @@ func testBuildContexts() ScriptContexts {
 //   - create js callback before, note that entry point (function name) should be "cb"
 //   - call RunAbstractCallback
 //   - fails if err == nil with given message
+//
+// Notes:
+//
+//   - cbSource should be like below (function name is cb, no params)
+//
+//     var cbSource = `
+//     function cb() {
+//     // here code that use hooks and should fail with error
+//     }
+//     `
 func testThatCbFailsWithErr(t *testing.T, cbSource string, failMessage string) {
 	testInitJsRuntime()
 	defer testDestroyJsRuntime()
