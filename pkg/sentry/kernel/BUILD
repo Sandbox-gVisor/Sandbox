@@ -448,6 +448,7 @@ go_test(
         "addcbafter_test.go",
         "addcbbefore_test.go",
         "sigmask2names_test.go",
+        "signalbyname_test.go",
     ],
     library = ":kernel",
     deps = [
