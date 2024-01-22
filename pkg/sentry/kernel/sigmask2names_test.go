@@ -32,6 +32,58 @@ func TestSignalMaskToSignalNamesHook_withNoArgs_Fails(t *testing.T) {
 	}
 }
 
+var sigMask2SigNamesWithNullArg = `
+	function cb() {
+		hooks.signalMaskToNames(null)
+	}
+`
+
+func TestSignalMaskToSignalNamesHook_withNullArg_Fails(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+	task := testCreateEmptyTask()
+	args := arch.SyscallArguments{}
+	cb := JsCallbackBefore{info: util.JsCallbackInfo{
+		Sysno:          1,
+		CallbackSource: sigMask2SigNamesWithNullArg,
+		CallbackBody:   sigMask2SigNamesWithNullArg,
+		CallbackArgs:   []string{},
+		Type:           JsCallbackTypeBefore,
+		EntryPoint:     "cb",
+	}}
+
+	_, _, err := RunAbstractCallback(&task, jsCallbackInvocationTemplate(&cb), &args, ScriptContextsBuilderOf().Build())
+	if err == nil {
+		t.Fatalf("no error when calling hook with null arg")
+	}
+}
+
+var sigMask2SigNamesWithUndefinedArg = `
+	function cb() {
+		hooks.signalMaskToNames(undefined)
+	}
+`
+
+func TestSignalMaskToSignalNamesHook_withUndefinedArg_Fails(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+	task := testCreateEmptyTask()
+	args := arch.SyscallArguments{}
+	cb := JsCallbackBefore{info: util.JsCallbackInfo{
+		Sysno:          1,
+		CallbackSource: sigMask2SigNamesWithUndefinedArg,
+		CallbackBody:   sigMask2SigNamesWithUndefinedArg,
+		CallbackArgs:   []string{},
+		Type:           JsCallbackTypeBefore,
+		EntryPoint:     "cb",
+	}}
+
+	_, _, err := RunAbstractCallback(&task, jsCallbackInvocationTemplate(&cb), &args, ScriptContextsBuilderOf().Build())
+	if err == nil {
+		t.Fatalf("no error when calling hook with undefined arg")
+	}
+}
+
 var sigMask2SigNamesWith3Args = `
 	function cb() {
 		hooks.signalMaskToNames(8, 0, 0)
