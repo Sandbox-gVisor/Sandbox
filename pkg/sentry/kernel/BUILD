@@ -447,6 +447,7 @@ go_test(
         "hooks_impl_test.go",
         "addcbafter_test.go",
         "addcbbefore_test.go",
+        "sigmask2names_test.go",
     ],
     library = ":kernel",
     deps = [
