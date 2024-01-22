@@ -13,23 +13,7 @@ var signalByNameWithNoArgs = `
 `
 
 func TestSignalByNameHook_withNoArgs_Fails(t *testing.T) {
-	testInitJsRuntime()
-	defer testDestroyJsRuntime()
-	task := testCreateEmptyTask()
-	args := arch.SyscallArguments{}
-	cb := JsCallbackBefore{info: util.JsCallbackInfo{
-		Sysno:          1,
-		CallbackSource: signalByNameWithNoArgs,
-		CallbackBody:   signalByNameWithNoArgs,
-		CallbackArgs:   []string{},
-		Type:           JsCallbackTypeBefore,
-		EntryPoint:     "cb",
-	}}
-
-	_, _, err := RunAbstractCallback(&task, jsCallbackInvocationTemplate(&cb), &args, ScriptContextsBuilderOf().Build())
-	if err == nil {
-		t.Fatalf("no error when calling hook, which needs 1 arg, with no args")
-	}
+	testThatCbFailsWithErr(t, signalByNameWithNoArgs, "no error when calling hook, which needs 1 arg, with no args")
 }
 
 var signalByNameWith2Args = `
@@ -39,23 +23,7 @@ var signalByNameWith2Args = `
 `
 
 func TestSignalByNameHook_with3Args_Fails(t *testing.T) {
-	testInitJsRuntime()
-	defer testDestroyJsRuntime()
-	task := testCreateEmptyTask()
-	args := arch.SyscallArguments{}
-	cb := JsCallbackBefore{info: util.JsCallbackInfo{
-		Sysno:          1,
-		CallbackSource: signalByNameWith2Args,
-		CallbackBody:   signalByNameWith2Args,
-		CallbackArgs:   []string{},
-		Type:           JsCallbackTypeBefore,
-		EntryPoint:     "cb",
-	}}
-
-	_, _, err := RunAbstractCallback(&task, jsCallbackInvocationTemplate(&cb), &args, ScriptContextsBuilderOf().Build())
-	if err == nil {
-		t.Fatalf("no error when calling hook, which needs 1 arg, with 2 args")
-	}
+	testThatCbFailsWithErr(t, signalByNameWith2Args, "no error when calling hook, which needs 1 arg, with 2 args")
 }
 
 var signalByNameWithNullArg = `
@@ -65,23 +33,7 @@ var signalByNameWithNullArg = `
 `
 
 func TestSignalByNameHook_withNullArg_Fails(t *testing.T) {
-	testInitJsRuntime()
-	defer testDestroyJsRuntime()
-	task := testCreateEmptyTask()
-	args := arch.SyscallArguments{}
-	cb := JsCallbackBefore{info: util.JsCallbackInfo{
-		Sysno:          1,
-		CallbackSource: signalByNameWithNullArg,
-		CallbackBody:   signalByNameWithNullArg,
-		CallbackArgs:   []string{},
-		Type:           JsCallbackTypeBefore,
-		EntryPoint:     "cb",
-	}}
-
-	_, _, err := RunAbstractCallback(&task, jsCallbackInvocationTemplate(&cb), &args, ScriptContextsBuilderOf().Build())
-	if err == nil {
-		t.Fatalf("no error when calling hook with null arg")
-	}
+	testThatCbFailsWithErr(t, signalByNameWithNullArg, "no error when calling hook with null arg")
 }
 
 var signalByNameWithUndefinedArg = `
@@ -91,23 +43,7 @@ var signalByNameWithUndefinedArg = `
 `
 
 func TestSignalByNameHook_withUndefinedArg_Fails(t *testing.T) {
-	testInitJsRuntime()
-	defer testDestroyJsRuntime()
-	task := testCreateEmptyTask()
-	args := arch.SyscallArguments{}
-	cb := JsCallbackBefore{info: util.JsCallbackInfo{
-		Sysno:          1,
-		CallbackSource: signalByNameWithUndefinedArg,
-		CallbackBody:   signalByNameWithUndefinedArg,
-		CallbackArgs:   []string{},
-		Type:           JsCallbackTypeBefore,
-		EntryPoint:     "cb",
-	}}
-
-	_, _, err := RunAbstractCallback(&task, jsCallbackInvocationTemplate(&cb), &args, ScriptContextsBuilderOf().Build())
-	if err == nil {
-		t.Fatalf("no error when calling hook with undefined arg")
-	}
+	testThatCbFailsWithErr(t, signalByNameWithUndefinedArg, "no error when calling hook with undefined arg")
 }
 
 var signalByNameWorks = `
