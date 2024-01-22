@@ -1,15 +1,20 @@
 package kernel
 
 import (
+	"fmt"
 	"github.com/dop251/goja"
 	"testing"
 )
 
 var simpleAddCbBefore = `
-	function cb() {}
+	function cb(  
+	) {}
 
 	hooks.AddCbBefore(1, cb)
- `
+`
+
+var simpleCb = `function cb(  
+	) {}`
 
 func TestAddCbBeforeHook_registersCallback(t *testing.T) {
 	testInitJsRuntime()
@@ -29,10 +34,28 @@ func TestAddCbBeforeHook_registersCallback(t *testing.T) {
 	}
 	info := cb.Info()
 	if info.Sysno != 1 {
-		t.Fatalf("bad sysno in info got %v expected 1", info.Sysno)
+		fmt.Println(info.ToString())
+		t.Fatalf("bad sysno in info: got %v expected 1", info.Sysno)
+	}
+	if info.EntryPoint != "cb" {
+		fmt.Println(info.ToString())
+		t.Fatalf("bad entry point: got '%v', expected 'cb'")
 	}
 	if len(info.CallbackArgs) != 0 {
-		t.Fatalf("Callback args should be empty for this callback")
+		fmt.Println(info.ToString())
+		t.Fatalf("Callback args should be empty for this callback: got %v", info.CallbackArgs)
+	}
+	if info.Type != JsCallbackTypeBefore {
+		fmt.Println(info.ToString())
+		t.Fatalf("wrong cb type: got %s, expected %s", info.Type, JsCallbackTypeBefore)
+	}
+	if info.CallbackBody != simpleCb {
+		fmt.Println(info.ToString())
+		t.Fatalf("wrong cb body: got\n%s, expected\n%s\n", info.CallbackBody, simpleCb)
+	}
+	if info.CallbackSource != simpleCb {
+		fmt.Println(info.ToString())
+		t.Fatalf("wrong cb source: got\n%s, expected\n%s\n", info.CallbackSource, simpleCb)
 	}
 }
 

@@ -263,7 +263,7 @@ func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
 		EntryPoint:     "unknown",
 		CallbackSource: "unknown",
 		CallbackBody:   "unknown",
-		CallbackArgs:   nil,
+		CallbackArgs:   make([]string, 0),
 		Type:           cbType,
 	}
 }

@@ -885,7 +885,7 @@ func (a AddCbBeforeHook) createCallback() HookCallback {
 		cbObj := args[1].ToObject(runtime.JsVM)
 		table := runtime.callbackTable
 
-		info := *unknownCallback(sysno, "before")
+		info := *unknownCallback(sysno, JsCallbackTypeBefore)
 		info = fillJsCallbackInfoForDynamicCallback(info, cbObj.String())
 
 		err = table.registerCallbackBefore(sysno, &DynamicJsCallbackBefore{CallbackInfo: info, Holder: cbObj})
@@ -928,7 +928,7 @@ func (a AddCbAfterHook) createCallback() HookCallback {
 		cbObj := args[1].ToObject(runtime.JsVM)
 		table := runtime.callbackTable
 
-		info := *unknownCallback(sysno, "after")
+		info := *unknownCallback(sysno, JsCallbackTypeAfter)
 		info = fillJsCallbackInfoForDynamicCallback(info, cbObj.String())
 
 		err = table.registerCallbackAfter(sysno, &DynamicJsCallbackAfter{CallbackInfo: info, Holder: cbObj})

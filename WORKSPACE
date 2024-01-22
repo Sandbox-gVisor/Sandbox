@@ -3318,7 +3318,6 @@ go_repository(
     sum = "h1:sC/DYk3eEi5cKkpJX1vl+CpAM138dmuW7rutje9Eo4E=",
 )
 
-
 #go_repository(
 #    name = "github_com_dop251_goja_nodejs",
 #    importpath = "github.com/dop251/goja_nodejs",

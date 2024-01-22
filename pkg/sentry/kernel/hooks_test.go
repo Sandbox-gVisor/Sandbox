@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"cmp"
-	"fmt"
 	"github.com/dop251/goja"
 	"slices"
 	"strings"
@@ -234,14 +233,12 @@ func TestRegisterHooks_checkIfThereIsNoSuchObjectsInJS(t *testing.T) {
 
 	for k := range jsRuntime.hooksTable.dependentHooks {
 		val := vm.Get(HooksJsName).ToObject(vm).Get(k)
-		fmt.Printf("dependent hooks.%s\t\tnull: %v undefined: %v val %v\n", k, goja.IsUndefined(val), goja.IsNull(val), val)
 		if val != nil && (!goja.IsUndefined(val) || !goja.IsNull(val)) {
 			t.Fatalf("object with name %s is already defined", k)
 		}
 	}
 	for k := range jsRuntime.hooksTable.independentHooks {
 		val := vm.Get(HooksJsName).ToObject(vm).Get(k)
-		fmt.Printf("independent hooks.%s\t\tnull: %v undefined: %v val %v\n", k, goja.IsUndefined(val), goja.IsNull(val), val)
 		if val != nil && (!goja.IsUndefined(val) || !goja.IsNull(val)) {
 			t.Fatalf("object with name %s is already defined", k)
 		}

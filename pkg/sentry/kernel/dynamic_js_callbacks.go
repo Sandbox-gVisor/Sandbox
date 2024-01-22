@@ -6,6 +6,7 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"strings"
+	"unicode"
 )
 
 func dynamicJsCallbackEntryPoint() string {
@@ -59,6 +60,7 @@ func (d *DynamicJsCallbackAfter) Info() callbacks.JsCallbackInfo {
 func fillJsCallbackInfoForDynamicCallback(info callbacks.JsCallbackInfo, body string) callbacks.JsCallbackInfo {
 	info.CallbackBody = body
 	info.CallbackSource = body
+
 	_, after, ok := strings.Cut(body, "function")
 	if !ok {
 		return *unknownCallback(uintptr(info.Sysno), info.Type)
@@ -69,11 +71,24 @@ func fillJsCallbackInfoForDynamicCallback(info callbacks.JsCallbackInfo, body st
 		return *unknownCallback(uintptr(info.Sysno), info.Type)
 	}
 	info.EntryPoint = strings.TrimSpace(splited[0])
+
 	splited = strings.SplitN(splited[1], ")", 2)
 	if len(splited) != 2 {
 		return info
 	}
-	args := strings.Split(splited[0], ",")
+
+	gluedArgsBuilder := strings.Builder{}
+	for r := range splited[0] {
+		ru := rune(r)
+		if !unicode.IsSpace(ru) && !unicode.IsControl(ru) {
+			_, _ = gluedArgsBuilder.WriteRune(ru)
+		}
+	}
+	gluedArgs := gluedArgsBuilder.String()
+	if gluedArgs == "" {
+		return info
+	}
+	args := strings.Split(gluedArgs, ",")
 	info.CallbackArgs = make([]string, 0)
 	for i := 0; i < len(args); i++ {
 		cleanedArg := strings.Trim(args[i], "\t ,\n")
