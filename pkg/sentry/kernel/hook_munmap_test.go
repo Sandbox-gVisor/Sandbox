@@ -28,7 +28,7 @@ func TestMunmapHook_withMoreArgs_Fails(t *testing.T) {
 
 var munmapHookWithNull1Arg = `
 	function cb() {
-		hooks.munmap(null, "hello")
+		hooks.munmap(null, 10)
 	}
 `
 
@@ -40,7 +40,7 @@ func TestMunmapHook_withNull1Arg_Fails(t *testing.T) {
 
 var munmapHookWithUndefined1Arg = `
 	function cb() {
-		hooks.munmap(undefined, "hello")
+		hooks.munmap(undefined, 10)
 	}
 `
 
