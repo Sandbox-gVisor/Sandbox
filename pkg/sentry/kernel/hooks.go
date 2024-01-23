@@ -190,22 +190,22 @@ func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) er
 // New hooks should be registered here and in ./hooks_test.go in prepareSetOf...Hooks.
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
+		&AnonMmapHook{},
 		&FDHook{},
 		&FDsHook{},
 		&ArgvHook{},
 		&EnvvGetterHook{},
 		&MmapGetterHook{},
+		&MunmapHook{},
 		&PidInfoHook{},
 		&ReadBytesHook{},
 		&ReadStringHook{},
-		&AnonMmapHook{},
-		&MunmapHook{},
 		&SignalSendingHook{},
 		&ThreadsStoppingHook{},
 		&ThreadsResumingHook{},
 		&ThreadInfoHook{},
 		&SignalInfoHook{},
-		&UserJSONLogHook{},
+		&UserJSONLogHook{}, // now there is no test file
 		&WriteBytesHook{},
 		&WriteStringHook{},
 	}
