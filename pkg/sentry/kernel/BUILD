@@ -461,6 +461,7 @@ go_test(
         "hook_sendsignal_test.go",
         "hook_signalinfo_test.go",
         "hook_stopthreads_test.go",
+        "hook_threadinfo_test.go",
         "hook_writebytes_test.go",
         "hook_writestring_test.go",
 
