@@ -450,6 +450,7 @@ go_test(
         "sigmask2names_test.go",
         "signalbyname_test.go",
         "print_test.go",
+        "readbytes_test.go",
         "writebytes_test.go",
     ],
     library = ":kernel",
