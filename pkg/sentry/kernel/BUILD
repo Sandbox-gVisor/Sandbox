@@ -448,6 +448,7 @@ go_test(
 
         # dependent hooks
         "hook_getenvs_test.go",
+        "hook_getmmaps_test.go",
         "hook_readbytes_test.go",
         "hook_readstring_test.go",
         "hook_writebytes_test.go",
