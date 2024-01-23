@@ -447,6 +447,7 @@ go_test(
         "hooks_impl_test.go",
 
         # dependent hooks
+        "hook_anonmmap_test.go",
         "hook_fd_test.go",
         "hook_fds_test.go",
         "hook_getargv_test.go",

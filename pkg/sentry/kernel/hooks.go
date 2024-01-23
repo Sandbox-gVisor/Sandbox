@@ -198,7 +198,6 @@ func RegisterHooks(cb *HooksTable) error {
 		&PidInfoHook{},
 		&ReadBytesHook{},
 		&ReadStringHook{},
-		&UserJSONLogHook{},
 		&AnonMmapHook{},
 		&MunmapHook{},
 		&SignalSendingHook{},
@@ -206,6 +205,7 @@ func RegisterHooks(cb *HooksTable) error {
 		&ThreadsResumingHook{},
 		&ThreadInfoHook{},
 		&SignalInfoHook{},
+		&UserJSONLogHook{},
 		&WriteBytesHook{},
 		&WriteStringHook{},
 	}
