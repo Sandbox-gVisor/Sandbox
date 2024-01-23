@@ -23,13 +23,13 @@ func testBuildContexts() ScriptContexts {
 //
 // Notes:
 //
-//   - cbSource should be like below (function name is cb, no params)
+//		cbSource should be like below (function name is cb, no params)
 //
-//     var cbSource = `
-//     function cb() {
-//     // here code that use hooks and should fail with error
-//     }
-//     `
+//	    var cbSource = `
+//	    function cb() {
+//	    	// here code that use hooks and should fail with error
+//	    }
+//	    `
 func testThatCbFailsWithErr(t *testing.T, cbSource string, failMessage string) {
 	testInitJsRuntime()
 	defer testDestroyJsRuntime()
