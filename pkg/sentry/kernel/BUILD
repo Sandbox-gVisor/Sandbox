@@ -457,8 +457,10 @@ go_test(
         "hook_pidinfo_test.go",
         "hook_readbytes_test.go",
         "hook_readstring_test.go",
+        "hook_resumethreads_test.go",
         "hook_sendsignal_test.go",
         "hook_signalinfo_test.go",
+        "hook_stopthreads_test.go",
         "hook_writebytes_test.go",
         "hook_writestring_test.go",
 

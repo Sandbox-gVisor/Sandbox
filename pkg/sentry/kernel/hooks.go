@@ -200,11 +200,11 @@ func RegisterHooks(cb *HooksTable) error {
 		&PidInfoHook{},
 		&ReadBytesHook{},
 		&ReadStringHook{},
-		&SignalSendingHook{},
-		&ThreadsStoppingHook{},
 		&ThreadsResumingHook{},
+		&SignalSendingHook{},
 		&ThreadInfoHook{},
 		&SignalInfoHook{},
+		&ThreadsStoppingHook{},
 		&UserJSONLogHook{}, // now there is no test file
 		&WriteBytesHook{},
 		&WriteStringHook{},

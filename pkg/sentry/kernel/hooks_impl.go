@@ -769,6 +769,10 @@ func (hook *ThreadsStoppingHook) jsName() string {
 
 func (hook *ThreadsStoppingHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
 		t.stopOtherThreadsInTg()
 		return nil, nil
 	}
@@ -792,6 +796,10 @@ func (hook *ThreadsResumingHook) jsName() string {
 
 func (hook *ThreadsResumingHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
 		t.resumeOtherThreadsInTg()
 		return nil, nil
 	}
