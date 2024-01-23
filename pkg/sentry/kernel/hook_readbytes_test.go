@@ -70,6 +70,6 @@ var readBytesHookWithUndefined2Arg = `
 
 func TestReadBytesHook_withUndefined2Arg_Fails(t *testing.T) {
 	testThatCbFailsWithErr(
-		t, writeBytesHookWithUndefined2Arg,
+		t, readBytesHookWithUndefined2Arg,
 		"no error for hook when 2 arg is undefined")
 }
