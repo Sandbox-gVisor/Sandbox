@@ -445,13 +445,18 @@ go_test(
         "scripts_test.go",
         "hooks_test.go",
         "hooks_impl_test.go",
-        "addcbafter_test.go",
-        "addcbbefore_test.go",
-        "sigmask2names_test.go",
-        "signalbyname_test.go",
-        "print_test.go",
-        "readbytes_test.go",
-        "writebytes_test.go",
+
+        # dependent hooks
+        "hook_readbytes_test.go",
+        "hook_writebytes_test.go",
+
+        # independent hooks
+        "hook_addcbafter_test.go",
+        "hook_addcbbefore_test.go",
+        "hook_print_test.go",
+        "hook_sigmask2names_test.go",
+        "hook_signalbyname_test.go",
+
     ],
     library = ":kernel",
     deps = [

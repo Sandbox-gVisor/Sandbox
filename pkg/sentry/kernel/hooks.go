@@ -191,9 +191,7 @@ func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) er
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
 		&ReadBytesHook{},
-		&WriteBytesHook{},
 		&ReadStringHook{},
-		&WriteStringHook{},
 		&EnvvGetterHook{},
 		&MmapGetterHook{},
 		&ArgvHook{},
@@ -208,14 +206,16 @@ func RegisterHooks(cb *HooksTable) error {
 		&ThreadsStoppingHook{},
 		&ThreadsResumingHook{},
 		&ThreadInfoHook{},
+		&WriteBytesHook{},
+		&WriteStringHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{
-		&PrintHook{},
-		&AddCbBeforeHook{},
 		&AddCbAfterHook{},
-		&SignalByNameHook{},
+		&AddCbBeforeHook{},
+		&PrintHook{},
 		&SignalMaskToSignalNamesHook{},
+		&SignalByNameHook{},
 	}
 
 	for _, hook := range dependentGoHooks {
