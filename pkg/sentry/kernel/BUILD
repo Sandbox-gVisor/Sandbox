@@ -450,6 +450,7 @@ go_test(
         "hook_readbytes_test.go",
         "hook_readstring_test.go",
         "hook_writebytes_test.go",
+        "hook_writestring_test.go",
 
         # independent hooks
         "hook_addcbafter_test.go",
