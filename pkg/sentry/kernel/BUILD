@@ -450,6 +450,7 @@ go_test(
         "hook_getargv_test.go",
         "hook_getenvs_test.go",
         "hook_getmmaps_test.go",
+        "hook_pidinfo_test.go",
         "hook_readbytes_test.go",
         "hook_readstring_test.go",
         "hook_signalinfo_test.go",
