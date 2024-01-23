@@ -206,8 +206,7 @@ func (g GetHooksInfoCommand) execute(_ *Kernel, _ []byte) (any, error) {
 // change state command
 
 type ChangeStateRequestDto struct {
-	EntryPoint string `json:"entry-point"`
-	Source     string `json:"source"`
+	Source string `json:"source"`
 }
 
 type ChangeStateCommand struct{}
