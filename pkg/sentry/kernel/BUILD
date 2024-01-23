@@ -445,6 +445,7 @@ go_test(
         "scripts_test.go",
         "hooks_test.go",
         "hooks_impl_test.go",
+        "cmd_table_test.go",
 
         # dependent hooks
         "hook_anonmmap_test.go",
