@@ -27,6 +27,8 @@ func (r *countingReceiver) NotifyInterrupt() {
 	r.interrupts++
 }
 
+func (r *countingReceiver) NotifyInterruptAndWait() {}
+
 func TestSingleInterruptBeforeEnable(t *testing.T) {
 	var (
 		f Forwarder

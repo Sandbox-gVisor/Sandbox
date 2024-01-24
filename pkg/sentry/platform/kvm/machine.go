@@ -709,6 +709,10 @@ func (c *vCPU) bounce(forceGuestExit bool) {
 	}
 }
 
+func (c *vCPU) NotifyInterruptAndWait() {
+	c.NotifyInterrupt()
+}
+
 // BounceToKernel ensures that the vCPU bounces back to the kernel.
 //
 //go:nosplit

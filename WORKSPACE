@@ -397,8 +397,8 @@ go_repository(
 go_repository(
     name = "com_github_prometheus_procfs",
     importpath = "github.com/prometheus/procfs",
-    sum = "h1:mxy4L2jP6qMonqmq+aTtOx1ifVWUgG/TAmntgbh3xv4=",
-    version = "v0.6.0",
+    sum = "h1:jluTpSng7V9hY0O2R9DzzJHYb2xULk9VTR1V1R/k6Bo=",
+    version = "v0.12.0",
 )
 
 go_repository(
@@ -3317,7 +3317,6 @@ go_repository(
     version = "v0.0.0-20230707174833-636fdf960de1",
     sum = "h1:sC/DYk3eEi5cKkpJX1vl+CpAM138dmuW7rutje9Eo4E=",
 )
-
 
 #go_repository(
 #    name = "github_com_dop251_goja_nodejs",

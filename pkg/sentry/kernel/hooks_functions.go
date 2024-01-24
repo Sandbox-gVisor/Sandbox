@@ -303,12 +303,12 @@ func Unmap(t *Task, addr uintptr, length uintptr) error {
 }
 
 // SendSignalToTaskWithID has similar logic to kill implementation (may be found in pkg/sentry/syscalls/linux/sys_signal.go)
-func SendSignalToTaskWithID(t *Task, pid ThreadID, sig linux.Signal) error {
+func SendSignalToTaskWithID(t *Task, tid ThreadID, sig linux.Signal) error {
 	if !sig.IsValid() {
 		return fmt.Errorf("bad signal number")
 	}
 
-	target := t.PIDNamespace().TaskWithID(pid)
+	target := t.PIDNamespace().TaskWithID(tid)
 
 	if target == nil {
 		return linuxerr.ESRCH
@@ -323,4 +323,19 @@ func SendSignalToTaskWithID(t *Task, pid ThreadID, sig linux.Signal) error {
 	info.SetUID(int32(t.Credentials().RealKUID.In(t.UserNamespace()).OrOverflow()))
 
 	return target.SendSignal(info)
+}
+
+func fillThreadInfoDto(t *Task) ThreadInfoDto {
+	tids := make([]int32, 0)
+	for thread := t.tg.tasks.Front(); thread != nil; thread = thread.Next() {
+		tids = append(tids, int32(t.tg.pidns.tids[thread]))
+	}
+
+	dto := ThreadInfoDto{
+		TID:      int32(t.tg.pidns.tids[t]),
+		TGID:     int32(t.tg.pidns.tgids[t.tg]),
+		TIDsInTg: tids,
+	}
+
+	return dto
 }

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// DependentHooks impls
+// dependentHooks impls
 
 type PrintHook struct{}
 
@@ -27,7 +27,7 @@ func (ph *PrintHook) jsName() string {
 	return "print"
 }
 
-func (ph *PrintHook) createCallBack() HookCallback {
+func (ph *PrintHook) createCallback() HookCallback {
 	return func(args ...goja.Value) (_ interface{}, err error) {
 		strs := make([]string, len(args))
 
@@ -70,7 +70,7 @@ func (hook *WriteBytesHook) jsName() string {
 	return "writeBytes"
 }
 
-func (hook *WriteBytesHook) createCallBack(t *Task) HookCallback {
+func (hook *WriteBytesHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := GetJsRuntime()
@@ -115,7 +115,7 @@ func (hook *ReadBytesHook) jsName() string {
 	return "readBytes"
 }
 
-func (hook *ReadBytesHook) createCallBack(t *Task) HookCallback {
+func (hook *ReadBytesHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := GetJsRuntime()
@@ -161,7 +161,7 @@ func (hook *WriteStringHook) jsName() string {
 	return "writeString"
 }
 
-func (hook *WriteStringHook) createCallBack(t *Task) HookCallback {
+func (hook *WriteStringHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := GetJsRuntime()
@@ -206,7 +206,7 @@ func (hook *ReadStringHook) jsName() string {
 	return "readString"
 }
 
-func (hook *ReadStringHook) createCallBack(t *Task) HookCallback {
+func (hook *ReadStringHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := GetJsRuntime()
@@ -250,7 +250,7 @@ func (hook *EnvvGetterHook) jsName() string {
 	return "getEnvs"
 }
 
-func (hook *EnvvGetterHook) createCallBack(t *Task) HookCallback {
+func (hook *EnvvGetterHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -283,7 +283,7 @@ func (hook *MmapGetterHook) jsName() string {
 	return "getMmaps"
 }
 
-func (hook *MmapGetterHook) createCallBack(t *Task) HookCallback {
+func (hook *MmapGetterHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -310,7 +310,7 @@ func (hook *ArgvHook) jsName() string {
 	return "getArgv"
 }
 
-func (hook *ArgvHook) createCallBack(t *Task) HookCallback {
+func (hook *ArgvHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -361,7 +361,7 @@ type SignalMaskDto struct {
 	SigActions      []linux.SigActionDto `json:"sigActions"`
 }
 
-func (hook *SignalInfoHook) createCallBack(t *Task) HookCallback {
+func (hook *SignalInfoHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -413,7 +413,7 @@ type PidDto struct {
 	Session SessionDTO `json:"session"`
 }
 
-func (hook *PidInfoHook) createCallBack(t *Task) HookCallback {
+func (hook *PidInfoHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		if len(args) != 0 {
@@ -446,7 +446,7 @@ func (hook *UserJSONLogHook) description() HookInfoDto {
 	}
 }
 
-func (hook *UserJSONLogHook) createCallBack(t *Task) HookCallback {
+func (hook *UserJSONLogHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, util.ArgsCountMismatchError(1, len(args))
@@ -500,7 +500,7 @@ func (hook *FDsHook) jsName() string {
 	return "getFdsInfo"
 }
 
-func (hook *FDsHook) createCallBack(t *Task) HookCallback {
+func (hook *FDsHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		if len(args) != 0 {
 			return nil, util.ArgsCountMismatchError(0, len(args))
@@ -539,7 +539,7 @@ func (hook *FDHook) jsName() string {
 	return "getFdInfo"
 }
 
-func (hook *FDHook) createCallBack(t *Task) HookCallback {
+func (hook *FDHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, util.ArgsCountMismatchError(1, len(args))
@@ -577,7 +577,7 @@ func (m AnonMmapHook) jsName() string {
 	return "anonMmap"
 }
 
-func (m AnonMmapHook) createCallBack(t *Task) HookCallback {
+func (m AnonMmapHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		runtime := GetJsRuntime()
 		if len(args) != 1 {
@@ -614,7 +614,7 @@ func (m MunmapHook) jsName() string {
 	return "munmap"
 }
 
-func (m MunmapHook) createCallBack(t *Task) HookCallback {
+func (m MunmapHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		runtime := GetJsRuntime()
 		if len(args) != 2 {
@@ -652,7 +652,7 @@ func (s SignalByNameHook) jsName() string {
 	return "nameToSignal"
 }
 
-func (s SignalByNameHook) createCallBack() HookCallback {
+func (s SignalByNameHook) createCallback() HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		runtime := GetJsRuntime()
 		if len(args) != 1 {
@@ -688,7 +688,7 @@ func (s SignalMaskToSignalNamesHook) jsName() string {
 	return "signalMaskToNames"
 }
 
-func (s SignalMaskToSignalNamesHook) createCallBack() HookCallback {
+func (s SignalMaskToSignalNamesHook) createCallback() HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		runtime := GetJsRuntime()
 		if len(args) != 1 {
@@ -710,8 +710,8 @@ type SignalSendingHook struct{}
 func (s SignalSendingHook) description() HookInfoDto {
 	return HookInfoDto{
 		Name:        s.jsName(),
-		Description: "Sends the given signal to task with given pid",
-		Args: "\npid\tnumber\t(pid of the task to send signal);\n" +
+		Description: "Sends the given signal to task with given tid",
+		Args: "\ntid\tnumber\t(id of the task to send signal);\n" +
 			"signo\tnumber\t(the number of the signal to send);\n",
 		ReturnValue: "null\n",
 	}
@@ -721,7 +721,7 @@ func (s SignalSendingHook) jsName() string {
 	return "sendSignal"
 }
 
-func (s SignalSendingHook) createCallBack(t *Task) HookCallback {
+func (s SignalSendingHook) createCallback(t *Task) HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 
 		runtime := GetJsRuntime()
@@ -751,6 +751,111 @@ func (s SignalSendingHook) createCallBack(t *Task) HookCallback {
 	}
 }
 
+// ThreadsStoppingHook is used for stopping all threads except the caller
+type ThreadsStoppingHook struct{}
+
+func (hook *ThreadsStoppingHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Stops all threads except the caller. May be useful for preventing TOCTOU attack.",
+		Args:        "\nno args;\n",
+		ReturnValue: "null\n",
+	}
+}
+
+func (hook *ThreadsStoppingHook) jsName() string {
+	return "stopThreads"
+}
+
+func (hook *ThreadsStoppingHook) createCallback(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		t.stopOtherThreadsInTg()
+		return nil, nil
+	}
+}
+
+// ThreadsResumingHook should be used after ThreadsStoppingHook to resume stopped threads
+type ThreadsResumingHook struct{}
+
+func (hook *ThreadsResumingHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Resume threads stopped by `stopThreads`.",
+		Args:        "\nno args;\n",
+		ReturnValue: "null\n",
+	}
+}
+
+func (hook *ThreadsResumingHook) jsName() string {
+	return "resumeThreads"
+}
+
+func (hook *ThreadsResumingHook) createCallback(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+		if len(args) != 0 {
+			return nil, util.ArgsCountMismatchError(0, len(args))
+		}
+
+		t.resumeOtherThreadsInTg()
+		return nil, nil
+	}
+}
+
+type ThreadInfoHook struct{}
+
+func (hook *ThreadInfoHook) description() HookInfoDto {
+	return HookInfoDto{
+		Name:        hook.jsName(),
+		Description: "Provides TID, TGID (PID) and list of other TIDs in thread group.",
+		Args: "\nno args;\n" +
+			"or\n" +
+			"tid\tnumber\t(thread id to get info);\n",
+		ReturnValue: "ThreadInfoDto json \n" +
+			"{\n" +
+			"\tTID number,\n" +
+			"\tTGID number (same as PID of process to which thread is related),\n" +
+			"\tTIDsInTg []number (array of other PGIDS in session)\n" +
+			"};\n",
+	}
+}
+
+func (hook *ThreadInfoHook) jsName() string {
+	return "getThreadInfo"
+}
+
+type ThreadInfoDto struct {
+	TID      int32
+	TGID     int32
+	TIDsInTg []int32 `json:"TIDsInTg"`
+}
+
+func (hook *ThreadInfoHook) createCallback(t *Task) HookCallback {
+	return func(args ...goja.Value) (interface{}, error) {
+
+		if len(args) > 1 {
+			return nil, util.ArgsCountMismatchError(1, len(args))
+		} else if len(args) == 0 {
+			return fillThreadInfoDto(t), nil
+		} else {
+			runtime := GetJsRuntime()
+			val, err := util.ExtractInt64FromValue(runtime.JsVM, args[0])
+			if err != nil {
+				return nil, err
+			}
+			tid := ThreadID(val)
+			task := t.tg.pidns.tasks[tid]
+			if task == nil {
+				return nil, fmt.Errorf("no such task")
+			}
+			return fillThreadInfoDto(task), nil
+		}
+	}
+}
+
 // hooks for dynamic callback registration
 
 type AddCbBeforeHook struct{}
@@ -769,7 +874,7 @@ func (a AddCbBeforeHook) jsName() string {
 	return "AddCbBefore"
 }
 
-func (a AddCbBeforeHook) createCallBack() HookCallback {
+func (a AddCbBeforeHook) createCallback() HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
@@ -781,10 +886,14 @@ func (a AddCbBeforeHook) createCallBack() HookCallback {
 			return nil, err
 		}
 
+		if goja.IsNull(args[1]) || goja.IsUndefined(args[1]) {
+			return nil, util.ErrNullOrUndefined
+		}
+
 		cbObj := args[1].ToObject(runtime.JsVM)
 		table := runtime.callbackTable
 
-		info := *unknownCallback(sysno, "before")
+		info := *unknownCallback(sysno, JsCallbackTypeBefore)
 		info = fillJsCallbackInfoForDynamicCallback(info, cbObj.String())
 
 		err = table.registerCallbackBefore(sysno, &DynamicJsCallbackBefore{CallbackInfo: info, Holder: cbObj})
@@ -808,7 +917,7 @@ func (a AddCbAfterHook) jsName() string {
 	return "AddCbAfter"
 }
 
-func (a AddCbAfterHook) createCallBack() HookCallback {
+func (a AddCbAfterHook) createCallback() HookCallback {
 	return func(args ...goja.Value) (interface{}, error) {
 		if len(args) != 2 {
 			return nil, util.ArgsCountMismatchError(2, len(args))
@@ -820,10 +929,14 @@ func (a AddCbAfterHook) createCallBack() HookCallback {
 			return nil, err
 		}
 
+		if goja.IsNull(args[1]) || goja.IsUndefined(args[1]) {
+			return nil, util.ErrNullOrUndefined
+		}
+
 		cbObj := args[1].ToObject(runtime.JsVM)
 		table := runtime.callbackTable
 
-		info := *unknownCallback(sysno, "after")
+		info := *unknownCallback(sysno, JsCallbackTypeAfter)
 		info = fillJsCallbackInfoForDynamicCallback(info, cbObj.String())
 
 		err = table.registerCallbackAfter(sysno, &DynamicJsCallbackAfter{CallbackInfo: info, Holder: cbObj})

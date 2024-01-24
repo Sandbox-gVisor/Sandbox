@@ -275,6 +275,9 @@ type Context interface {
 	// PrepareSleep() is called when the tread switches to the
 	// interruptible sleep state.
 	PrepareSleep()
+
+	// InterruptAndWait works like Interrupt, but also waits for thread to stop
+	InterruptAndWait()
 }
 
 var (

@@ -67,14 +67,17 @@ Some API functions have object as return value. The structure of such objects yo
 | getMmaps          | -                                       | `string`                 | **Returns** string, that represents mappings of the task (looks like mappings from procfs)                             |
 | getPidInfo        | -                                       | `object (PidInfoDto)`    | **Returns** the dto, which provides info about task's PID, GID, UID, session                                           |
 | getSignalInfo     | -                                       | `object (SignalInfoDto)` | **Returns** the dto, which provides info about task's signal masks and sigactions                                      |
+| getThreadInfo     | - <br/> **or** <br/> tid `number`       | `object (ThreadInfoDto)` | **Returns** the dto, which provides TID, TGID (PID) and list of other TIDs in thread group.                            |
 | logJson           | msg `any`                               | `null`                   | Sends the given **msg** to log socket                                                                                  |
 | munmap            | addr `number`<br/> length `number`      | `null`                   | Delete the mappings from the specified address range by given **addr** and **length** of the region                    |
 | nameToSignal      | name `string`                           | `number`                 | **Returns** the number of the signal by provided **name**                                                              |
 | print             | msgs `...any`                           | `null`                   | Prints all the given **msgs**                                                                                          |
 | readBytes         | addr `number`<br/> count `number`       | `ArrayBuffer`            | Reads **count** bytes from memory by given **addr**. **Returns** the bytes read                                        |
 | readString        | addr `number`<br/> count `number`       | `string`                 | Reads the string (string.length <= **count**) by given **addr**. **Returns** the read string                           |
-| sendSignal        | pid `number`<br/> signo `number`        | `null`                   | Sends to task with pid == **pid** the signal with number **signo**                                                     |
+| resumeThreads     | -                                       | `null`                   | Resume threads stopped by `stopThreads`.                                                                               |
+| sendSignal        | tid `number`<br/> signo `number`        | `null`                   | Sends to task with tid == **tid** the signal with number **signo**                                                     |
 | signalMaskToNames | mask `number`                           | `[]string`               | Parses provided signal **mask** to signal names. **Returns** array of strings - names of signals specified in the mask |
+| stopThreads       | -                                       | `null`                   | Stop all threads except the caller. May be useful for preventing TOCTOU attack.                                        |
 | writeBytes        | addr `number`<br/> buffer `ArrayBuffer` | `number`                 | Writes to memory the given **buffer** by the given **addr**. **Returns** the amount of really written bytes            |
 | writeString       | addr `number`<br/> str `string`         | `number`                 | Writes the given **str** by given **addr**. **Returns** the amount of bytes really written                             |
 

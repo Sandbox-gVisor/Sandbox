@@ -305,11 +305,18 @@ go_library(
         "uts_namespace.go",
         "vdso.go",
         "version.go",
+
+        # our
         "callbacks.go",
+        "callback_table.go",
+        "js_callbacks.go",
+        "dynamic_js_callbacks.go",
         "hooks.go",
         "hooks_functions.go",
         "hooks_impl.go",
-        "runtime_cmd.go"
+        "runtime_cmd.go",
+        "threads_stop.go",
+        "scripts.go",
     ],
     imports = [
         "gvisor.dev/gvisor/pkg/bpf",
@@ -409,6 +416,7 @@ go_test(
         "table_test.go",
         "task_test.go",
         "timekeeper_test.go",
+        "callback_table_test.go",
     ],
     library = ":kernel",
     deps = [
@@ -425,5 +433,52 @@ go_test(
         "//pkg/sentry/usage",
         "//pkg/sentry/vfs",
         "//pkg/sync",
+        "//pkg/sentry/kernel/callbacks",
+    ],
+)
+
+go_test(
+    name = "callbacks_test",
+    size = "small",
+    srcs = [
+        "callback_table_test.go",
+        "scripts_test.go",
+        "hooks_test.go",
+        "hooks_impl_test.go",
+        "cmd_table_test.go",
+        "runtime_cmd_test.go",
+
+        # dependent hooks
+        "hook_anonmmap_test.go",
+        "hook_fd_test.go",
+        "hook_fds_test.go",
+        "hook_getargv_test.go",
+        "hook_getenvs_test.go",
+        "hook_getmmaps_test.go",
+        "hook_munmap_test.go",
+        "hook_pidinfo_test.go",
+        "hook_readbytes_test.go",
+        "hook_readstring_test.go",
+        "hook_resumethreads_test.go",
+        "hook_sendsignal_test.go",
+        "hook_signalinfo_test.go",
+        "hook_stopthreads_test.go",
+        "hook_threadinfo_test.go",
+        "hook_writebytes_test.go",
+        "hook_writestring_test.go",
+
+        # independent hooks
+        "hook_addcbafter_test.go",
+        "hook_addcbbefore_test.go",
+        "hook_print_test.go",
+        "hook_sigmask2names_test.go",
+        "hook_signalbyname_test.go",
+
+    ],
+    library = ":kernel",
+    deps = [
+        "//pkg/sentry/arch",
+        "//pkg/sentry/kernel/callbacks",
+        "@github_com_dop251_goja//:goja",
     ],
 )

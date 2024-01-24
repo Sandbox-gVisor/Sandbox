@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// Command is the interface used to configure DependentHooks
+// Command is the interface used to configure dependentHooks
 type Command interface {
 	name() string
 
@@ -176,7 +176,7 @@ func handleConnection(kernel *Kernel, conn net.Conn) {
 	}
 }
 
-// DependentHooks info command
+// dependentHooks info command
 
 type HooksInfoCommandResponse struct {
 	HooksInfo []HookInfoDto `json:"hooks"`
@@ -206,8 +206,7 @@ func (g GetHooksInfoCommand) execute(_ *Kernel, _ []byte) (any, error) {
 // change state command
 
 type ChangeStateRequestDto struct {
-	EntryPoint string `json:"entry-point"`
-	Source     string `json:"source"`
+	Source string `json:"source"`
 }
 
 type ChangeStateCommand struct{}
@@ -263,7 +262,7 @@ func unknownCallback(sysno uintptr, cbType string) *callbacks.JsCallbackInfo {
 		EntryPoint:     "unknown",
 		CallbackSource: "unknown",
 		CallbackBody:   "unknown",
-		CallbackArgs:   nil,
+		CallbackArgs:   make([]string, 0),
 		Type:           cbType,
 	}
 }

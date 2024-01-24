@@ -360,10 +360,10 @@ func initJsRuntime() *GojaRuntime {
 		panic(err)
 	}
 
-	// init DependentHooks table
+	// init dependentHooks table
 	table := &HooksTable{
-		DependentHooks:   map[string]TaskDependentGoHook{},
-		IndependentHooks: map[string]TaskIndependentGoHook{},
+		dependentHooks:   map[string]TaskDependentGoHook{},
+		independentHooks: map[string]TaskIndependentGoHook{},
 	}
 	if err := RegisterHooks(table); err != nil {
 		panic(err)
