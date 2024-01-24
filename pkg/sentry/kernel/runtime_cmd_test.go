@@ -154,3 +154,131 @@ func TestCallbacksListCommand_name(t *testing.T) {
 		t.Fatalf("wrong command name: got '%s', expected '%s'", cmd.name(), wantName)
 	}
 }
+
+var testCbList = []string{
+	`
+	function cb() {
+		a = 0
+		a += 1
+	}
+
+	hooks.AddCbBefore(1, cb)
+	`,
+	`
+	function cb() {
+		hooks.print("hello world")
+	}
+
+	hooks.AddCbBefore(2, cb)
+	`,
+	`
+	function after_22(_, arg_2) {
+		hooks.print(arg_2)
+	}
+	
+	function cb() {
+		a = 0
+		a += 1
+	}
+
+	hooks.AddCbAfter(22, after_22)
+	hooks.AddCbAfter(1, cb)
+	`,
+}
+
+func fillCmds(t *testing.T) {
+	for i, cbSrc := range testCbList {
+		reqDto := ChangeStateRequestDto{Source: cbSrc}
+		reqBytes, err := json.Marshal(reqDto)
+		if err != nil {
+			t.Fatalf("failed to marshal request dto for callback[%v] with err: %s", i, err)
+		}
+		var cmd Command = ChangeStateCommand{}
+		_, err = cmd.execute(nil, reqBytes)
+		if err != nil {
+			t.Fatalf("unexpected error while executing change state command for callback[%v]: %s", i, err)
+		}
+	}
+}
+
+func TestUnregisterCallbacksCommand_execute_withAllOption(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+	fillCmds(t)
+
+	cmd := UnregisterCallbacksCommand{}
+	req := UnregisterCallbacksRequest{
+		Options: UnregisterAllOption,
+		List:    nil,
+	}
+	reqDtoBytes, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal unregister callback request dto with err: %s", err)
+	}
+	res, err := cmd.execute(nil, reqDtoBytes)
+	if err != nil {
+		t.Fatalf("unexpected error while executing unregister command: %s", err)
+	}
+	if res != nil {
+		t.Fatalf("expected nil result")
+	}
+	if len(jsRuntime.callbackTable.callbackBefore) != 0 {
+		t.Fatalf("not all callbacks before were unregistered")
+	}
+	if len(jsRuntime.callbackTable.callbackAfter) != 0 {
+		t.Fatalf("not all callbacks after were unregistered")
+	}
+}
+
+func TestUnregisterCallbacksCommand_execute_withListOption(t *testing.T) {
+	testInitJsRuntime()
+	defer testDestroyJsRuntime()
+	fillCmds(t)
+
+	cmd := UnregisterCallbacksCommand{}
+	req := UnregisterCallbacksRequest{
+		Options: UnregisterListOption,
+		List: []UnregisterCallbackDto{
+			{Sysno: 22, Type: JsCallbackTypeBefore},
+			{Sysno: 1, Type: JsCallbackTypeBefore},
+		},
+	}
+	reqDtoBytes, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal unregister callback request dto with err: %s", err)
+	}
+	res, err := cmd.execute(nil, reqDtoBytes)
+	if err == nil {
+		t.Fatalf("expected error for tring to delete not existing callback")
+	}
+
+	req.List[0].Type = JsCallbackTypeAfter
+	reqDtoBytes, err = json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal unregister callback request dto with err: %s", err)
+	}
+	res, err = cmd.execute(nil, reqDtoBytes)
+	if err != nil {
+		t.Fatalf("unexpected error while executing unregister callbacks command: %s", err)
+	}
+	if res != nil {
+		t.Fatalf("expected nil result")
+	}
+	cbBeforeCount := len(jsRuntime.callbackTable.callbackBefore)
+	if cbBeforeCount != 1 {
+		t.Fatalf("wrong number of callbacks before: got %v, expected 1", cbBeforeCount)
+	}
+	cbAfterCount := len(jsRuntime.callbackTable.callbackAfter)
+	if cbAfterCount != 1 {
+		t.Fatalf("wrong number of callbacks after: got %v, expected 1", cbAfterCount)
+	}
+}
+
+func TestUnregisterCallbacksCommand_name(t *testing.T) {
+	cmd := UnregisterCallbacksCommand{}
+	wantName := "unregister-callbacks"
+
+	if cmd.name() != wantName {
+		t.Fatalf("wrong command name: got '%s', expected '%s'", cmd.name(), wantName)
+	}
+}
