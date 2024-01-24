@@ -30,3 +30,5 @@ jobs:
         run: ./bin/runsc -strace --rootless --network=host --debug do bash
       - id: exit_from_gvisor
         run: exit
+      - id: test_callbacks
+        run: make test TARGETS="//pkg/sentry/kernel:callbacks_test"

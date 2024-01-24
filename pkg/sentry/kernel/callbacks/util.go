@@ -11,6 +11,10 @@ import (
 	"sync"
 )
 
+var (
+	ErrNullOrUndefined = errors.New("value is null or undefined")
+)
+
 type Flag struct {
 	mutex sync.Mutex
 	flag  bool
@@ -47,6 +51,9 @@ func ArgsCountMismatchError(expected int, provided int) error {
 
 func ExtractPtrFromValue(vm *goja.Runtime, value goja.Value) (uintptr, error) {
 	var ptr int64
+	if goja.IsUndefined(value) || goja.IsNull(value) {
+		return 0, ErrNullOrUndefined
+	}
 	err := vm.ExportTo(value, &ptr)
 	if err != nil {
 		return 0, err
@@ -57,6 +64,9 @@ func ExtractPtrFromValue(vm *goja.Runtime, value goja.Value) (uintptr, error) {
 
 func ExtractInt64FromValue(vm *goja.Runtime, value goja.Value) (int64, error) {
 	var ret int64
+	if goja.IsUndefined(value) || goja.IsNull(value) {
+		return 0, ErrNullOrUndefined
+	}
 	err := vm.ExportTo(value, &ret)
 	if err != nil {
 		return 0, err
@@ -67,6 +77,9 @@ func ExtractInt64FromValue(vm *goja.Runtime, value goja.Value) (int64, error) {
 
 func ExtractByteBufferFromValue(vm *goja.Runtime, value goja.Value) ([]byte, error) {
 	var arrBuf []byte
+	if goja.IsUndefined(value) || goja.IsNull(value) {
+		return nil, ErrNullOrUndefined
+	}
 	err := vm.ExportTo(value, &arrBuf)
 	if err != nil {
 		return nil, err
@@ -77,6 +90,9 @@ func ExtractByteBufferFromValue(vm *goja.Runtime, value goja.Value) ([]byte, err
 
 func ExtractStringFromValue(vm *goja.Runtime, value goja.Value) (string, error) {
 	var ret string
+	if goja.IsUndefined(value) || goja.IsNull(value) {
+		return "", ErrNullOrUndefined
+	}
 	err := vm.ExportTo(value, &ret)
 	if err != nil {
 		return "", err

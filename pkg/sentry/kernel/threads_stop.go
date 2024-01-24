@@ -1,7 +1,10 @@
 package kernel
 
 func (t *Task) stopOtherThreadsInTg() {
-	selfTID := t.tg.pidns.tids[t]
+	if t == nil {
+		return
+	}
+	selfTID := t.ThreadID()
 
 	t.tg.pidns.owner.mu.RLock()
 	defer t.tg.pidns.owner.mu.RUnlock()
@@ -17,7 +20,10 @@ func (t *Task) stopOtherThreadsInTg() {
 }
 
 func (t *Task) resumeOtherThreadsInTg() {
-	selfTID := t.tg.pidns.tids[t]
+	if t == nil {
+		return
+	}
+	selfTID := t.ThreadID()
 
 	t.tg.pidns.owner.mu.RLock()
 	defer t.tg.pidns.owner.mu.RUnlock()

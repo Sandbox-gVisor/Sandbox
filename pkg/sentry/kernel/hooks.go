@@ -1,12 +1,15 @@
 package kernel
 
 import (
+	"cmp"
 	"errors"
 	"github.com/dop251/goja"
+	"slices"
+	"strings"
 	"sync"
 )
 
-// HookCallback is signature of DependentHooks that are called from user`s js callback
+// HookCallback is signature of dependentHooks that are called from user`s js callback
 type HookCallback func(...goja.Value) (interface{}, error)
 
 // HookInfoDto is used to describe the hook: it's name, arguments, return value and description (what hook do)
@@ -25,7 +28,7 @@ type HookInfoDto struct {
 	ReturnValue string `json:"return-value"`
 }
 
-// GoHook is an interface for DependentHooks, that user can call from js callback
+// GoHook is an interface for dependentHooks, that user can call from js callback
 type GoHook interface {
 	// description should provide ingo about hook in the HookInfoDto
 	description() HookInfoDto
@@ -34,16 +37,16 @@ type GoHook interface {
 	jsName() string
 }
 
-// TaskIndependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with/without task
+// TaskIndependentGoHook is an interface for hooks, that user can call from js callback when cb run with/without task
 type TaskIndependentGoHook interface {
 	GoHook
-	createCallBack() HookCallback
+	createCallback() HookCallback
 }
 
-// TaskDependentGoHook is an interface for DependentHooks, that user can call from js callback when cb run with task
+// TaskDependentGoHook is an interface for hooks, that user can call from js callback when cb run with task
 type TaskDependentGoHook interface {
 	GoHook
-	createCallBack(*Task) HookCallback
+	createCallback(*Task) HookCallback
 }
 
 // disposableDecorator is used to prevent deadlocks when same callback is called twice
@@ -59,7 +62,7 @@ func disposableDecorator(callback HookCallback) HookCallback {
 	}
 }
 
-// GoHookDecorator added for future restrictions of DependentHooks
+// GoHookDecorator added for future restrictions of dependentHooks
 type GoHookDecorator struct {
 	wrapped TaskDependentGoHook
 }
@@ -72,40 +75,40 @@ func (decorator *GoHookDecorator) jsName() string {
 	return decorator.wrapped.jsName()
 }
 
-func (decorator *GoHookDecorator) createCallBack(t *Task) HookCallback {
-	cb := decorator.wrapped.createCallBack(t)
+func (decorator *GoHookDecorator) createCallback(t *Task) HookCallback {
+	cb := decorator.wrapped.createCallback(t)
 	return disposableDecorator(cb)
 }
 
-// HooksTable user`s js callback takes DependentHooks from this table before execution.
+// HooksTable user`s js callback takes Dependent (and/or Independent) Hooks from this table before execution.
 // Hooks from the table can be used by user in his js code to get / modify data
 type HooksTable struct {
-	DependentHooks   map[string]TaskDependentGoHook
-	IndependentHooks map[string]TaskIndependentGoHook
+	dependentHooks   map[string]TaskDependentGoHook
+	independentHooks map[string]TaskIndependentGoHook
 	mutex            sync.Mutex
 }
 
 func (ht *HooksTable) registerDependentHook(hook TaskDependentGoHook) error {
 	if ht == nil {
-		return errors.New("DependentHooks table is nil")
+		return errors.New("dependentHooks table is nil")
 	}
 
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	ht.DependentHooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
+	ht.dependentHooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
 	return nil
 }
 
 func (ht *HooksTable) registerIndependentHook(hook TaskIndependentGoHook) error {
 	if ht == nil {
-		return errors.New("DependentHooks table is nil")
+		return errors.New("dependentHooks table is nil")
 	}
 
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	ht.IndependentHooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
+	ht.independentHooks[hook.jsName()] = hook //&GoHookDecorator{wrapped: hook}
 	return nil
 }
 
@@ -117,7 +120,7 @@ func (ht *HooksTable) getDependentHook(hookName string) TaskDependentGoHook {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	f, ok := ht.DependentHooks[hookName]
+	f, ok := ht.dependentHooks[hookName]
 	if ok {
 		return f
 	} else {
@@ -131,26 +134,33 @@ func (ht *HooksTable) getCurrentHooks() []GoHook {
 	}
 
 	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
 
 	var hooks []GoHook
-	for _, hook := range ht.DependentHooks {
+	for _, hook := range ht.dependentHooks {
 		hooks = append(hooks, hook)
 	}
-	for _, hook := range ht.IndependentHooks {
+	for _, hook := range ht.independentHooks {
 		hooks = append(hooks, hook)
 	}
+
+	ht.mutex.Unlock()
+
+	slices.SortFunc[[]GoHook, GoHook](hooks, func(a GoHook, b GoHook) int {
+		return cmp.Compare[string](
+			strings.ToLower(a.jsName()),
+			strings.ToLower(b.jsName()))
+	})
 
 	return hooks
 }
 
-// addDependentHooksToContextObject from this context object user`s callback will take DependentHooks
+// addDependentHooksToContextObject from this context object user`s callback will take dependentHooks
 func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task *Task) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	for name, hook := range ht.DependentHooks {
-		callback := hook.createCallBack(task)
+	for name, hook := range ht.dependentHooks {
+		callback := hook.createCallback(task)
 		err := object.Set(name, callback)
 		if err != nil {
 			return err
@@ -160,13 +170,13 @@ func (ht *HooksTable) addDependentHooksToContextObject(object *goja.Object, task
 	return nil
 }
 
-// addIndependentHooksToContextObject from this context object user`s callback will take DependentHooks
+// addIndependentHooksToContextObject from this context object user`s callback will take independentHooks
 func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) error {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	for name, hook := range ht.IndependentHooks {
-		callback := hook.createCallBack()
+	for name, hook := range ht.independentHooks {
+		callback := hook.createCallback()
 		err := object.Set(name, callback)
 		if err != nil {
 			return err
@@ -176,35 +186,36 @@ func (ht *HooksTable) addIndependentHooksToContextObject(object *goja.Object) er
 	return nil
 }
 
-// RegisterHooks register all hooks from this file in provided table
+// RegisterHooks register all hooks from ./hooks_impl.go in provided table.
+// New hooks should be registered here and in ./hooks_test.go in prepareSetOf...Hooks.
 func RegisterHooks(cb *HooksTable) error {
 	dependentGoHooks := []TaskDependentGoHook{
-		&ReadBytesHook{},
-		&WriteBytesHook{},
-		&ReadStringHook{},
-		&WriteStringHook{},
-		&EnvvGetterHook{},
-		&MmapGetterHook{},
-		&ArgvHook{},
-		&SignalInfoHook{},
-		&PidInfoHook{},
+		&AnonMmapHook{},
 		&FDHook{},
 		&FDsHook{},
-		&UserJSONLogHook{},
-		&AnonMmapHook{},
+		&ArgvHook{},
+		&EnvvGetterHook{},
+		&MmapGetterHook{},
 		&MunmapHook{},
-		&SignalSendingHook{},
-		&ThreadsStoppingHook{},
+		&PidInfoHook{},
+		&ReadBytesHook{},
+		&ReadStringHook{},
 		&ThreadsResumingHook{},
+		&SignalSendingHook{},
+		&SignalInfoHook{},
+		&ThreadsStoppingHook{},
 		&ThreadInfoHook{},
+		&UserJSONLogHook{}, // now there is no test file
+		&WriteBytesHook{},
+		&WriteStringHook{},
 	}
 
 	independentGoHooks := []TaskIndependentGoHook{
-		&PrintHook{},
-		&AddCbBeforeHook{},
 		&AddCbAfterHook{},
-		&SignalByNameHook{},
+		&AddCbBeforeHook{},
+		&PrintHook{},
 		&SignalMaskToSignalNamesHook{},
+		&SignalByNameHook{},
 	}
 
 	for _, hook := range dependentGoHooks {

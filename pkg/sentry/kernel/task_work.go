@@ -21,7 +21,7 @@ type TaskWorker interface {
 	// TaskWork will be executed prior to returning to user space. Note that
 	// TaskWork may call RegisterWork again, but this will not be executed until
 	// the next return to user space, unlike in Linux. This effectively allows
-	// registration of indefinite user return DependentHooks, but not by default.
+	// registration of indefinite user return dependentHooks, but not by default.
 	TaskWork(t *Task)
 }
 
