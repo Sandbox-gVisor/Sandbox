@@ -78,10 +78,9 @@ func fillJsCallbackInfoForDynamicCallback(info callbacks.JsCallbackInfo, body st
 	}
 
 	gluedArgsBuilder := strings.Builder{}
-	for r := range splited[0] {
-		ru := rune(r)
-		if !unicode.IsSpace(ru) && !unicode.IsControl(ru) {
-			_, _ = gluedArgsBuilder.WriteRune(ru)
+	for _, r := range splited[0] {
+		if !unicode.IsSpace(r) && !unicode.IsControl(r) {
+			_, _ = gluedArgsBuilder.WriteRune(r)
 		}
 	}
 	gluedArgs := gluedArgsBuilder.String()
