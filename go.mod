@@ -1,6 +1,6 @@
 module gvisor.dev/gvisor
 
-go 1.21.1
+go 1.21
 
 require (
 	github.com/BurntSushi/toml v1.2.1
@@ -27,7 +27,6 @@ require (
 	github.com/opencontainers/runtime-spec v1.1.0-rc.1
 
 	//our dependecies
-	github.com/robertkrimen/otto v0.2.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 	github.com/vishvananda/netlink v1.1.1-0.20211118161826-650dca95af54

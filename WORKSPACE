@@ -3285,16 +3285,6 @@ go_repository(
     version = "v2.3.0",
 )
 
-#github.com/robertkrimen/otto v0.2.1 h1:FVP0PJ0AHIjC+N4pKCG9yCDz6LHNPCwi/GKID5pGGF0=
-#dependencies for otto
-
-go_repository(
-    name = "com_github_robertkrime_otto",
-    importpath = "github.com/robertkrimen/otto",
-    sum = "h1:FVP0PJ0AHIjC+N4pKCG9yCDz6LHNPCwi/GKID5pGGF0=",
-    version = "v0.2.1",
-)
-
 go_repository(
     name = "golang_org_x_text",
     importpath = "golang.org/x/text",
