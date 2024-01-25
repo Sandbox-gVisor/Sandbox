@@ -9,6 +9,14 @@
 name: "CodeQL"
 
 "on":
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+      - unlocked
+      - auto_merge_enabled
   schedule:
     # Daily at 1:00.
     - cron: '0 1 * * *'
