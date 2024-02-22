@@ -17,7 +17,6 @@ package kernel
 import (
 	gocontext "context"
 	"github.com/dop251/goja"
-	"gvisor.dev/gvisor/pkg/sentry/kernel/callbacks"
 	"runtime/trace"
 	"sync/atomic"
 
@@ -603,9 +602,7 @@ type Task struct {
 	// +checklocks:mu
 	sessionKeyring *auth.Key
 
-	vmFlag callbacks.Flag
-
-	taskLocalStorage *goja.Object
+	taskLocalStorage *goja.Object `state:"nosave"`
 }
 
 // Task related metrics
