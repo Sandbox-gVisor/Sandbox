@@ -50,7 +50,7 @@ func TestPrintHook_Works(t *testing.T) {
 	}
 	expectedStr := "hello world from test"
 	buf := make([]byte, len(expectedStr))
-	wasRead, err := f.Read(buf)
+	wasRead, _ := f.Read(buf)
 	if wasRead != len(expectedStr) {
 		t.Fatalf("amount of bytes written and read do not match: got %v, expected %v", wasRead, len(expectedStr))
 	}

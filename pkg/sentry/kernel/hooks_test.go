@@ -206,7 +206,7 @@ func TestHooksTable_getCurrentHooks(t *testing.T) {
 			t.Fatalf("hook %s registered as dependent and independent at the same time", h.jsName())
 		}
 		if !okD && !okI {
-			t.Fatalf("hook %s not in set of existing hooks")
+			t.Fatalf("hook %s not in set of existing hooks", h.jsName())
 		}
 	}
 

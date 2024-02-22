@@ -98,7 +98,7 @@ func testRunAbstractCallbackRunsAndReturnsSyscallRetValue(t *testing.T, cb JsCal
 		t.Fatalf("failed to execute callback: %s err: %s", cb.callbackInfo().ToString(), err)
 	}
 	if len(newArgs) != len(args) {
-		t.Fatalf("arguments count doesn't match")
+		t.Fatalf("arguments count doesn't match got %v %v expected %v %v", len(newArgs), newArgs, len(args), args)
 	}
 	if rval == nil {
 		t.Fatalf("nil return value")

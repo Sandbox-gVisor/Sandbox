@@ -52,7 +52,7 @@ func TestCommandTable_Register(t *testing.T) {
 
 func TestCommandTable_GetCommand(t *testing.T) {
 	var ct *CommandTable
-	cmd, err := ct.GetCommand("stub")
+	_, err := ct.GetCommand("stub")
 	if err == nil {
 		t.Fatalf("no error then calling method on nil table")
 	}
@@ -61,7 +61,7 @@ func TestCommandTable_GetCommand(t *testing.T) {
 		commands: make(map[string]Command),
 		mutex:    sync.Mutex{},
 	}
-	cmd, err = ct.GetCommand("stub")
+	_, err = ct.GetCommand("stub")
 	if err == nil {
 		t.Fatalf("error should be returned if command does not exist")
 	}
@@ -69,7 +69,7 @@ func TestCommandTable_GetCommand(t *testing.T) {
 	stored := stubCommand{}
 	ct.commands[stored.name()] = &stored
 
-	cmd, err = ct.GetCommand(stored.name())
+	cmd, err := ct.GetCommand(stored.name())
 	if err != nil {
 		t.Fatalf("error while getting command %s", err)
 	}

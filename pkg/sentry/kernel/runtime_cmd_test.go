@@ -247,7 +247,7 @@ func TestUnregisterCallbacksCommand_execute_withListOption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal unregister callback request dto with err: %s", err)
 	}
-	res, err := cmd.execute(nil, reqDtoBytes)
+	_, err = cmd.execute(nil, reqDtoBytes)
 	if err == nil {
 		t.Fatalf("expected error for tring to delete not existing callback")
 	}
@@ -257,7 +257,7 @@ func TestUnregisterCallbacksCommand_execute_withListOption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal unregister callback request dto with err: %s", err)
 	}
-	res, err = cmd.execute(nil, reqDtoBytes)
+	res, err := cmd.execute(nil, reqDtoBytes)
 	if err != nil {
 		t.Fatalf("unexpected error while executing unregister callbacks command: %s", err)
 	}

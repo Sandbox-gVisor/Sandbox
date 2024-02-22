@@ -39,7 +39,7 @@ func TestAddCbBeforeHook_registersCallback(t *testing.T) {
 	}
 	if info.EntryPoint != "cb" {
 		fmt.Println(info.ToString())
-		t.Fatalf("bad entry point: got '%v', expected 'cb'")
+		t.Fatalf("bad entry point: got '%v', expected 'cb'", info.EntryPoint)
 	}
 	if len(info.CallbackArgs) != 0 {
 		fmt.Println(info.ToString())
