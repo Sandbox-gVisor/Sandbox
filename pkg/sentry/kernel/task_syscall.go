@@ -145,6 +145,7 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		if callbackBefore != nil {
 			retArgs, retSub, err := callbackBefore.CallbackBeforeFunc(t, sysno, &args)
 			if err != nil {
+				t.Infof("error after executing callback before syscall %v: %s", sysno, err)
 				fmt.Println(err)
 			} else {
 				args_ = retArgs
@@ -170,7 +171,8 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 				var error_ error
 				newArgs, sub_, error_ = callbackAfter.CallbackAfterFunc(t, sysno, &args, rval, err)
 				if error_ != nil {
-					t.Debugf("{\"callbackAfter\": \"%v\"}", error_.Error())
+					t.Infof("error after executing callback after syscall %v: %s", sysno, err)
+					fmt.Println(err)
 				} else if sub_ != nil {
 					fmt.Println(sub_)
 					rval = sub_.returnValue

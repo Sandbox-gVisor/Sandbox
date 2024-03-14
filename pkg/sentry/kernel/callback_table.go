@@ -14,24 +14,24 @@ type CallbackTable struct {
 	//	val - CallbackBefore
 	callbackBefore map[uintptr]CallbackBefore
 
-	// mutexBefore is sync.Mutex used to sync callbackBefore
-	mutexBefore sync.Mutex
+	// rwLockBefore is sync.Mutex used to sync callbackBefore
+	rwLockBefore sync.RWMutex
 
 	// callbackAfter is a map of:
 	//	key - sysno (uintptr)
 	//	val - CallbackAfter
 	callbackAfter map[uintptr]CallbackAfter
 
-	// mutexAfter is sync.Mutex used to sync callbackAfter
-	mutexAfter sync.Mutex
+	// rwLockAfter is sync.Mutex used to sync callbackAfter
+	rwLockAfter sync.RWMutex
 }
 
 func (ct *CallbackTable) registerCallbackBefore(sysno uintptr, f CallbackBefore) error {
 	if f == nil {
 		return errors.New("callback func is nil")
 	}
-	ct.mutexBefore.Lock()
-	defer ct.mutexBefore.Unlock()
+	ct.rwLockBefore.Lock()
+	defer ct.rwLockBefore.Unlock()
 
 	ct.callbackBefore[sysno] = f
 	return nil
@@ -41,19 +41,19 @@ func (ct *CallbackTable) registerCallbackAfter(sysno uintptr, f CallbackAfter) e
 	if f == nil {
 		return errors.New("callback func is nil")
 	}
-	ct.mutexAfter.Lock()
-	defer ct.mutexAfter.Unlock()
+	ct.rwLockAfter.Lock()
+	defer ct.rwLockAfter.Unlock()
 
 	ct.callbackAfter[sysno] = f
 	return nil
 }
 
 func (ct *CallbackTable) UnregisterAll() {
-	ct.mutexBefore.Lock()
-	ct.mutexAfter.Lock()
+	ct.rwLockBefore.Lock()
+	ct.rwLockAfter.Lock()
 
-	defer ct.mutexAfter.Unlock()
-	defer ct.mutexBefore.Unlock()
+	defer ct.rwLockAfter.Unlock()
+	defer ct.rwLockBefore.Unlock()
 
 	ct.callbackAfter = map[uintptr]CallbackAfter{}
 	ct.callbackBefore = map[uintptr]CallbackBefore{}
@@ -78,8 +78,8 @@ func (ct *CallbackTable) registerCallbackAfterNoLock(sysno uintptr, f CallbackAf
 }
 
 func (ct *CallbackTable) unregisterCallbackBefore(sysno uintptr) error {
-	ct.mutexBefore.Lock()
-	defer ct.mutexBefore.Unlock()
+	ct.rwLockBefore.Lock()
+	defer ct.rwLockBefore.Unlock()
 
 	_, ok := ct.callbackBefore[sysno]
 	if !ok {
@@ -91,8 +91,8 @@ func (ct *CallbackTable) unregisterCallbackBefore(sysno uintptr) error {
 }
 
 func (ct *CallbackTable) unregisterCallbackAfter(sysno uintptr) error {
-	ct.mutexAfter.Lock()
-	defer ct.mutexAfter.Unlock()
+	ct.rwLockAfter.Lock()
+	defer ct.rwLockAfter.Unlock()
 
 	_, ok := ct.callbackAfter[sysno]
 	if !ok {
@@ -104,10 +104,10 @@ func (ct *CallbackTable) unregisterCallbackAfter(sysno uintptr) error {
 }
 
 func (ct *CallbackTable) getCallbackBefore(sysno uintptr) CallbackBefore {
-	ct.mutexBefore.Lock()
+	ct.rwLockBefore.RLock()
 
 	f, ok := ct.callbackBefore[sysno]
-	ct.mutexBefore.Unlock()
+	ct.rwLockBefore.RUnlock()
 	if ok && f != nil {
 		return f
 	} else {
@@ -116,10 +116,10 @@ func (ct *CallbackTable) getCallbackBefore(sysno uintptr) CallbackBefore {
 }
 
 func (ct *CallbackTable) getCallbackAfter(sysno uintptr) CallbackAfter {
-	ct.mutexAfter.Lock()
+	ct.rwLockAfter.RLock()
 
 	f, ok := ct.callbackAfter[sysno]
-	ct.mutexAfter.Unlock()
+	ct.rwLockAfter.RUnlock()
 	if ok && f != nil {
 		return f
 	} else {

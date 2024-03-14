@@ -686,6 +686,7 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 	var configFd int
 	var configDto *callbacks.CallbackConfigDto
 
+	log.Infof("SyscallCallbacksConfig = %v", conf.SyscallCallbacksConfig)
 	if conf.SyscallCallbacksConfig != "" {
 		var err error
 
