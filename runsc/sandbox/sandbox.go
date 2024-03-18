@@ -1067,9 +1067,9 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 			// If debugging, send the boot process stdio to the
 			// this process' stdio, so that is is easier to find.
 			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
+		cmd.Stdout = os.Stdout
 	}
 	if err := s.configureStdios(conf, stdios[:]); err != nil {
 		return fmt.Errorf("configuring stdios: %w", err)
